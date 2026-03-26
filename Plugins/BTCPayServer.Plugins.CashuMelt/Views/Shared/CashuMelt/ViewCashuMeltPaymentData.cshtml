@@ -1,0 +1,50 @@
+@using BTCPayServer.Services
+@using BTCPayServer.Plugins.CashuMelt.PaymentHandler
+@using BTCPayServer.Services.Invoices
+@inject DisplayFormatter DisplayFormatter
+@inject PaymentMethodHandlerDictionary handlers
+@model BTCPayServer.Models.InvoicingModels.InvoiceDetailsModel
+
+@{
+    var payments = Model.Payments
+        .Select(payment =>
+        {
+            if (handlers.TryGet(payment.PaymentMethodId) is not CashuMeltPaymentMethodHandler handler)
+                return null;
+            return handler.ParsePaymentDetails(payment.Details) as CashuMeltPaymentData;
+        })
+        .OfType<CashuMeltPaymentData>()
+        .ToList();
+}
+
+@if (payments.Any())
+{
+    <section>
+        <h5>CashuMelt Payments</h5>
+        <div class="invoice-payments table-responsive mt-0">
+            <table class="table table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th class="w-175px">Quote ID</th>
+                        <th class="w-150px text-end">Amount</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var payment in payments)
+                    {
+                        <tr>
+                            <td>
+                                <vc:truncate-center text="@payment.QuoteId" classes="truncate-center-id" />
+                            </td>
+                            <td class="payment-value text-end text-nowrap">
+                                <span data-sensitive class="text-success">
+                                    @payment.AmountSats @payment.Unit
+                                </span>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </section>
+}

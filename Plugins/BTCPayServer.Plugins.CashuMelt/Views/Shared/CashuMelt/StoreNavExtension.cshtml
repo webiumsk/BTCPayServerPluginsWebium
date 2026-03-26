@@ -1,0 +1,30 @@
+@using BTCPayServer.Abstractions.Contracts
+@using BTCPayServer.Abstractions.Extensions
+@using BTCPayServer.Client
+@using BTCPayServer.Abstractions.Constants
+@using BTCPayServer.Plugins.CashuMelt.Data.Entities
+@using BTCPayServer.Plugins.CashuMelt.Services
+@inject IScopeProvider ScopeProvider
+@inject CashuMeltConfigService CashuMeltConfigService
+@{
+    var storeId = ScopeProvider.GetCurrentStoreId();
+    CashuMeltStoreSettings? settings = null;
+    if (!string.IsNullOrEmpty(storeId))
+    {
+        try { settings = await CashuMeltConfigService.GetSettingsAsync(storeId); } catch { /* Tables may not exist yet */ }
+    }
+    var status = settings == null ? "pending" : (settings.Enabled ? "enabled" : "disabled");
+}
+@if (!string.IsNullOrEmpty(storeId))
+{
+    <li class="nav-item">
+        <a permission="@Policies.CanModifyStoreSettings"
+           layout-menu-item="CashuMelt"
+           asp-controller="UICashuMelt"
+           asp-action="Settings"
+           asp-route-storeId="@storeId">
+            <span class="me-2 btcpay-status btcpay-status--@status"></span>
+            <span>CashuMelt</span>
+        </a>
+    </li>
+}

@@ -1,0 +1,40 @@
+**/bin/**/*
+**/obj
+.idea
+Plugins/packed
+.vs/
+*.sln.DotSettings.user
+nul
+
+# .NET
+[Dd]ebug/
+[Rr]elease/
+[Bb]in/
+[Oo]bj/
+*.user
+*.suo
+*.cache
+*.dll
+*.pdb
+*.nupkg
+*.snupkg
+project.lock.json
+artifacts/
+
+# IDE
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+.idea/
+*.sln.iml
+
+# Build output
+plugin-output/
+packaged/
+publish/
+
+# OS
+.DS_Store
+Thumbs.db
+CLAUDE.md

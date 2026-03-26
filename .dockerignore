@@ -1,0 +1,14 @@
+**/.git
+**/.gitignore
+**/.idea
+**/.vs
+**/.vscode
+**/bin
+**/obj
+**/*.user
+**/*.suo
+**/node_modules
+**/packaged
+**/plugin-output
+LICENSE
+README.md
