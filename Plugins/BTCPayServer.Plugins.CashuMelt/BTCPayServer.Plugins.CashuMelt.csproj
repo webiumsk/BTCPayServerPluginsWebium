@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk.Razor">
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
-    <LangVersion>12</LangVersion>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>13</LangVersion>
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
@@ -27,15 +27,21 @@
   </ItemDefinitionGroup>
 
   <ItemGroup>
-    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="8.0.11" />
-    <PackageReference Include="System.Net.Http.Json" Version="8.0.1" />
-    <PackageReference Include="QRCoder" Version="1.6.0" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.1" />
+    <PackageReference Include="QRCoder" Version="1.7.0" />
   </ItemGroup>
 
 
   <ItemGroup>
-    <!-- Reference BTCPayServer - adjust path if your structure differs.
-         Default: plugin in BTCPayServerPlugins/, BTCPay in sibling BTCPayServerPluginsKukks/ -->
-    <ProjectReference Include="..\..\..\BTCPayServerPluginsKukks\submodules\btcpayserver\BTCPayServer\BTCPayServer.csproj" />
+    <!--
+      BTCPay Server reference — two paths supported:
+        1. CI / official BTCPay builder: btcpayserver cloned as sibling to the plugin repo root
+           (e.g. /btcpayserver/ when plugin is at /build/)
+        2. Local dev with BTCPayServerPluginsKukks checked out as a sibling directory
+    -->
+    <ProjectReference Include="..\..\..\btcpayserver\BTCPayServer\BTCPayServer.csproj"
+                      Condition="Exists('..\..\..\btcpayserver\BTCPayServer\BTCPayServer.csproj')" />
+    <ProjectReference Include="..\..\..\BTCPayServerPluginsKukks\submodules\btcpayserver\BTCPayServer\BTCPayServer.csproj"
+                      Condition="!Exists('..\..\..\btcpayserver\BTCPayServer\BTCPayServer.csproj')" />
   </ItemGroup>
 </Project>
