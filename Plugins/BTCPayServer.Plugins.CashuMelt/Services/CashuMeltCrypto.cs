@@ -38,7 +38,7 @@ public static class CashuMeltCrypto
     private static readonly BigInteger SqrtExp = (P + 1) / 4;
 
     private static readonly byte[] HashToCurveDomain =
-        "Secp256k1_HashToCurve_CashuMelt_"u8.ToArray();
+        "Secp256k1_HashToCurve_Cashu_"u8.ToArray();
 
     // ── Public API ──────────────────────────────────────────────────────────
 
