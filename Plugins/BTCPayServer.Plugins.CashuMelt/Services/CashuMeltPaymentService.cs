@@ -26,11 +26,20 @@ namespace BTCPayServer.Plugins.CashuMelt.Services;
 ///   2. Plugin detects payment (quote state PAID/ISSUED).
 ///   3. Plugin mints CashuMelt tokens (NUT-05) – gets blind signatures, unblinds to proofs.
 ///   4. Plugin immediately melts the proofs (NUT-14) to the merchant's Lightning address.
-///   5. Payment is recorded in BTCPay.
+///   5. Only after a successful melt (merchant received via mint) is the payment recorded in BTCPay.
 ///
 /// Proofs are persisted to DB after step 3 and cleared after step 4,
 /// enabling crash-safe retry of the melt without re-minting.
 /// </summary>
+/// <remarks>
+/// <para><b>BTCPay invoice Settled vs CashuMelt <c>SettlementState</c>:</b>
+/// The BTCPay invoice transitions to <c>InvoiceStatus.Settled</c> only after
+/// <see cref="TryRecordPaymentInBtcPayAsync"/> runs successfully (after a successful melt).
+/// Plugin row <c>SETTLED</c> means melt + BTCPay payment row + <c>ReceivedPayment</c> event were applied.
+/// <c>MELT_COMPLETE</c> means melt succeeded but BTCPay accounting is retried on poll or <c>POST .../retry</c>.</para>
+/// <para><b>Successful payment — grep-friendly log sequence (same quote + invoice):</b>
+/// <c>cashumelt_mint_proof_ok</c> → <c>cashumelt_forward_ok</c> → <c>cashumelt_btcpay_recorded</c> → <c>cashumelt_settlement_complete</c>.</para>
+/// </remarks>
 public class CashuMeltPaymentService
 {
     private readonly CashuMeltMintClient _mintClient;
@@ -45,6 +54,9 @@ public class CashuMeltPaymentService
 
     // Prevents concurrent polls from triggering simultaneous mint attempts for the same quote.
     private static readonly ConcurrentDictionary<string, SemaphoreSlim> _quoteProcessingLocks = new();
+
+    /// <summary>Per-quote backoff after mint HTTP 429/5xx so we do not hammer the mint every ~2s.</summary>
+    private static readonly ConcurrentDictionary<string, (int Failures, DateTimeOffset NextAllowedUtc)> _mintQuotePollBackoff = new();
 
     private static readonly JsonSerializerOptions ProofJsonOptions = new()
     {
@@ -111,97 +123,271 @@ public class CashuMeltPaymentService
             await ctx.SaveChangesAsync(ct);
         }, ct);
 
-        _logger.LogInformation("Quote {QuoteId} created for invoice {InvoiceId} ({Amount} {Unit})",
+        _logger.LogInformation(
+            "phase=mint_quote quote={QuoteId} invoice={InvoiceId} amountSat={AmountSat} unit={Unit}",
             quote.Quote, invoiceId, amountSats, unit);
 
         return (quote.Quote, quote.Request, null);
     }
 
     // ──────────────────────────────────────────────────────────────
-    // Payment detection → mint → melt (called from poll endpoint)
+    // Payment detection → mint → melt → record in BTCPay (poll endpoint)
     // ──────────────────────────────────────────────────────────────
 
-    public async Task<(bool Paid, string? Error)> CheckAndRecordPaymentAsync(
+    /// <returns>Paid, user-visible error (if any), optional seconds for checkout to backoff mint polls.</returns>
+    public async Task<(bool Paid, string? Error, int? RetryAfterSeconds)> CheckAndRecordPaymentAsync(
         string quoteId, CancellationToken ct = default)
     {
-        // Serialize concurrent poll requests for the same quote to prevent duplicate minting.
         var sem = _quoteProcessingLocks.GetOrAdd(quoteId, _ => new SemaphoreSlim(1, 1));
         if (!await sem.WaitAsync(0, ct))
-            return (false, null); // Another request is already processing this quote
+            return (false, null, null);
 
         try
         {
+            await using var ctx = await CreateReadyContextAsync(ct);
 
-        await using var ctx = await CreateReadyContextAsync(ct);
+            var req = await ctx.CashuMeltPaymentRequests.FirstOrDefaultAsync(r => r.QuoteId == quoteId, ct);
+            if (req is null)
+                return (false, "Quote not found", null);
 
-        var req = await ctx.CashuMeltPaymentRequests.FirstOrDefaultAsync(r => r.QuoteId == quoteId, ct);
-        if (req is null) return (false, "Quote not found");
+            if (req.SettlementState == "SETTLED")
+                return (true, null, null);
 
-        // Already finished
-        if (req.SettlementState == "SETTLED") return (true, null);
-        if (req.SettlementState == "FAILED")  return (false, req.SettlementError);
+            if (req.SettlementState == "FAILED")
+                return (false, req.SettlementError, null);
 
-        var settings = await _configService.GetEnabledSettingsAsync(req.StoreId, ct);
-        if (settings is null) return (false, "Store CashuMelt settings not found");
+            // Melt already succeeded; only BTCPay accounting was flaky — retry recording only.
+            if (req.SettlementState == "MELT_COMPLETE")
+            {
+                var invForAccounting = await _invoiceRepository.GetInvoice(req.InvoiceId);
+                if (invForAccounting is null)
+                    return (false, "BTCPay invoice not found", null);
 
-        if (string.IsNullOrWhiteSpace(settings.LightningAddress))
-            return (false, "No Lightning address configured for merchant payout");
+                var recorded = await TryRecordPaymentInBtcPayAsync(req, invForAccounting, ct);
+                if (recorded)
+                {
+                    req.SettlementState = "SETTLED";
+                    req.SettledAt = DateTimeOffset.UtcNow;
+                    await ctx.SaveChangesAsync(ct);
+                    _logger.LogInformation(
+                        "{Event} phase={Phase} invoice={InvoiceId} quote={QuoteId} amountSat={AmountSat}",
+                        CashuMeltObservability.TagSettlementComplete,
+                        CashuMeltObservability.PhaseBtcpay,
+                        req.InvoiceId,
+                        quoteId,
+                        req.AmountSats);
+                    return (true, null, null);
+                }
 
-        // 1. Poll mint for quote state
-        var mintQuote = await _mintClient.GetMintQuoteAsync(settings.MintUrl, quoteId, ct);
-        if (mintQuote?.State is not ("PAID" or "ISSUED"))
-            return (false, null); // not paid yet
+                _logger.LogWarning(
+                    "{Event} phase={Phase} invoice={InvoiceId} quote={QuoteId} amountSat={AmountSat}",
+                    CashuMeltObservability.TagBtcpayRetry,
+                    CashuMeltObservability.PhaseBtcpay,
+                    req.InvoiceId,
+                    quoteId,
+                    req.AmountSats);
+                return (false, null, 3);
+            }
 
-        var invoice = await _invoiceRepository.GetInvoice(req.InvoiceId);
-        if (invoice is null) return (false, "BTCPay invoice not found");
+            var settings = await _configService.GetEnabledSettingsAsync(req.StoreId, ct);
+            if (settings is null)
+                return (false, "Store CashuMelt settings not found", null);
 
-        // Invoice already finalised by another payment method.
-        // Note: InvoiceStatus.Expired is intentionally NOT listed here – we still need
-        // to melt proofs to the merchant even if the BTCPay invoice expired.
-        if (invoice.Status is InvoiceStatus.Settled or InvoiceStatus.Invalid)
-        {
+            if (_mintQuotePollBackoff.TryGetValue(quoteId, out var backoff) && DateTimeOffset.UtcNow < backoff.NextAllowedUtc)
+            {
+                var wait = (int)Math.Ceiling((backoff.NextAllowedUtc - DateTimeOffset.UtcNow).TotalSeconds);
+                return (false, null, Math.Max(1, wait));
+            }
+
+            var pollResult = await _mintClient.GetMintQuoteForPollAsync(settings.MintUrl, quoteId, ct);
+            if (pollResult.TransientFailure)
+            {
+                var suggested = pollResult.RetryAfterSeconds;
+                var newBackoff = _mintQuotePollBackoff.AddOrUpdate(
+                    quoteId,
+                    _ => (1, DateTimeOffset.UtcNow.AddSeconds(ComputeBackoffSeconds(1, suggested))),
+                    (_, prev) =>
+                    {
+                        var f = prev.Failures + 1;
+                        return (f, DateTimeOffset.UtcNow.AddSeconds(ComputeBackoffSeconds(f, suggested)));
+                    });
+                var retryAfter = (int)Math.Ceiling((newBackoff.NextAllowedUtc - DateTimeOffset.UtcNow).TotalSeconds);
+                return (false, null, Math.Max(1, retryAfter));
+            }
+
+            if (!pollResult.Success || pollResult.Quote is null)
+            {
+                _mintQuotePollBackoff.TryRemove(quoteId, out _);
+                var hardErr = pollResult.ErrorMessage ?? "Failed to get quote status from mint";
+                await MarkFailedAsync(ctx, req, CashuMeltObservability.PhaseMintPoll, hardErr, ct);
+                return (false, hardErr, null);
+            }
+
+            _mintQuotePollBackoff.TryRemove(quoteId, out _);
+
+            var mintQuote = pollResult.Quote;
+            if (mintQuote.State is not ("PAID" or "ISSUED"))
+                return (false, null, null);
+
+            var invoice = await _invoiceRepository.GetInvoice(req.InvoiceId);
+            if (invoice is null)
+                return (false, "BTCPay invoice not found", null);
+
+            if (invoice.Status is InvoiceStatus.Settled or InvoiceStatus.Invalid)
+            {
+                req.State = mintQuote.State;
+                req.PaidAt ??= DateTimeOffset.UtcNow;
+                req.SettlementState = "SETTLED";
+                await ctx.SaveChangesAsync(ct);
+                _logger.LogInformation(
+                    "{Event} phase={Phase} invoice={InvoiceId} quote={QuoteId} amountSat={AmountSat} invoiceStatus={InvoiceStatus}",
+                    CashuMeltObservability.TagSkippedOtherPayment,
+                    CashuMeltObservability.PhaseForward,
+                    req.InvoiceId,
+                    quoteId,
+                    req.AmountSats,
+                    invoice.Status);
+                return (true, null, null);
+            }
+
+            if (string.IsNullOrWhiteSpace(settings.LightningAddress))
+            {
+                await MarkFailedAsync(ctx, req, CashuMeltObservability.PhaseForward,
+                    "No Lightning address configured for merchant payout.", ct);
+                return (false, req.SettlementError, null);
+            }
+
             req.State = mintQuote.State;
             req.PaidAt ??= DateTimeOffset.UtcNow;
-            req.SettlementState = "SETTLED";
             await ctx.SaveChangesAsync(ct);
-            return (true, null);
+
+            CashuMeltProof[] proofs;
+            if (!string.IsNullOrEmpty(req.MintedProofsJson))
+            {
+                _logger.LogInformation(
+                    "{Event} phase={Phase} invoice={InvoiceId} quote={QuoteId} amountSat={AmountSat}",
+                    CashuMeltObservability.TagMeltRetry,
+                    CashuMeltObservability.PhaseForward,
+                    req.InvoiceId,
+                    quoteId,
+                    req.AmountSats);
+                proofs = JsonSerializer.Deserialize<CashuMeltProof[]>(req.MintedProofsJson, ProofJsonOptions)
+                         ?? throw new InvalidOperationException("Stored proofs JSON is corrupt");
+            }
+            else
+            {
+                var (mintedProofs, mintError) = await MintProofsAsync(settings, req, mintQuote.State, ctx, ct);
+                if (mintError is not null)
+                {
+                    await MarkFailedAsync(ctx, req, CashuMeltObservability.PhaseMintProof, mintError, ct);
+                    return (false, mintError, null);
+                }
+                proofs = mintedProofs!;
+            }
+
+            var (meltOk, meltError, transientMelt) = await MeltToMerchantAsync(settings, req, invoice, proofs, ctx, ct);
+            if (!meltOk)
+                return transientMelt ? (false, null, 3) : (false, meltError, null);
+
+            var invoiceForPayment = await _invoiceRepository.GetInvoice(req.InvoiceId) ?? invoice;
+            var recordedAfterMelt = await TryRecordPaymentInBtcPayAsync(req, invoiceForPayment, ct);
+            if (!recordedAfterMelt)
+            {
+                req.SettlementState = "MELT_COMPLETE";
+                await ctx.SaveChangesAsync(ct);
+                _logger.LogWarning(
+                    "{Event} phase={Phase} invoice={InvoiceId} quote={QuoteId} amountSat={AmountSat}",
+                    CashuMeltObservability.TagBtcpayRetry,
+                    CashuMeltObservability.PhaseBtcpay,
+                    req.InvoiceId,
+                    quoteId,
+                    req.AmountSats);
+                return (false, null, 3);
+            }
+
+            req.SettlementState = "SETTLED";
+            req.SettledAt = DateTimeOffset.UtcNow;
+            await ctx.SaveChangesAsync(ct);
+
+            _logger.LogInformation(
+                "{Event} phase={Phase} invoice={InvoiceId} quote={QuoteId} amountSat={AmountSat} unit={Unit}",
+                CashuMeltObservability.TagSettlementComplete,
+                CashuMeltObservability.PhaseBtcpay,
+                req.InvoiceId,
+                quoteId,
+                req.AmountSats,
+                req.Unit);
+
+            return (true, null, null);
         }
-
-        // Record payment in BTCPay IMMEDIATELY – before the mint/melt HTTP calls (5–15 s).
-        // This prevents the invoice from transitioning to "Expired (paid late)" if the HTTP
-        // calls take longer than the remaining invoice lifetime.
-        await RecordPaymentInBtcPayAsync(req, invoice, ct);
-        req.State  = mintQuote.State;
-        req.PaidAt ??= DateTimeOffset.UtcNow;
-        await ctx.SaveChangesAsync(ct);
-
-        // 2. Determine which proofs to use:
-        //    a) Crash recovery: proofs were already minted but melt failed last time.
-        //    b) Normal path: mint proofs from scratch.
-        CashuMeltProof[] proofs;
-
-        if (!string.IsNullOrEmpty(req.MintedProofsJson))
-        {
-            _logger.LogInformation("Retrying melt for quote {QuoteId} (proofs already in DB)", quoteId);
-            proofs = JsonSerializer.Deserialize<CashuMeltProof[]>(req.MintedProofsJson, ProofJsonOptions)
-                     ?? throw new InvalidOperationException("Stored proofs JSON is corrupt");
-        }
-        else
-        {
-            var (mintedProofs, mintError) = await MintProofsAsync(settings, req, mintQuote.State, ctx, ct);
-            if (mintError is not null) return (false, mintError);
-            proofs = mintedProofs!;
-        }
-
-        // 3. Melt proofs to merchant's Lightning address
-        var (settled, meltError) = await MeltToMerchantAsync(settings, req, invoice, proofs, ctx, ct);
-        return settled ? (true, null) : (false, meltError);
-
-        } // end try
         finally
         {
             sem.Release();
         }
+    }
+
+    /// <summary>
+    /// Retries settlement for a store quote: <c>PENDING</c>, <c>FAILED</c> (when minted proofs exist), or <c>MELT_COMPLETE</c> (BTCPay accounting only).
+    /// Used by the Greenfield retry endpoint and the store CashuMelt settings UI.
+    /// </summary>
+    public async Task<CashuMeltRetryOutcome> RetrySettlementAsync(string storeId, string quoteId, CancellationToken ct = default)
+    {
+        await using var ctx = _dbContextFactory.CreateContext();
+        var r = await ctx.CashuMeltPaymentRequests
+            .FirstOrDefaultAsync(x => x.QuoteId == quoteId && x.StoreId == storeId, ct);
+
+        if (r is null)
+            return new CashuMeltRetryOutcome(CashuMeltRetryKind.NotFound);
+
+        if (r.SettlementState == "SETTLED")
+            return new CashuMeltRetryOutcome(CashuMeltRetryKind.AlreadySettled, Settled: true);
+
+        if (r.SettlementState == "MELT_COMPLETE")
+        {
+            var (paidMc, errMc, raMc) = await CheckAndRecordPaymentAsync(quoteId, ct);
+            return new CashuMeltRetryOutcome(CashuMeltRetryKind.Completed, paidMc, errMc, raMc);
+        }
+
+        if (string.IsNullOrEmpty(r.MintedProofsJson) && r.SettlementState == "FAILED")
+            return new CashuMeltRetryOutcome(CashuMeltRetryKind.CannotRetryMissingProofs);
+
+        r.SettlementState = "PENDING";
+        r.SettlementError = null;
+        await ctx.SaveChangesAsync(ct);
+
+        var (paid, error, retryAfter) = await CheckAndRecordPaymentAsync(quoteId, ct);
+        return new CashuMeltRetryOutcome(CashuMeltRetryKind.Completed, paid, error, retryAfter);
+    }
+
+    private async Task MarkFailedAsync(
+        CashuMeltDbContext ctx,
+        CashuMeltPaymentRequest req,
+        string phase,
+        string error,
+        CancellationToken ct)
+    {
+        if (req.SettlementState is "SETTLED" or "FAILED")
+            return;
+        var e = error.Length > 500 ? error[..500] : error;
+        req.SettlementState = "FAILED";
+        req.SettlementError = e;
+        await ctx.SaveChangesAsync(ct);
+        _logger.LogWarning(
+            "{Event} phase={Phase} invoice={InvoiceId} quote={QuoteId} amountSat={AmountSat} msg={Detail}",
+            CashuMeltObservability.TagSettlementFailed,
+            phase,
+            req.InvoiceId,
+            req.QuoteId,
+            req.AmountSats,
+            e);
+    }
+
+    private static int ComputeBackoffSeconds(int consecutiveFailures, int? retryAfterFromMint)
+    {
+        if (retryAfterFromMint is > 0 and <= 300)
+            return retryAfterFromMint.Value;
+        var exp = (int)Math.Pow(2, Math.Min(consecutiveFailures, 6));
+        return Math.Clamp(Math.Max(exp, 2), 2, 120);
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -215,7 +401,6 @@ public class CashuMeltPaymentService
         CashuMeltDbContext ctx,
         CancellationToken ct)
     {
-        // Fetch active keyset for the requested unit
         var keysResp = await _mintClient.GetKeysAsync(settings.MintUrl, ct);
         var keyset = keysResp?.Keysets?.FirstOrDefault(k =>
             string.Equals(k.Unit, req.Unit, StringComparison.OrdinalIgnoreCase));
@@ -223,12 +408,10 @@ public class CashuMeltPaymentService
         if (keyset is null)
             return (null, $"No keyset for unit '{req.Unit}' found on mint {settings.MintUrl}");
 
-        // Build blinded outputs (one per power-of-2 denomination)
         var denominations = CashuMeltCrypto.DecomposeAmount(req.AmountSats);
         if (denominations.Length == 0)
             return (null, $"Cannot decompose amount {req.AmountSats}");
 
-        // blindingData: (secretHex string, blinding scalar r bytes)
         var blindingData = new (string secretHex, byte[] r)[denominations.Length];
         var outputs = new BlindedMessage[denominations.Length];
 
@@ -237,12 +420,11 @@ public class CashuMeltPaymentService
             var denom = denominations[i];
             var denomKey = denominations[i].ToString();
 
-            if (!keyset.Keys.TryGetValue(denomKey, out var mintPubKeyHex))
+            if (!keyset.Keys.TryGetValue(denomKey, out _))
                 return (null, $"Mint has no key for denomination {denom} in keyset {keyset.Id}");
 
-            // CashuMelt NUT-00: secret is a hex string; hash_to_curve receives its UTF-8 bytes.
             var secretHex = Convert.ToHexString(
-                System.Security.Cryptography.RandomNumberGenerator.GetBytes(32)).ToLower();
+                System.Security.Cryptography.RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
             var secretUtf8 = System.Text.Encoding.UTF8.GetBytes(secretHex);
             var (B_Hex, r) = CashuMeltCrypto.CreateBlindedMessage(secretUtf8);
 
@@ -250,7 +432,6 @@ public class CashuMeltPaymentService
             outputs[i] = new BlindedMessage(denom, keyset.Id, B_Hex);
         }
 
-        // Send blinded messages to mint; receive blind signatures C_
         MintTokensResponse? mintResp;
         try
         {
@@ -258,38 +439,41 @@ public class CashuMeltPaymentService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "MintTokens call failed for quote {QuoteId}", req.QuoteId);
+            _logger.LogError(ex, "MintTokens call failed for invoice {InvoiceId} quote {QuoteId}", req.InvoiceId, req.QuoteId);
             return (null, $"Mint refused to issue tokens: {ex.Message}");
         }
 
         if (mintResp?.Signatures is null || mintResp.Signatures.Length != denominations.Length)
             return (null, "Mint returned unexpected number of signatures");
 
-        // Unblind signatures: C = C_ - r·K
         var proofs = new CashuMeltProof[denominations.Length];
         for (int i = 0; i < denominations.Length; i++)
         {
-            var sig    = mintResp.Signatures[i];
-            var denom  = denominations[i].ToString();
+            var sig = mintResp.Signatures[i];
 
-            if (!keyset.Keys.TryGetValue(denom, out var mintPubKeyHex))
+            if (!keyset.Keys.TryGetValue(denominations[i].ToString(), out var mintPubKeyHex))
                 return (null, $"Keyset missing key for denomination {denominations[i]}");
 
             var (secretHex, r) = blindingData[i];
-            var C_hex          = sig.C_;
-            var CHex           = CashuMeltCrypto.UnblindSignature(C_hex, mintPubKeyHex, r);
+            var C_hex = sig.C_;
+            var CHex = CashuMeltCrypto.UnblindSignature(C_hex, mintPubKeyHex, r);
 
             proofs[i] = new CashuMeltProof(sig.Amount, sig.Id, secretHex, CHex);
         }
 
-        // Persist proofs BEFORE attempting melt (crash safety)
         req.MintedProofsJson = JsonSerializer.Serialize(proofs, ProofJsonOptions);
-        req.State  = mintQuoteState;
+        req.State = mintQuoteState;
         req.PaidAt ??= DateTimeOffset.UtcNow;
         await ctx.SaveChangesAsync(ct);
 
-        _logger.LogInformation("Minted {Count} proofs ({TotalSat} sat) for quote {QuoteId}",
-            proofs.Length, proofs.Sum(p => p.Amount), req.QuoteId);
+        _logger.LogInformation(
+            "{Event} phase={Phase} invoice={InvoiceId} quote={QuoteId} amountSat={AmountSat} proofCount={ProofCount}",
+            CashuMeltObservability.TagMintProofOk,
+            CashuMeltObservability.PhaseMintProof,
+            req.InvoiceId,
+            req.QuoteId,
+            proofs.Sum(p => p.Amount),
+            proofs.Length);
 
         return (proofs, null);
     }
@@ -298,7 +482,8 @@ public class CashuMeltPaymentService
     // Step 3: Melt proofs to merchant Lightning address (NUT-14)
     // ──────────────────────────────────────────────────────────────
 
-    private async Task<(bool Settled, string? Error)> MeltToMerchantAsync(
+    /// <summary>transientMelt: caller should poll again without surfacing a hard error to the payer.</summary>
+    private async Task<(bool Ok, string? Error, bool TransientMelt)> MeltToMerchantAsync(
         CashuMeltStoreSettings settings,
         CashuMeltPaymentRequest req,
         InvoiceEntity invoice,
@@ -308,23 +493,26 @@ public class CashuMeltPaymentService
     {
         var totalMintedSat = proofs.Sum(p => p.Amount);
 
-        // Reserve a fee buffer so we have enough proofs to cover LN routing fees.
-        // The buffer is deducted from the forwarded amount; any leftover from the
-        // mint's feeReserve comes back as change proofs (currently discarded – see TODO).
         long feeBuffer = FeeBuffer(totalMintedSat);
         long forwardSat = totalMintedSat - feeBuffer;
 
         if (forwardSat <= 0)
         {
             req.SettlementState = "FAILED";
-            req.SettlementError = $"Amount ({totalMintedSat} sat) too small to cover routing fee buffer ({feeBuffer} sat)";
+            req.SettlementError =
+                $"Amount ({totalMintedSat} sat) too small to cover routing fee buffer ({feeBuffer} sat)";
             await ctx.SaveChangesAsync(ct);
-            return (false, req.SettlementError);
+            _logger.LogWarning(
+                "{Event} phase={Phase} invoice={InvoiceId} quote={QuoteId} amountSat={AmountSat} msg={Detail}",
+                CashuMeltObservability.TagSettlementFailed,
+                CashuMeltObservability.PhaseForward,
+                req.InvoiceId,
+                req.QuoteId,
+                totalMintedSat,
+                req.SettlementError);
+            return (false, req.SettlementError, false);
         }
 
-        // Resolve merchant's Lightning address → BOLT11.
-        // Pass totalMintedSat as the upper bound so the resolver can clamp the amount
-        // up to the LNURL minimum when forwardSat is below it.
         string bolt11;
         try
         {
@@ -335,100 +523,183 @@ public class CashuMeltPaymentService
 
             if (effectiveSat != forwardSat)
                 _logger.LogInformation(
-                    "Forward amount adjusted from {Desired} to {Effective} sat to meet LNURL limits for quote {QuoteId}",
-                    forwardSat, effectiveSat, req.QuoteId);
+                    "Forward amount adjusted from {Desired} to {Effective} sat (LNURL limits) for invoice {InvoiceId} quote {QuoteId}",
+                    forwardSat, effectiveSat, req.InvoiceId, req.QuoteId);
 
             forwardSat = effectiveSat;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "LNURL resolution failed for address {Addr}", settings.LightningAddress);
             req.SettlementState = "FAILED";
             req.SettlementError = $"Could not resolve Lightning address: {ex.Message}";
             await ctx.SaveChangesAsync(ct);
-            return (false, req.SettlementError);
+            _logger.LogError(ex,
+                "{Event} phase={Phase} invoice={InvoiceId} quote={QuoteId} amountSat={AmountSat} msg={Detail}",
+                CashuMeltObservability.TagSettlementFailed,
+                CashuMeltObservability.PhaseForward,
+                req.InvoiceId,
+                req.QuoteId,
+                totalMintedSat,
+                req.SettlementError);
+            return (false, req.SettlementError, false);
         }
 
-        // Persist the BOLT11 so a retry can reuse it
         if (req.ForwardBolt11 != bolt11)
         {
             req.ForwardBolt11 = bolt11;
             await ctx.SaveChangesAsync(ct);
         }
 
-        // Request melt quote from mint
         MeltQuoteResponse? meltQuote;
         try
         {
             meltQuote = await _mintClient.RequestMeltQuoteAsync(settings.MintUrl, bolt11, req.Unit, ct);
         }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogWarning(ex,
+                "{Event} phase={Phase} invoice={InvoiceId} quote={QuoteId} amountSat={AmountSat}",
+                CashuMeltObservability.TagMeltRetry,
+                CashuMeltObservability.PhaseForward,
+                req.InvoiceId,
+                req.QuoteId,
+                totalMintedSat);
+            return (false, null, true);
+        }
+        catch (TaskCanceledException ex) when (!ct.IsCancellationRequested)
+        {
+            _logger.LogWarning(ex,
+                "{Event} phase={Phase} invoice={InvoiceId} quote={QuoteId} amountSat={AmountSat}",
+                CashuMeltObservability.TagMeltRetry,
+                CashuMeltObservability.PhaseForward,
+                req.InvoiceId,
+                req.QuoteId,
+                totalMintedSat);
+            return (false, null, true);
+        }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "RequestMeltQuote failed for quote {QuoteId}", req.QuoteId);
-            return (false, $"Melt quote request failed: {ex.Message}");
+            req.SettlementState = "FAILED";
+            req.SettlementError = $"Melt quote request failed: {ex.Message}";
+            await ctx.SaveChangesAsync(ct);
+            _logger.LogError(ex,
+                "{Event} phase={Phase} invoice={InvoiceId} quote={QuoteId} amountSat={AmountSat} msg={Detail}",
+                CashuMeltObservability.TagSettlementFailed,
+                CashuMeltObservability.PhaseForward,
+                req.InvoiceId,
+                req.QuoteId,
+                totalMintedSat,
+                req.SettlementError);
+            return (false, req.SettlementError, false);
         }
 
         if (meltQuote is null)
-            return (false, "Mint returned no melt quote");
+        {
+            req.SettlementState = "FAILED";
+            req.SettlementError = "Mint returned no melt quote";
+            await ctx.SaveChangesAsync(ct);
+            _logger.LogWarning(
+                "{Event} phase={Phase} invoice={InvoiceId} quote={QuoteId} amountSat={AmountSat} msg=no_melt_quote",
+                CashuMeltObservability.TagSettlementFailed,
+                CashuMeltObservability.PhaseForward,
+                req.InvoiceId,
+                req.QuoteId,
+                totalMintedSat);
+            return (false, req.SettlementError, false);
+        }
 
         long totalNeeded = meltQuote.Amount + meltQuote.FeeReserve;
         if (totalNeeded > totalMintedSat)
         {
-            // Fee reserve exceeds our buffer – reduce forward amount and retry once
-            _logger.LogWarning("FeeReserve {Fee} > buffer {Buf} for quote {Q}; reducing forward amount",
-                meltQuote.FeeReserve, feeBuffer, req.QuoteId);
-
-            // Fallback: just let the melt proceed with all available proofs.
-            // The merchant gets forwardSat - (actualFee - feeBuffer) sat.
-            // This path is rare; a proper implementation would re-request the BOLT11
-            // for the reduced amount, which requires another LNURL call.
-            // TODO: implement iterative amount adjustment.
-            return (false,
-                $"LN routing fee ({meltQuote.FeeReserve} sat) exceeds buffer ({feeBuffer} sat). " +
-                "Increase the fee buffer or retry.");
+            req.SettlementState = "FAILED";
+            req.SettlementError =
+                $"Lightning routing fee reserve ({meltQuote.FeeReserve} sat) is too high for this payment ({totalMintedSat} sat minted). " +
+                "Try a slightly larger amount or adjust the merchant Lightning address limits.";
+            await ctx.SaveChangesAsync(ct);
+            _logger.LogWarning(
+                "{Event} phase={Phase} invoice={InvoiceId} quote={QuoteId} amountSat={AmountSat} feeReserve={FeeReserve} msg=fee_reserve_exceeds_minted",
+                CashuMeltObservability.TagSettlementFailed,
+                CashuMeltObservability.PhaseForward,
+                req.InvoiceId,
+                req.QuoteId,
+                totalMintedSat,
+                meltQuote.FeeReserve);
+            return (false, req.SettlementError, false);
         }
 
         req.MeltQuoteId = meltQuote.Quote;
         await ctx.SaveChangesAsync(ct);
 
-        // Execute melt – mint pays the Lightning invoice using our proofs
         MeltTokensResponse? meltResp;
         try
         {
             meltResp = await _mintClient.MeltTokensAsync(settings.MintUrl, meltQuote.Quote, proofs, ct);
         }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogWarning(ex,
+                "{Event} phase={Phase} invoice={InvoiceId} quote={QuoteId} amountSat={AmountSat}",
+                CashuMeltObservability.TagMeltRetry,
+                CashuMeltObservability.PhaseForward,
+                req.InvoiceId,
+                req.QuoteId,
+                totalMintedSat);
+            return (false, null, true);
+        }
+        catch (TaskCanceledException ex) when (!ct.IsCancellationRequested)
+        {
+            _logger.LogWarning(ex,
+                "{Event} phase={Phase} invoice={InvoiceId} quote={QuoteId} amountSat={AmountSat}",
+                CashuMeltObservability.TagMeltRetry,
+                CashuMeltObservability.PhaseForward,
+                req.InvoiceId,
+                req.QuoteId,
+                totalMintedSat);
+            return (false, null, true);
+        }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "MeltTokens call failed for quote {QuoteId}", req.QuoteId);
-            // Proofs are still in DB; melt will be retried on next poll
-            return (false, $"Melt execution failed: {ex.Message}");
+            _logger.LogError(ex,
+                "{Event} phase={Phase} invoice={InvoiceId} quote={QuoteId} amountSat={AmountSat}",
+                CashuMeltObservability.TagMeltRetry,
+                CashuMeltObservability.PhaseForward,
+                req.InvoiceId,
+                req.QuoteId,
+                totalMintedSat);
+            return (false, null, true);
         }
 
         if (meltResp is null || !meltResp.Paid)
         {
-            var err = "Mint did not confirm payment";
+            var err = meltResp is null ? "Mint returned empty melt response" : "Mint did not confirm Lightning payment";
             req.SettlementState = "FAILED";
             req.SettlementError = err;
             await ctx.SaveChangesAsync(ct);
-            return (false, err);
+            _logger.LogWarning(
+                "{Event} phase={Phase} invoice={InvoiceId} quote={QuoteId} amountSat={AmountSat} msg={Detail}",
+                CashuMeltObservability.TagSettlementFailed,
+                CashuMeltObservability.PhaseForward,
+                req.InvoiceId,
+                req.QuoteId,
+                totalMintedSat,
+                err);
+            return (false, err, false);
         }
 
-        // ── Success ───────────────────────────────────────────────────────────
-        // (AddPayment to BTCPay was already called in CheckAndRecordPaymentAsync,
-        //  immediately after detecting the PAID mint quote state.)
-
-        // Mark settled; clear stored proofs (they are now spent)
-        req.SettlementState     = "SETTLED";
-        req.SettlementReference = meltResp.Proof; // payment preimage
-        req.SettledAt           = DateTimeOffset.UtcNow;
-        req.MintedProofsJson    = null;  // proofs spent, no longer needed
+        req.SettlementReference = meltResp.Proof;
+        req.MintedProofsJson = null;
         await ctx.SaveChangesAsync(ct);
 
         _logger.LogInformation(
-            "CashuMelt payment settled for invoice {InvoiceId}: {Amount} sat → {Addr}. Preimage: {Pre}",
-            req.InvoiceId, forwardSat, settings.LightningAddress, meltResp.Proof);
+            "{Event} phase={Phase} invoice={InvoiceId} quote={QuoteId} forwardSat={ForwardSat} preimage={HasPreimage}",
+            CashuMeltObservability.TagForwardOk,
+            CashuMeltObservability.PhaseForward,
+            req.InvoiceId,
+            req.QuoteId,
+            forwardSat,
+            !string.IsNullOrEmpty(meltResp.Proof));
 
-        return (true, null);
+        return (true, null, false);
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -436,11 +707,10 @@ public class CashuMeltPaymentService
     // ──────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Records the CashuMelt payment in BTCPay Server immediately upon detecting a PAID mint
-    /// quote, before the mint/melt HTTP calls. This ensures the BTCPay invoice is marked
-    /// as paid before it can expire, preventing "Expired (paid late)" invoice states.
+    /// Records the CashuMelt payment in BTCPay only after the mint has paid the merchant's invoice (melt OK).
+    /// Returns false if the row could not be inserted and could not be found (retry later).
     /// </summary>
-    private async Task RecordPaymentInBtcPayAsync(
+    private async Task<bool> TryRecordPaymentInBtcPayAsync(
         CashuMeltPaymentRequest req,
         InvoiceEntity invoice,
         CancellationToken ct)
@@ -448,57 +718,80 @@ public class CashuMeltPaymentService
         if (!_handlers.TryGetValue(CashuMeltPlugin.CashuMeltPaymentMethodId, out var handler))
         {
             _logger.LogWarning(
-                "CashuMelt payment handler not found; cannot record payment in BTCPay for quote {QuoteId}",
-                req.QuoteId);
-            return;
+                "CashuMelt payment handler missing; cannot record BTCPay payment for invoice {InvoiceId} quote {QuoteId}",
+                req.InvoiceId, req.QuoteId);
+            return false;
         }
 
         var paymentData = new CashuMeltPaymentData
         {
-            QuoteId       = req.QuoteId,
-            AmountSats    = req.AmountSats,
-            Unit          = req.Unit,
+            QuoteId = req.QuoteId,
+            AmountSats = req.AmountSats,
+            Unit = req.Unit,
             Bolt11Invoice = req.Bolt11Invoice
         };
 
         var amountDecimal = req.Unit == "usd"
-            ? (decimal)req.AmountSats / 100m           // cents → USD
-            : (decimal)req.AmountSats / 100_000_000m;  // sat  → BTC
+            ? (decimal)req.AmountSats / 100m
+            : (decimal)req.AmountSats / 100_000_000m;
 
         var payment = new PaymentData
         {
-            Id            = req.QuoteId,
+            Id = req.QuoteId,
             InvoiceDataId = req.InvoiceId,
-            Currency      = req.Unit == "usd" ? "USD" : "BTC",
-            Amount        = amountDecimal,
-            Status        = PaymentStatus.Settled,
-            Created       = DateTimeOffset.UtcNow
+            Currency = req.Unit == "usd" ? "USD" : "BTC",
+            Amount = amountDecimal,
+            Status = PaymentStatus.Settled,
+            Created = DateTimeOffset.UtcNow
         };
         payment.Set(invoice, handler, paymentData);
-        var paymentEntity = await _paymentService.AddPayment(payment, [req.QuoteId]);
 
-        // Publish ReceivedPayment so InvoiceWatcher.Watch() is called and the invoice
-        // state machine transitions New → Processing → Settled.
-        // AddPayment only publishes PaymentSettled which InvoiceWatcher does NOT subscribe
-        // to for state transitions — so we must publish this event ourselves.
-        if (paymentEntity is not null)
+        PaymentEntity? paymentEntity;
+        try
         {
-            // Re-fetch the invoice so it includes the new payment
-            var updatedInvoice = await _invoiceRepository.GetInvoice(req.InvoiceId);
-            if (updatedInvoice is not null)
-                _eventAggregator.Publish(new InvoiceEvent(updatedInvoice, InvoiceEvent.ReceivedPayment) { Payment = paymentEntity });
+            paymentEntity = await _paymentService.AddPayment(payment, [req.QuoteId]);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex,
+                "AddPayment threw for invoice {InvoiceId} quote {QuoteId}",
+                req.InvoiceId, req.QuoteId);
+            paymentEntity = null;
+        }
+
+        if (paymentEntity is null)
+        {
+            var after = await _invoiceRepository.GetInvoice(req.InvoiceId);
+            paymentEntity = after?.GetPayments(false)
+                .FirstOrDefault(p =>
+                    p.Id == req.QuoteId && p.PaymentMethodId == CashuMeltPlugin.CashuMeltPaymentMethodId);
+            if (paymentEntity is null)
+            {
+                _logger.LogWarning(
+                    "BTCPay payment not present after AddPayment for invoice {InvoiceId} quote {QuoteId}",
+                    req.InvoiceId, req.QuoteId);
+                return false;
+            }
+        }
+
+        var updatedInvoice = await _invoiceRepository.GetInvoice(req.InvoiceId);
+        if (updatedInvoice is not null)
+        {
+            _eventAggregator.Publish(new InvoiceEvent(updatedInvoice, InvoiceEvent.ReceivedPayment) { Payment = paymentEntity });
         }
 
         _logger.LogInformation(
-            "Recorded CashuMelt payment in BTCPay for invoice {InvoiceId} quote {QuoteId} ({Amount} {Unit})",
-            req.InvoiceId, req.QuoteId, req.AmountSats, req.Unit);
+            "{Event} phase={Phase} invoice={InvoiceId} quote={QuoteId} amountSat={AmountSat} unit={Unit}",
+            CashuMeltObservability.TagBtcpayRecorded,
+            CashuMeltObservability.PhaseBtcpay,
+            req.InvoiceId,
+            req.QuoteId,
+            req.AmountSats,
+            req.Unit);
+
+        return true;
     }
 
-    /// <summary>
-    /// Routing fee buffer: 1% of amount, minimum 2 sat, maximum 100 sat.
-    /// The merchant receives (amount - feeBuffer) sat; any unused part of the
-    /// mint's fee reserve comes back as change (currently discarded).
-    /// </summary>
     private static long FeeBuffer(long amountSat)
         => Math.Min(100, Math.Max(2, (long)Math.Ceiling(amountSat * 0.01)));
 

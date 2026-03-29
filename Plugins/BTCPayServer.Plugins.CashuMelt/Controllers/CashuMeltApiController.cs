@@ -23,6 +23,7 @@ namespace BTCPayServer.Plugins.CashuMelt.Controllers;
 /// REST API for CashuMelt plugin store management.
 /// Auth: Cookie (UI) or API key with CanModifyStoreSettings permission.
 /// Base path: /api/v1/stores/{storeId}/plugins/cashumelt
+/// Integrators: see docs/AGENT_API.md for <c>retryAfterSeconds</c> and <c>MELT_COMPLETE</c> behavior on retry.
 /// </summary>
 [ApiController]
 [Authorize(AuthenticationSchemes = AuthenticationSchemes.Cookie + "," + AuthenticationSchemes.Greenfield)]
@@ -183,28 +184,22 @@ public class CashuMeltApiController : ControllerBase
 
     /// <summary>
     /// POST /api/v1/stores/{storeId}/plugins/cashumelt/payments/{quoteId}/retry
-    /// Manually retry melt for a FAILED payment (e.g. after transient LN routing failure).
+    /// Retries settlement for <c>PENDING</c>, <c>FAILED</c> (when proofs exist), or BTCPay-only when <c>MELT_COMPLETE</c>.
+    /// Response includes optional <c>retryAfterSeconds</c> (same shape as checkout poll; see docs/AGENT_API.md).
     /// </summary>
     [HttpPost("payments/{quoteId}/retry")]
     public async Task<IActionResult> RetryPayment(
         string storeId, string quoteId, CancellationToken ct = default)
     {
-        await using var ctx = _dbContextFactory.CreateContext();
-        var r = await ctx.CashuMeltPaymentRequests
-            .FirstOrDefaultAsync(x => x.QuoteId == quoteId && x.StoreId == storeId, ct);
-
-        if (r is null) return NotFound(new { error = "Payment request not found" });
-        if (r.SettlementState == "SETTLED") return Ok(new { settled = true, error = (string?)null });
-        if (string.IsNullOrEmpty(r.MintedProofsJson) && r.SettlementState == "FAILED")
-            return BadRequest(new { error = "Cannot retry: proofs are not available (already spent or never minted)" });
-
-        // Reset state so CheckAndRecordPaymentAsync will re-attempt
-        r.SettlementState = "PENDING";
-        r.SettlementError = null;
-        await ctx.SaveChangesAsync(ct);
-
-        var (paid, error) = await _paymentService.CheckAndRecordPaymentAsync(quoteId, ct);
-        return Ok(new { settled = paid, error });
+        var outcome = await _paymentService.RetrySettlementAsync(storeId, quoteId, ct);
+        return outcome.Kind switch
+        {
+            CashuMeltRetryKind.NotFound => NotFound(new { error = "Payment request not found" }),
+            CashuMeltRetryKind.AlreadySettled => Ok(new { settled = true, error = (string?)null, retryAfterSeconds = (int?)null }),
+            CashuMeltRetryKind.CannotRetryMissingProofs => BadRequest(new { error = "Cannot retry: proofs are not available (already spent or never minted)" }),
+            CashuMeltRetryKind.Completed => Ok(new { settled = outcome.Settled, error = outcome.Error, retryAfterSeconds = outcome.RetryAfterSeconds }),
+            _ => StatusCode(500, new { error = "Unexpected retry outcome" })
+        };
     }
 
     // ── DTOs ────────────────────────────────────────────────────────────────────

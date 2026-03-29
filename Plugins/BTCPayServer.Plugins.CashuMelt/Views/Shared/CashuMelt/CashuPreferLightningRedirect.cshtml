@@ -1,0 +1,27 @@
+@* If checkout opened as /.../i/{invoiceId} (no PM in URL) and server picked CASHU while Lightning is available, prefer LN. Runs before Vue mounts (i18n async). *@
+@model BTCPayServer.Models.InvoicingModels.CheckoutModel
+<script>
+(function () {
+    if (typeof initialSrvModel === 'undefined') return;
+    var p = window.location.pathname.replace(/\/+$/, '');
+    var segs = p.split('/').filter(Boolean);
+    var iIdx = segs.indexOf('i');
+    if (iIdx < 0 || segs.length !== iIdx + 2) return;
+    var pm = initialSrvModel.paymentMethodId;
+    if (!pm || pm.toUpperCase() !== 'CASHU') return;
+    var methods = initialSrvModel.availablePaymentMethods || [];
+    var ln = null;
+    for (var i = 0; i < methods.length; i++) {
+        if (!methods[i].displayed) continue;
+        var id = methods[i].paymentMethodId;
+        if (!id) continue;
+        var u = String(id).toUpperCase();
+        if (u === 'BTC-LN') { ln = id; break; }
+        if (u === 'BTC-LNURL' && !ln) ln = id;
+    }
+    if (!ln) return;
+    var url = new URL(window.location.href);
+    url.pathname = p + '/' + encodeURIComponent(ln);
+    window.location.replace(url.toString());
+})();
+</script>

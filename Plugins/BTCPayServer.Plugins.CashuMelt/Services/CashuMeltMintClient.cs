@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -43,12 +45,24 @@ public class CashuMeltMintClient
         string mintBaseUrl, long amount, string unit, CancellationToken ct = default)
     {
         var url = Url(mintBaseUrl, "/v1/mint/quote/bolt11");
-        var body = new { amount, unit };
+        var requestBody = new { amount, unit };
         try
         {
-            using var content = JsonContent.Create(body, options: JsonOptions);
+            using var content = JsonContent.Create(requestBody, options: JsonOptions);
             var resp = await _httpClient.PostAsync(url, content, ct);
-            resp.EnsureSuccessStatusCode();
+            var code = (int)resp.StatusCode;
+            if (code is 429 or 502 or 503 or 504)
+            {
+                _logger.LogWarning("CreateMintQuote transient HTTP {Status} at {Url}", code, url);
+                return null;
+            }
+            if (!resp.IsSuccessStatusCode)
+            {
+                var errBody = await resp.Content.ReadAsStringAsync(ct);
+                _logger.LogWarning("CreateMintQuote HTTP {Status} at {Url}: {Body}", code, url,
+                    errBody.Length > 400 ? errBody[..400] : errBody);
+                return null;
+            }
             await using var stream = await resp.Content.ReadAsStreamAsync(ct);
             var result = await JsonSerializer.DeserializeAsync<MintQuoteBolt11Response>(stream, JsonOptions, ct);
             _logger.LogDebug("Mint quote created: {QuoteId} for {Amount} {Unit}", result?.Quote, amount, unit);
@@ -57,27 +71,69 @@ public class CashuMeltMintClient
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "CreateMintQuote failed at {Url}", url);
-            throw;
+            return null;
         }
     }
 
     /// <summary>GET /v1/mint/quote/bolt11/{quoteId} – poll quote state.</summary>
-    public async Task<MintQuoteBolt11Response?> GetMintQuoteAsync(
+    public async Task<MintQuotePollResult> GetMintQuoteForPollAsync(
         string mintBaseUrl, string quoteId, CancellationToken ct = default)
     {
         var url = $"{Url(mintBaseUrl)}/v1/mint/quote/bolt11/{Uri.EscapeDataString(quoteId)}";
         try
         {
             var resp = await _httpClient.GetAsync(url, ct);
-            resp.EnsureSuccessStatusCode();
+            var code = (int)resp.StatusCode;
+
+            if (code is 429 or 500 or 502 or 503 or 504)
+            {
+                var ra = ParseRetryAfterSeconds(resp);
+                _logger.LogWarning(
+                    "cashumelt_mint_poll_transient phase=mint_poll HTTP {Status} quote {QuoteId} retryAfter={RetryAfter}s",
+                    code, quoteId, ra);
+                return new MintQuotePollResult(false, true, ra, null, null);
+            }
+
+            if (!resp.IsSuccessStatusCode)
+            {
+                var body = await resp.Content.ReadAsStringAsync(ct);
+                _logger.LogWarning(
+                    "Mint quote poll HTTP {Status} for quote {QuoteId}: {Body}",
+                    code, quoteId, body.Length > 500 ? body[..500] : body);
+                return new MintQuotePollResult(false, false, null, $"Mint returned HTTP {code}", null);
+            }
+
             await using var stream = await resp.Content.ReadAsStreamAsync(ct);
-            return await JsonSerializer.DeserializeAsync<MintQuoteBolt11Response>(stream, JsonOptions, ct);
+            var quote = await JsonSerializer.DeserializeAsync<MintQuoteBolt11Response>(stream, JsonOptions, ct);
+            return new MintQuotePollResult(true, false, null, null, quote);
         }
         catch (HttpRequestException ex)
         {
-            _logger.LogWarning(ex, "GetMintQuote failed for {QuoteId}", quoteId);
-            throw;
+            _logger.LogWarning(ex, "GetMintQuote network error for quote {QuoteId} (treating as transient)", quoteId);
+            return new MintQuotePollResult(false, true, 5, null, null);
         }
+        catch (TaskCanceledException ex) when (!ct.IsCancellationRequested)
+        {
+            _logger.LogWarning(ex, "GetMintQuote timeout for quote {QuoteId} (treating as transient)", quoteId);
+            return new MintQuotePollResult(false, true, 5, null, null);
+        }
+    }
+
+    private static int? ParseRetryAfterSeconds(HttpResponseMessage resp)
+    {
+        if (!resp.Headers.TryGetValues("Retry-After", out var values))
+            return null;
+        var first = values.FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(first))
+            return null;
+        if (int.TryParse(first, NumberStyles.Integer, CultureInfo.InvariantCulture, out var sec) && sec >= 0)
+            return Math.Clamp(sec, 1, 300);
+        if (DateTimeOffset.TryParse(first, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var until))
+        {
+            var s = (int)Math.Ceiling((until - DateTimeOffset.UtcNow).TotalSeconds);
+            return Math.Clamp(s, 1, 300);
+        }
+        return null;
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -211,6 +267,16 @@ public class CashuMeltMintClient
         string Unit,
         string State,
         long? Expiry);
+
+    /// <summary>
+    /// Result of polling GET mint quote — avoids throwing on 429/502/503 so checkout poll stays 200 OK.
+    /// </summary>
+    public sealed record MintQuotePollResult(
+        bool Success,
+        bool TransientFailure,
+        int? RetryAfterSeconds,
+        string? ErrorMessage,
+        MintQuoteBolt11Response? Quote);
 
     public record MintKeysResponse(MintKeyset[] Keysets);
 

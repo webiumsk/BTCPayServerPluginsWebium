@@ -1,5 +1,5 @@
 @using BTCPayServer.Abstractions.Extensions
-@model BTCPayServer.Plugins.CashuMelt.Data.Entities.CashuMeltStoreSettings
+@model BTCPayServer.Plugins.CashuMelt.Models.CashuMeltSettingsPageModel
 @{
     ViewData.SetActivePage("Wallets", "CashuMelt", "CashuMelt Settings");
     ViewData["Title"] = "CashuMelt Settings";
@@ -24,26 +24,82 @@
     <strong>Important:</strong> Customers pay with Cashu ecash or Lightning. After payment is confirmed, BTCPay melts the tokens and settles sats to the merchant's Lightning address (for example via Blink/Boltz).
 </div>
 
-<form id="cashu-settings-form" method="post">
+<form id="cashu-settings-form" method="post" asp-controller="UICashuMelt" asp-action="Settings" asp-route-storeId="@Model.Settings.StoreId">
     <div class="form-group">
         <div class="form-check form-switch">
-            <input asp-for="Enabled" class="form-check-input" />
-            <label asp-for="Enabled" class="form-check-label">Enable CashuMelt payments</label>
+            <input asp-for="Settings.Enabled" class="form-check-input" />
+            <label asp-for="Settings.Enabled" class="form-check-label">Enable CashuMelt payments</label>
         </div>
     </div>
 
     <div class="form-group">
-        <label asp-for="MintUrl" class="form-label">Cashu Mint URL</label>
-        <input asp-for="MintUrl" class="form-control" placeholder="https://mint.minibits.cash/Bitcoin" />
-        <span asp-validation-for="MintUrl" class="text-danger"></span>
+        <label asp-for="Settings.MintUrl" class="form-label">Cashu Mint URL</label>
+        <input asp-for="Settings.MintUrl" class="form-control" placeholder="https://mint.minibits.cash/Bitcoin" />
+        <span asp-validation-for="Settings.MintUrl" class="text-danger"></span>
         <small class="form-text text-muted">The base URL of your Cashu mint (e.g. https://mint.minibits.cash/Bitcoin)</small>
     </div>
 
     <div class="form-group">
-        <label asp-for="LightningAddress" class="form-label">Lightning address for payout (required)</label>
-        <input asp-for="LightningAddress" class="form-control" placeholder="you@getalby.com" />
+        <label asp-for="Settings.LightningAddress" class="form-label">Lightning address for payout (required)</label>
+        <input asp-for="Settings.LightningAddress" class="form-control" placeholder="you@getalby.com" />
         <small class="form-text text-muted">Merchant payout destination. After a Cashu payment is confirmed, BTCPay melts the tokens and settles to this Lightning address.</small>
     </div>
 
     <button type="submit" name="command" value="save" class="btn btn-primary mt-3">Save</button>
 </form>
+
+<h3 class="mt-5 mb-3">Recent CashuMelt payments</h3>
+<p class="text-muted small">
+    Use <strong>Retry settlement</strong> when a row is not <code>SETTLED</code> but the customer already paid (stuck <code>PENDING</code>, <code>MELT_COMPLETE</code>, or <code>FAILED</code> with stored proofs).
+    Same action as <code>POST .../payments/{quoteId}/retry</code> in the API.
+</p>
+<div class="table-responsive">
+    <table class="table table-hover">
+        <thead>
+            <tr>
+                <th>Quote</th>
+                <th>Invoice</th>
+                <th class="text-end">Sats</th>
+                <th>Mint state</th>
+                <th>Settlement</th>
+                <th>Error</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+        @if (Model.RecentPayments.Count == 0)
+        {
+            <tr><td colspan="7" class="text-muted">No payment rows yet for this store.</td></tr>
+        }
+        else foreach (var row in Model.RecentPayments)
+        {
+            <tr>
+                <td class="text-break"><code class="small">@row.QuoteId</code></td>
+                <td class="text-break"><code class="small">@row.InvoiceId</code></td>
+                <td class="text-end">@row.AmountSats</td>
+                <td>@row.State</td>
+                <td>@row.SettlementState</td>
+                <td class="text-break small">@(row.SettlementError ?? "—")</td>
+                <td class="text-nowrap">
+                    @if (row.CanRetry)
+                    {
+                        <form method="post" asp-controller="UICashuMelt" asp-action="Settings" asp-route-storeId="@Model.Settings.StoreId" class="d-inline">
+                            <input type="hidden" name="command" value="retry" />
+                            <input type="hidden" name="quoteId" value="@row.QuoteId" />
+                            <button type="submit" class="btn btn-sm btn-outline-primary">Retry settlement</button>
+                        </form>
+                    }
+                    else if (row.SettlementState == "SETTLED")
+                    {
+                        <span class="text-muted small">Settled</span>
+                    }
+                    else
+                    {
+                        <span class="text-muted small" title="Proofs not stored; automatic retry is not safe.">No retry</span>
+                    }
+                </td>
+            </tr>
+        }
+        </tbody>
+    </table>
+</div>
