@@ -4,7 +4,7 @@ Accept **Cashu ecash** or **Lightning** payments at checkout. The plugin mints t
 
 ## Requirements
 
-- BTCPay Server ≥ 2.3.0
+- BTCPay Server ≥ 2.3.7 (targets .NET 10; see [Migrating to .NET 10](https://blog.btcpayserver.org/migrating-to-net10/))
 - .NET 10 (SDK matching the plugin target)
 - PostgreSQL (already used by BTCPay Server)
 
