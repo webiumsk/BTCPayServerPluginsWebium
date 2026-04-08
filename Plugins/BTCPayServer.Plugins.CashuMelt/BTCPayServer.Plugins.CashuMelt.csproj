@@ -8,7 +8,7 @@
   <PropertyGroup>
     <Product>Cashu Melt</Product>
     <Description>Accept Cashu ecash or Lightning payments at checkout. Tokens are automatically melted to the merchant's Lightning address.</Description>
-    <Version>1.0.0.3</Version>
+    <Version>1.0.1.0</Version>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
   </PropertyGroup>
 
