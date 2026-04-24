@@ -21,6 +21,7 @@ public class CashuMeltDbContext : DbContext
         modelBuilder.Entity<CashuMeltStoreSettings>(entity =>
         {
             entity.HasIndex(e => e.StoreId).IsUnique();
+            entity.Property(e => e.MaxMeltFeeReservePercentOfMinted).HasPrecision(5, 2);
         });
 
         modelBuilder.Entity<CashuMeltPaymentRequest>(entity =>

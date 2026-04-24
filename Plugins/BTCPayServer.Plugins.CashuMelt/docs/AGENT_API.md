@@ -42,10 +42,23 @@ Base path (Greenfield + cookie, `CanModifyStoreSettings`):
 
 - `SettlementState` may be **`MELT_COMPLETE`** (new). Satflux UIs should display it as “forward done, finalizing invoice” or similar.
 - `settlementError` is set when `FAILED`.
+- **≥ 1.1.0.0**: each payment item includes optional **`mintQuotePollUrl`** (NUT-23 GET URL for the mint quote) for support tooling.
 
 ## Settings endpoints
 
-`GET` / `PUT` `/settings` — no intentional breaking changes; same validation as before (`MintUrl` HTTPS, `LightningAddress` with `@`, `unit` `sat`|`usd`).
+`GET` / `PUT` `/settings` — same base validation (`MintUrl` HTTPS, `LightningAddress` with `@`, `unit` `sat`|`usd`).
+
+**≥ 1.1.0.0** — additive JSON on settings:
+
+| Field | Meaning |
+|-------|--------|
+| `trustedMintUrls` | string \| null — optional multiline text; when set, primary `mintUrl` must match one listed HTTPS origin (after trim/normalize). |
+| `maxMeltFeeReserveSats` | number \| null — reject melt if mint `feeReserve` exceeds this (empty/null = no cap). |
+| `maxMeltFeeReservePercentOfMinted` | number \| null — max `feeReserve` as % of minted total (0–100; null = no cap). |
+
+A background service also retries **`MELT_COMPLETE`** and stale **`PENDING`** rows so clients do not need to keep checkout open.
+
+On **`PUT /settings`**, use **camelCase** JSON keys (`mintUrl`, `lightningAddress`, `unit`, `enabled`, optional `trustedMintUrls`, `maxMeltFeeReserveSats`, `maxMeltFeeReservePercentOfMinted`). **Omit** an optional key to leave the stored value unchanged; send **`null`** for `trustedMintUrls` / fee fields to clear them.
 
 ## Recommended checkout polling (Satflux / custom frontends)
 

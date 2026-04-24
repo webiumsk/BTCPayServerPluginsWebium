@@ -57,6 +57,9 @@ public class CashuMeltConfigService
                 existing.Unit = settings.Unit ?? "sat";
                 existing.LightningAddress = settings.LightningAddress;
                 existing.Enabled = settings.Enabled;
+                existing.TrustedMintUrls = settings.TrustedMintUrls;
+                existing.MaxMeltFeeReserveSats = settings.MaxMeltFeeReserveSats;
+                existing.MaxMeltFeeReservePercentOfMinted = settings.MaxMeltFeeReservePercentOfMinted;
                 existing.UpdatedAt = now;
                 ctx.CashuMeltStoreSettings.Update(existing);
             }

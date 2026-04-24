@@ -1,5 +1,16 @@
 # CashuMelt plugin — release notes
 
+## 1.1.0.0 (merchant controls, reconciliation, ops UX)
+
+- **Non-custodial by design:** proofs remain only for the short mint→melt bridge; no customer ecash wallet.
+- **Trusted mint URLs** (optional): multiline HTTPS allow-list; primary mint must match when the list is non-empty.
+- **Melt fee reserve caps** (optional): max sat reserve and/or max percent of minted amount; rejects melt if the mint quotes excessive LN routing reserve.
+- **Background reconciliation** (`CashuMeltReconciliationHostedService`): retries `MELT_COMPLETE` BTCPay accounting, polls stale `PENDING`, and occasionally retries `FAILED` rows that still have stored proofs.
+- **Settings UI:** filters on recent payments, CSV export (includes NUT-23 poll URL), invoice link, mint poll + `lightning:` link.
+- **API:** settings DTO adds `trustedMintUrls`, `maxMeltFeeReserveSats`, `maxMeltFeeReservePercentOfMinted`; payment list/detail add `mintQuotePollUrl`.
+- **DB:** EF migration `AddMerchantRiskControls` + schema creator `ALTER` for new store columns; index on `SettlementState`.
+- **Transaction link provider** for `CASHU` (no public explorer URL; avoids missing provider issues).
+
 ## 1.0.0.3 (settlement ordering + ops, observability, integrators)
 
 ### BTCPay invoice vs plugin settlement (no more “invoice Settled without forward” on new flow)

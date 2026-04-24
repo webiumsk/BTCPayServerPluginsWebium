@@ -1,6 +1,8 @@
 #nullable enable
 using System;
+using System.Globalization;
 using System.Linq;
+using System.Text;
 using System.Threading.Tasks;
 using BTCPayServer.Abstractions.Constants;
 using BTCPayServer.Abstractions.Extensions;
@@ -9,11 +11,11 @@ using BTCPayServer.Client;
 using BTCPayServer.Data;
 using BTCPayServer.Payments;
 using BTCPayServer.Plugins.CashuMelt.Data;
-using BTCPayServer.Services.Invoices;
 using BTCPayServer.Plugins.CashuMelt.Data.Entities;
 using BTCPayServer.Plugins.CashuMelt.Models;
 using BTCPayServer.Plugins.CashuMelt.PaymentHandler;
 using BTCPayServer.Plugins.CashuMelt.Services;
+using BTCPayServer.Services.Invoices;
 using BTCPayServer.Services.Stores;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -31,31 +33,53 @@ public class UICashuMeltController : Controller
     private readonly CashuMeltDbContextFactory _dbContextFactory;
     private readonly CashuMeltPaymentService _paymentService;
     private readonly PaymentMethodHandlerDictionary _handlers;
+    private readonly StoreLightningBackendService _backendService;
 
     public UICashuMeltController(
         StoreRepository storeRepository,
         CashuMeltConfigService configService,
         CashuMeltDbContextFactory dbContextFactory,
         CashuMeltPaymentService paymentService,
-        PaymentMethodHandlerDictionary handlers)
+        PaymentMethodHandlerDictionary handlers,
+        StoreLightningBackendService backendService)
     {
         _storeRepository = storeRepository;
         _configService = configService;
         _dbContextFactory = dbContextFactory;
         _paymentService = paymentService;
         _handlers = handlers;
+        _backendService = backendService;
+    }
+
+    private void PopulateLightningBackendViewData(StoreData store)
+    {
+        var info = _backendService.Detect(store);
+        ViewData["CashuMeltBackendCanPayout"] = info.CanAttemptPayout;
+        ViewData["CashuMeltBackendType"] = info.BackendType.ToString();
+        ViewData["CashuMeltBackendDescription"] = info.Description;
     }
 
     [HttpGet("")]
-    public async Task<IActionResult> Settings(string storeId)
+    public async Task<IActionResult> Settings(
+        string storeId,
+        [FromQuery] string? settlement = null,
+        [FromQuery] string? invoice = null,
+        [FromQuery] string? export = null)
     {
         var store = await _storeRepository.FindStore(storeId);
         if (store is null) return NotFound();
 
+        PopulateLightningBackendViewData(store);
+
         var settings = await _configService.GetSettingsAsync(storeId)
             ?? new CashuMeltStoreSettings { StoreId = storeId, Unit = "sat" };
 
-        return View(await BuildPageModelAsync(storeId, settings));
+        var page = await BuildPageModelAsync(storeId, settings, settlement, invoice, take: 200);
+
+        if (string.Equals(export, "csv", StringComparison.OrdinalIgnoreCase))
+            return ExportPaymentsCsv(storeId, page);
+
+        return View(page);
     }
 
     [HttpPost("")]
@@ -67,6 +91,8 @@ public class UICashuMeltController : Controller
     {
         var store = await _storeRepository.FindStore(storeId);
         if (store is null) return NotFound();
+
+        PopulateLightningBackendViewData(store);
 
         model ??= new CashuMeltStoreSettings { StoreId = storeId, Unit = "sat" };
         model.StoreId = storeId;
@@ -140,6 +166,8 @@ public class UICashuMeltController : Controller
 
         if (command?.Equals("save", StringComparison.OrdinalIgnoreCase) == true)
         {
+            ApplyOptionalFeeFormFields(model);
+
             if (model.Enabled)
             {
                 model.MintUrl = model.MintUrl?.Trim().TrimEnd('/') ?? "";
@@ -159,6 +187,21 @@ public class UICashuMeltController : Controller
                         "Lightning address must be in the format user@domain");
             }
 
+            if (ModelState.IsValid)
+            {
+                try
+                {
+                    CashuMeltMintPolicy.ValidateStoreMintAgainstTrustedList(model);
+                    CashuMeltSettingsValidation.ValidateOptionalFeeCaps(
+                        model.MaxMeltFeeReserveSats,
+                        model.MaxMeltFeeReservePercentOfMinted);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    ModelState.AddModelError(string.Empty, ex.Message);
+                }
+            }
+
             if (!ModelState.IsValid)
                 return View(await BuildPageModelAsync(storeId, model));
 
@@ -171,12 +214,11 @@ public class UICashuMeltController : Controller
                 TempData.SetStatusMessageModel(new StatusMessageModel
                 {
                     Severity = StatusMessageModel.StatusSeverity.Error,
-                    Message  = ex.Message
+                    Message = ex.Message
                 });
                 return View(await BuildPageModelAsync(storeId, model));
             }
 
-            // Enable / disable the payment method on the store
             if (_handlers.Support(CashuMeltPlugin.CashuMeltPaymentMethodId))
             {
                 store.SetPaymentMethodConfig(
@@ -188,7 +230,7 @@ public class UICashuMeltController : Controller
             TempData.SetStatusMessageModel(new StatusMessageModel
             {
                 Severity = StatusMessageModel.StatusSeverity.Success,
-                Message  = "CashuMelt settings saved"
+                Message = "CashuMelt settings saved"
             });
 
             return RedirectToAction(nameof(Settings), new { storeId });
@@ -197,14 +239,80 @@ public class UICashuMeltController : Controller
         return View(await BuildPageModelAsync(storeId, model));
     }
 
-    private async Task<CashuMeltSettingsPageModel> BuildPageModelAsync(string storeId, CashuMeltStoreSettings settings)
+    private void ApplyOptionalFeeFormFields(CashuMeltStoreSettings model)
+    {
+        var satsRaw = Request.Form["maxFeeReserveSats"].FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(satsRaw))
+            model.MaxMeltFeeReserveSats = null;
+        else if (long.TryParse(satsRaw.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var sats))
+            model.MaxMeltFeeReserveSats = sats;
+        else
+            ModelState.AddModelError("maxFeeReserveSats", "Max melt fee reserve (sats) must be a whole number or empty.");
+
+        var pctRaw = Request.Form["maxFeePercent"].FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(pctRaw))
+            model.MaxMeltFeeReservePercentOfMinted = null;
+        else if (decimal.TryParse(pctRaw.Trim(), NumberStyles.Number, CultureInfo.InvariantCulture, out var pct))
+            model.MaxMeltFeeReservePercentOfMinted = pct;
+        else
+            ModelState.AddModelError("maxFeePercent", "Max melt fee percent must be a decimal number or empty.");
+    }
+
+    private IActionResult ExportPaymentsCsv(string storeId, CashuMeltSettingsPageModel page)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("quote_id,invoice_id,amount_sats,unit,mint_state,settlement_state,created_utc,settlement_error,mint_quote_poll_url");
+        foreach (var r in page.RecentPayments)
+        {
+            static string Csv(string? s)
+            {
+                if (string.IsNullOrEmpty(s)) return "\"\"";
+                return "\"" + s.Replace("\"", "\"\"", StringComparison.Ordinal) + "\"";
+            }
+
+            sb.Append(Csv(r.QuoteId)).Append(',')
+                .Append(Csv(r.InvoiceId)).Append(',')
+                .Append(r.AmountSats.ToString(CultureInfo.InvariantCulture)).Append(',')
+                .Append(Csv("sat")).Append(',')
+                .Append(Csv(r.State)).Append(',')
+                .Append(Csv(r.SettlementState)).Append(',')
+                .Append(Csv(r.CreatedAt.UtcDateTime.ToString("O", CultureInfo.InvariantCulture))).Append(',')
+                .Append(Csv(r.SettlementError)).Append(',')
+                .Append(Csv(r.MintQuotePollUrl))
+                .AppendLine();
+        }
+
+        var bytes = Encoding.UTF8.GetBytes(sb.ToString());
+        return File(bytes, "text/csv; charset=utf-8",
+            $"cashumelt-payments-{storeId}-{DateTimeOffset.UtcNow:yyyyMMddHHmmss}.csv");
+    }
+
+    private async Task<CashuMeltSettingsPageModel> BuildPageModelAsync(
+        string storeId,
+        CashuMeltStoreSettings settings,
+        string? filterSettlement = null,
+        string? filterInvoice = null,
+        int take = 80)
     {
         await using var ctx = _dbContextFactory.CreateContext();
-        var rows = await ctx.CashuMeltPaymentRequests
+        var q = ctx.CashuMeltPaymentRequests
             .AsNoTracking()
-            .Where(r => r.StoreId == storeId)
+            .Where(r => r.StoreId == storeId);
+
+        if (!string.IsNullOrWhiteSpace(filterSettlement))
+            q = q.Where(r => r.SettlementState == filterSettlement.Trim().ToUpperInvariant());
+
+        if (!string.IsNullOrWhiteSpace(filterInvoice))
+        {
+            var inv = filterInvoice.Trim();
+            q = q.Where(r => r.InvoiceId.Contains(inv));
+        }
+
+        var mintBase = CashuMeltMintPolicy.NormalizeMintUrl(settings.MintUrl);
+
+        var rows = await q
             .OrderByDescending(r => r.CreatedAt)
-            .Take(50)
+            .Take(Math.Clamp(take, 1, 500))
             .Select(r => new
             {
                 r.QuoteId,
@@ -214,7 +322,8 @@ public class UICashuMeltController : Controller
                 r.SettlementState,
                 r.SettlementError,
                 r.CreatedAt,
-                r.MintedProofsJson
+                r.MintedProofsJson,
+                r.Bolt11Invoice
             })
             .ToListAsync();
 
@@ -227,10 +336,19 @@ public class UICashuMeltController : Controller
                 r.SettlementState,
                 r.SettlementError,
                 r.CreatedAt,
-                CanRetryForRow(r.SettlementState, r.MintedProofsJson)))
+                CanRetryForRow(r.SettlementState, r.MintedProofsJson),
+                r.Bolt11Invoice,
+                CashuMeltNutsUrls.MintQuoteBolt11PollUrl(mintBase, r.QuoteId)))
             .ToList();
 
-        return new CashuMeltSettingsPageModel { Settings = settings, RecentPayments = recent };
+        return new CashuMeltSettingsPageModel
+        {
+            Settings = settings,
+            RecentPayments = recent,
+            FilterSettlement = filterSettlement,
+            FilterInvoice = filterInvoice,
+            MintBaseNormalized = mintBase
+        };
     }
 
     private static bool CanRetryForRow(string settlementState, string? mintedProofsJson) =>

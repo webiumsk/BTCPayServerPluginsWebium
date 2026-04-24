@@ -2,6 +2,7 @@
 using BTCPayServer.Abstractions.Contracts;
 using BTCPayServer.Abstractions.Extensions;
 using BTCPayServer.Abstractions.Models;
+using BTCPayServer.Hosting;
 using BTCPayServer.Payments;
 using BTCPayServer.Plugins.CashuMelt.Data;
 using BTCPayServer.Plugins.CashuMelt.PaymentHandler;
@@ -37,11 +38,14 @@ public class CashuMeltPlugin : BaseBTCPayServerPlugin
 
         // ── Services ─────────────────────────────────────────────────────────
         services.AddSingleton<CashuMeltConfigService>();
+        services.AddSingleton<StoreLightningBackendService>();
         services.AddTransient<CashuMeltPaymentService>();
+        services.AddHostedService<CashuMeltReconciliationHostedService>();
 
         // ── BTCPay payment method integration ──────────────────────────────────
         services.AddSingleton<IPaymentMethodHandler, CashuMeltPaymentMethodHandler>();
         services.AddSingleton<ICheckoutModelExtension, CashuMeltCheckoutModelExtension>();
+        services.AddTransactionLinkProvider(CashuMeltPaymentMethodId, new CashuMeltTransactionLinkProvider());
 
         // ── UI extensions (injected into BTCPay layout slots) ──────────────────
         services.AddUIExtension("store-wallets-nav",      "CashuMelt/StoreNavExtension");

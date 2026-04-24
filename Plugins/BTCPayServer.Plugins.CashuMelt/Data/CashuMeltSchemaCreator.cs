@@ -26,6 +26,16 @@ public static class CashuMeltSchemaCreator
                 ""UpdatedAt"" timestamp with time zone NOT NULL
             )", cancellationToken);
 
+        await ctx.Database.ExecuteSqlRawAsync(
+            $@"ALTER TABLE ""{schema}"".""CashuMeltStoreSettings"" ADD COLUMN IF NOT EXISTS ""TrustedMintUrls"" text",
+            cancellationToken);
+        await ctx.Database.ExecuteSqlRawAsync(
+            $@"ALTER TABLE ""{schema}"".""CashuMeltStoreSettings"" ADD COLUMN IF NOT EXISTS ""MaxMeltFeeReserveSats"" bigint",
+            cancellationToken);
+        await ctx.Database.ExecuteSqlRawAsync(
+            $@"ALTER TABLE ""{schema}"".""CashuMeltStoreSettings"" ADD COLUMN IF NOT EXISTS ""MaxMeltFeeReservePercentOfMinted"" numeric(5,2)",
+            cancellationToken);
+
         await ctx.Database.ExecuteSqlRawAsync($@"
             CREATE TABLE IF NOT EXISTS ""{schema}"".""CashuMeltPaymentRequests"" (
                 ""QuoteId"" varchar(100) NOT NULL PRIMARY KEY,
@@ -58,5 +68,9 @@ public static class CashuMeltSchemaCreator
         await ctx.Database.ExecuteSqlRawAsync($@"
             CREATE INDEX IF NOT EXISTS ""IX_CashuMeltPaymentRequests_StoreId"" 
             ON ""{schema}"".""CashuMeltPaymentRequests"" (""StoreId"")", cancellationToken);
+
+        await ctx.Database.ExecuteSqlRawAsync($@"
+            CREATE INDEX IF NOT EXISTS ""IX_CashuMeltPaymentRequests_SettlementState"" 
+            ON ""{schema}"".""CashuMeltPaymentRequests"" (""SettlementState"")", cancellationToken);
     }
 }

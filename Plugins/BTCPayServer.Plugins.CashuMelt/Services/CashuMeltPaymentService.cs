@@ -100,6 +100,15 @@ public class CashuMeltPaymentService
         if (settings is null)
             return (null, null, "CashuMelt not configured for this store");
 
+        try
+        {
+            CashuMeltMintPolicy.ValidateStoreMintAgainstTrustedList(settings);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return (null, null, ex.Message);
+        }
+
         var quote = await _mintClient.CreateMintQuoteAsync(settings.MintUrl, amountSats, unit, ct);
         if (quote is null || string.IsNullOrEmpty(quote.Quote))
             return (null, null, "Mint did not return a valid quote");
@@ -192,6 +201,15 @@ public class CashuMeltPaymentService
             var settings = await _configService.GetEnabledSettingsAsync(req.StoreId, ct);
             if (settings is null)
                 return (false, "Store CashuMelt settings not found", null);
+
+            try
+            {
+                CashuMeltMintPolicy.ValidateStoreMintAgainstTrustedList(settings);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return (false, ex.Message, null);
+            }
 
             if (_mintQuotePollBackoff.TryGetValue(quoteId, out var backoff) && DateTimeOffset.UtcNow < backoff.NextAllowedUtc)
             {
@@ -606,6 +624,27 @@ public class CashuMeltPaymentService
                 req.QuoteId,
                 totalMintedSat);
             return (false, req.SettlementError, false);
+        }
+
+        var feeCapErr = CashuMeltFeePolicy.ValidateMeltFeeReserve(
+            totalMintedSat,
+            meltQuote.FeeReserve,
+            settings.MaxMeltFeeReserveSats,
+            settings.MaxMeltFeeReservePercentOfMinted);
+        if (feeCapErr is not null)
+        {
+            req.SettlementState = "FAILED";
+            req.SettlementError = feeCapErr;
+            await ctx.SaveChangesAsync(ct);
+            _logger.LogWarning(
+                "{Event} phase={Phase} invoice={InvoiceId} quote={QuoteId} amountSat={AmountSat} feeReserve={FeeReserve} msg=fee_cap",
+                CashuMeltObservability.TagSettlementFailed,
+                CashuMeltObservability.PhaseForward,
+                req.InvoiceId,
+                req.QuoteId,
+                totalMintedSat,
+                meltQuote.FeeReserve);
+            return (false, feeCapErr, false);
         }
 
         long totalNeeded = meltQuote.Amount + meltQuote.FeeReserve;

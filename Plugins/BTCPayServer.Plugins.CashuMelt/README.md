@@ -1,6 +1,6 @@
 # Cashu Melt — BTCPay Server Plugin
 
-Accept **Cashu ecash** or **Lightning** payments at checkout. The plugin mints tokens from the customer's payment and automatically melts them to the merchant's Lightning address.
+**Cashu-assisted Lightning checkout:** the customer pays a **mint quote (BOLT11)**; the plugin **mints proofs only to melt them immediately** to the merchant **Lightning address** (LNURL-pay), then records BTCPay after a successful melt. The plugin does **not** operate a customer ecash wallet. **1.1+** adds optional **trusted mint URLs**, **melt fee reserve caps**, **background reconciliation** for `MELT_COMPLETE` / stale `PENDING`, and **CSV export** plus NUT-23 poll links on the settings page.
 
 ## Requirements
 

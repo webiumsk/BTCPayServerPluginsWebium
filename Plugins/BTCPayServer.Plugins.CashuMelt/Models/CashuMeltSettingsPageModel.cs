@@ -9,6 +9,15 @@ public class CashuMeltSettingsPageModel
 {
     public required CashuMeltStoreSettings Settings { get; init; }
     public IReadOnlyList<CashuMeltRecentPaymentRow> RecentPayments { get; init; } = Array.Empty<CashuMeltRecentPaymentRow>();
+
+    /// <summary>Echoed filter: settlement state (e.g. PENDING, MELT_COMPLETE) or empty.</summary>
+    public string? FilterSettlement { get; init; }
+
+    /// <summary>Echoed filter: substring match on BTCPay invoice id.</summary>
+    public string? FilterInvoice { get; init; }
+
+    /// <summary>Normalized mint base for NUT-23 poll URL hints.</summary>
+    public string MintBaseNormalized { get; init; } = "";
 }
 
 public record CashuMeltRecentPaymentRow(
@@ -19,4 +28,6 @@ public record CashuMeltRecentPaymentRow(
     string SettlementState,
     string? SettlementError,
     DateTimeOffset CreatedAt,
-    bool CanRetry);
+    bool CanRetry,
+    string? Bolt11Invoice,
+    string MintQuotePollUrl);

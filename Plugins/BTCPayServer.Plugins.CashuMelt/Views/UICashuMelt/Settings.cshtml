@@ -14,17 +14,17 @@
 <partial name="_StatusMessage" />
 
 <p class="text-muted">
-    Accept Cashu ecash or Lightning payments at checkout. The plugin automatically melts received tokens to the merchant's Lightning address.
+    Customers pay a mint Lightning invoice; the plugin mints proofs only to forward them immediately to your Lightning address.
+    We do not operate a customer ecash wallet: proofs exist only briefly to complete melt and settlement.
 </p>
 <div class="alert @(ViewData["CashuMeltBackendCanPayout"] as bool? == true ? "alert-success" : "alert-warning")">
     <strong>Detected Lightning backend:</strong> @ViewData["CashuMeltBackendType"]<br />
     @ViewData["CashuMeltBackendDescription"]
 </div>
-<div class="alert alert-info">
-    <strong>Important:</strong> Customers pay with Cashu ecash or Lightning. After payment is confirmed, BTCPay melts the tokens and settles sats to the merchant's Lightning address (for example via Blink/Boltz).
-</div>
 
 <form id="cashu-settings-form" method="post" asp-controller="UICashuMelt" asp-action="Settings" asp-route-storeId="@Model.Settings.StoreId">
+    @Html.AntiForgeryToken()
+    <div asp-validation-summary="All" class="text-danger"></div>
     <div class="form-group">
         <div class="form-check form-switch">
             <input asp-for="Settings.Enabled" class="form-check-input" />
@@ -36,13 +36,36 @@
         <label asp-for="Settings.MintUrl" class="form-label">Cashu Mint URL</label>
         <input asp-for="Settings.MintUrl" class="form-control" placeholder="https://mint.minibits.cash/Bitcoin" />
         <span asp-validation-for="Settings.MintUrl" class="text-danger"></span>
-        <small class="form-text text-muted">The base URL of your Cashu mint (e.g. https://mint.minibits.cash/Bitcoin)</small>
+        <small class="form-text text-muted">HTTPS base URL of the mint used for quotes, mint, and melt.</small>
+    </div>
+
+    <div class="form-group">
+        <label asp-for="Settings.TrustedMintUrls" class="form-label">Trusted mint URLs (optional)</label>
+        <textarea asp-for="Settings.TrustedMintUrls" class="form-control" rows="3" placeholder="Leave empty to only allow the primary Mint URL above. One HTTPS URL per line (or comma-separated)."></textarea>
+        <small class="form-text text-muted">When set, the primary Mint URL must match one of these entries (after normalization). Helps prevent accidental misconfiguration.</small>
+    </div>
+
+    <div class="row">
+        <div class="col-md-6 form-group">
+            <label class="form-label" for="maxFeeReserveSats">Max melt fee reserve (sats, optional)</label>
+            <input type="number" class="form-control" id="maxFeeReserveSats" name="maxFeeReserveSats" min="0" step="1"
+                   value="@(Model.Settings.MaxMeltFeeReserveSats?.ToString() ?? "")" />
+            <span class="text-danger field-validation-valid" data-valmsg-for="maxFeeReserveSats"></span>
+            <small class="form-text text-muted">Reject melt if the mint’s Lightning fee reserve exceeds this value (empty = no limit).</small>
+        </div>
+        <div class="col-md-6 form-group">
+            <label class="form-label" for="maxFeePercent">Max melt fee reserve (% of minted, optional)</label>
+            <input type="number" class="form-control" id="maxFeePercent" name="maxFeePercent" min="0" max="100" step="0.01"
+                   value="@(Model.Settings.MaxMeltFeeReservePercentOfMinted?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "")" />
+            <span class="text-danger field-validation-valid" data-valmsg-for="maxFeePercent"></span>
+            <small class="form-text text-muted">Upper bound on fee reserve as a percent of total minted amount (empty = no limit).</small>
+        </div>
     </div>
 
     <div class="form-group">
         <label asp-for="Settings.LightningAddress" class="form-label">Lightning address for payout (required)</label>
         <input asp-for="Settings.LightningAddress" class="form-control" placeholder="you@getalby.com" />
-        <small class="form-text text-muted">Merchant payout destination. After a Cashu payment is confirmed, BTCPay melts the tokens and settles to this Lightning address.</small>
+        <small class="form-text text-muted">Merchant payout destination (LNURL-pay). Tokens are melted to this address; we do not hold ecash balances.</small>
     </div>
 
     <button type="submit" name="command" value="save" class="btn btn-primary mt-3">Save</button>
@@ -50,9 +73,30 @@
 
 <h3 class="mt-5 mb-3">Recent CashuMelt payments</h3>
 <p class="text-muted small">
-    Use <strong>Retry settlement</strong> when a row is not <code>SETTLED</code> but the customer already paid (stuck <code>PENDING</code>, <code>MELT_COMPLETE</code>, or <code>FAILED</code> with stored proofs).
-    Same action as <code>POST .../payments/{quoteId}/retry</code> in the API.
+    Background reconciliation retries <code>MELT_COMPLETE</code> and stale <code>PENDING</code> rows so checkout does not need to stay open.
+    Use <strong>Retry settlement</strong> for manual recovery. Export CSV includes NUT-23 poll URLs for support.
 </p>
+
+<form method="get" asp-controller="UICashuMelt" asp-action="Settings" asp-route-storeId="@Model.Settings.StoreId" class="row g-2 align-items-end mb-3">
+    <div class="col-md-3">
+        <label class="form-label">Settlement state</label>
+        <input class="form-control" name="settlement" value="@Model.FilterSettlement" placeholder="e.g. MELT_COMPLETE" />
+    </div>
+    <div class="col-md-4">
+        <label class="form-label">Invoice id contains</label>
+        <input class="form-control" name="invoice" value="@Model.FilterInvoice" placeholder="substring" />
+    </div>
+    <div class="col-md-auto">
+        <button type="submit" class="btn btn-secondary">Filter</button>
+        <a class="btn btn-link" asp-controller="UICashuMelt" asp-action="Settings" asp-route-storeId="@Model.Settings.StoreId">Clear</a>
+    </div>
+    <div class="col-md-auto ms-md-auto">
+        <a class="btn btn-outline-secondary"
+           asp-controller="UICashuMelt" asp-action="Settings" asp-route-storeId="@Model.Settings.StoreId"
+           asp-route-settlement="@Model.FilterSettlement" asp-route-invoice="@Model.FilterInvoice" asp-route-export="csv">Export CSV</a>
+    </div>
+</form>
+
 <div class="table-responsive">
     <table class="table table-hover">
         <thead>
@@ -63,27 +107,39 @@
                 <th>Mint state</th>
                 <th>Settlement</th>
                 <th>Error</th>
+                <th>Links</th>
                 <th></th>
             </tr>
         </thead>
         <tbody>
         @if (Model.RecentPayments.Count == 0)
         {
-            <tr><td colspan="7" class="text-muted">No payment rows yet for this store.</td></tr>
+            <tr><td colspan="8" class="text-muted">No payment rows match the current filter.</td></tr>
         }
         else foreach (var row in Model.RecentPayments)
         {
             <tr>
                 <td class="text-break"><code class="small">@row.QuoteId</code></td>
-                <td class="text-break"><code class="small">@row.InvoiceId</code></td>
+                <td class="text-break">
+                    <a asp-controller="UIInvoice" asp-action="Invoice" asp-route-invoiceId="@row.InvoiceId" class="small">@row.InvoiceId</a>
+                </td>
                 <td class="text-end">@row.AmountSats</td>
                 <td>@row.State</td>
                 <td>@row.SettlementState</td>
                 <td class="text-break small">@(row.SettlementError ?? "—")</td>
+                <td class="small text-nowrap">
+                    <a href="@row.MintQuotePollUrl" target="_blank" rel="noreferrer noopener">Mint poll</a>
+                    @if (!string.IsNullOrEmpty(row.Bolt11Invoice))
+                    {
+                        <text> · </text>
+                        <a href="lightning:@row.Bolt11Invoice" title="@row.Bolt11Invoice">lightning:</a>
+                    }
+                </td>
                 <td class="text-nowrap">
                     @if (row.CanRetry)
                     {
                         <form method="post" asp-controller="UICashuMelt" asp-action="Settings" asp-route-storeId="@Model.Settings.StoreId" class="d-inline">
+                            @Html.AntiForgeryToken()
                             <input type="hidden" name="command" value="retry" />
                             <input type="hidden" name="quoteId" value="@row.QuoteId" />
                             <button type="submit" class="btn btn-sm btn-outline-primary">Retry settlement</button>

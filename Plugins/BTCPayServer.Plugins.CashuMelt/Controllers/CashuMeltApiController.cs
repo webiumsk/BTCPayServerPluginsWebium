@@ -1,6 +1,7 @@
 #nullable enable
 using System;
 using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using BTCPayServer.Abstractions.Constants;
@@ -59,44 +60,90 @@ public class CashuMeltApiController : ControllerBase
     {
         var s = await _configService.GetSettingsAsync(storeId, ct);
         if (s is null)
-            return Ok(new CashuMeltSettingsResponse(storeId, null, "sat", null, false));
+            return Ok(new CashuMeltSettingsResponse(
+                storeId, null, "sat", null, false, null, null, null));
 
-        return Ok(new CashuMeltSettingsResponse(
-            s.StoreId,
-            s.MintUrl,
-            s.Unit,
-            s.LightningAddress,
-            s.Enabled));
+        return Ok(ToSettingsResponse(s));
     }
 
     /// <summary>PUT /api/v1/stores/{storeId}/plugins/cashumelt/settings</summary>
     [HttpPut("settings")]
     public async Task<IActionResult> UpdateSettings(
         string storeId,
-        [FromBody] CashuMeltSettingsRequest body,
+        [FromBody] JsonElement body,
         CancellationToken ct = default)
     {
-        if (body is null)
-            return BadRequest(new { error = "Request body is required" });
+        if (body.ValueKind is not JsonValueKind.Object)
+            return BadRequest(new { error = "Request body must be a JSON object" });
 
-        var mintUrl = (body.MintUrl ?? "").Trim().TrimEnd('/');
+        if (!body.TryGetProperty("mintUrl", out var mintUrlEl) || mintUrlEl.ValueKind != JsonValueKind.String)
+            return BadRequest(new { error = "mintUrl is required" });
+        var mintUrl = (mintUrlEl.GetString() ?? "").Trim().TrimEnd('/');
         if (!mintUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
             return BadRequest(new { error = "MintUrl must use HTTPS" });
 
-        if (string.IsNullOrWhiteSpace(body.LightningAddress) || !body.LightningAddress.Contains('@'))
+        if (!body.TryGetProperty("lightningAddress", out var lnEl) || lnEl.ValueKind != JsonValueKind.String)
+            return BadRequest(new { error = "lightningAddress is required" });
+        var lightningAddress = lnEl.GetString() ?? "";
+        if (string.IsNullOrWhiteSpace(lightningAddress) || !lightningAddress.Contains('@'))
             return BadRequest(new { error = "LightningAddress must be in user@domain format" });
 
-        var unit = body.Unit ?? "sat";
+        var unit = "sat";
+        if (body.TryGetProperty("unit", out var unitEl) && unitEl.ValueKind == JsonValueKind.String)
+            unit = unitEl.GetString() ?? "sat";
         if (unit != "sat" && unit != "usd")
             return BadRequest(new { error = "Unit must be 'sat' or 'usd'" });
 
         var settings = await _configService.GetSettingsAsync(storeId, ct)
             ?? new CashuMeltStoreSettings { StoreId = storeId };
 
-        settings.MintUrl          = mintUrl;
-        settings.Unit             = unit;
-        settings.LightningAddress = body.LightningAddress.Trim();
-        settings.Enabled          = body.Enabled ?? settings.Enabled;
+        settings.MintUrl = mintUrl;
+        settings.Unit = unit;
+        settings.LightningAddress = lightningAddress.Trim();
+        if (body.TryGetProperty("enabled", out var enEl) && enEl.ValueKind is JsonValueKind.True or JsonValueKind.False)
+            settings.Enabled = enEl.GetBoolean();
+
+        if (body.TryGetProperty("trustedMintUrls", out var tmEl))
+        {
+            settings.TrustedMintUrls = tmEl.ValueKind switch
+            {
+                JsonValueKind.String => string.IsNullOrWhiteSpace(tmEl.GetString()) ? null : tmEl.GetString()!.Trim(),
+                JsonValueKind.Null => null,
+                _ => settings.TrustedMintUrls
+            };
+        }
+
+        if (body.TryGetProperty("maxMeltFeeReserveSats", out var maxSatsEl))
+        {
+            settings.MaxMeltFeeReserveSats = maxSatsEl.ValueKind switch
+            {
+                JsonValueKind.Null => null,
+                JsonValueKind.Number when maxSatsEl.TryGetInt64(out var v) => v,
+                _ => settings.MaxMeltFeeReserveSats
+            };
+        }
+
+        if (body.TryGetProperty("maxMeltFeeReservePercentOfMinted", out var maxPctEl))
+        {
+            settings.MaxMeltFeeReservePercentOfMinted = maxPctEl.ValueKind switch
+            {
+                JsonValueKind.Null => null,
+                JsonValueKind.Number when maxPctEl.TryGetDecimal(out var p) => p,
+                _ => settings.MaxMeltFeeReservePercentOfMinted
+            };
+        }
+
+        try
+        {
+            CashuMeltMintPolicy.ValidateStoreMintAgainstTrustedList(settings);
+            CashuMeltSettingsValidation.ValidateOptionalFeeCaps(
+                settings.MaxMeltFeeReserveSats,
+                settings.MaxMeltFeeReservePercentOfMinted);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
 
         await _configService.SaveSettingsAsync(settings, ct);
 
@@ -112,13 +159,19 @@ public class CashuMeltApiController : ControllerBase
             await _storeRepository.UpdateStore(store);
         }
 
-        return Ok(new CashuMeltSettingsResponse(
-            settings.StoreId,
-            settings.MintUrl,
-            settings.Unit,
-            settings.LightningAddress,
-            settings.Enabled));
+        return Ok(ToSettingsResponse(settings));
     }
+
+    private static CashuMeltSettingsResponse ToSettingsResponse(CashuMeltStoreSettings s) =>
+        new(
+            s.StoreId,
+            s.MintUrl,
+            s.Unit,
+            s.LightningAddress,
+            s.Enabled,
+            s.TrustedMintUrls,
+            s.MaxMeltFeeReserveSats,
+            s.MaxMeltFeeReservePercentOfMinted);
 
     // ── Payment requests ────────────────────────────────────────────────────────
 
@@ -138,16 +191,35 @@ public class CashuMeltApiController : ControllerBase
         limit = Math.Clamp(limit, 1, 200);
 
         await using var ctx = _dbContextFactory.CreateContext();
+        var storeSettings = await _configService.GetSettingsAsync(storeId, ct);
+        var mintBase = CashuMeltMintPolicy.NormalizeMintUrl(storeSettings?.MintUrl ?? "");
 
         var query = ctx.CashuMeltPaymentRequests.Where(r => r.StoreId == storeId);
         if (!string.IsNullOrWhiteSpace(settlementState))
             query = query.Where(r => r.SettlementState == settlementState.ToUpperInvariant());
 
         var total = await query.CountAsync(ct);
-        var items = await query
+        var rows = await query
             .OrderByDescending(r => r.CreatedAt)
             .Skip(offset)
             .Take(limit)
+            .Select(r => new
+            {
+                r.QuoteId,
+                r.InvoiceId,
+                r.AmountSats,
+                r.Unit,
+                r.State,
+                r.SettlementState,
+                r.SettlementError,
+                r.SettlementReference,
+                r.CreatedAt,
+                r.PaidAt,
+                r.SettledAt
+            })
+            .ToListAsync(ct);
+
+        var items = rows
             .Select(r => new CashuMeltPaymentResponse(
                 r.QuoteId,
                 r.InvoiceId,
@@ -159,8 +231,11 @@ public class CashuMeltApiController : ControllerBase
                 r.SettlementReference,
                 r.CreatedAt,
                 r.PaidAt,
-                r.SettledAt))
-            .ToListAsync(ct);
+                r.SettledAt,
+                string.IsNullOrEmpty(mintBase)
+                    ? null
+                    : CashuMeltNutsUrls.MintQuoteBolt11PollUrl(mintBase, r.QuoteId)))
+            .ToList();
 
         return Ok(new { total, offset, limit, items });
     }
@@ -176,10 +251,14 @@ public class CashuMeltApiController : ControllerBase
 
         if (r is null) return NotFound(new { error = "Payment request not found" });
 
+        var storeSettings = await _configService.GetSettingsAsync(storeId, ct);
+        var mintBase = CashuMeltMintPolicy.NormalizeMintUrl(storeSettings?.MintUrl ?? "");
+        var poll = string.IsNullOrEmpty(mintBase) ? null : CashuMeltNutsUrls.MintQuoteBolt11PollUrl(mintBase, r.QuoteId);
+
         return Ok(new CashuMeltPaymentResponse(
             r.QuoteId, r.InvoiceId, r.AmountSats, r.Unit,
             r.State, r.SettlementState, r.SettlementError, r.SettlementReference,
-            r.CreatedAt, r.PaidAt, r.SettledAt));
+            r.CreatedAt, r.PaidAt, r.SettledAt, poll));
     }
 
     /// <summary>
@@ -209,13 +288,10 @@ public class CashuMeltApiController : ControllerBase
         string? MintUrl,
         string? Unit,
         string? LightningAddress,
-        bool Enabled);
-
-    public record CashuMeltSettingsRequest(
-        string? MintUrl,
-        string? Unit,
-        string? LightningAddress,
-        bool? Enabled);
+        bool Enabled,
+        string? TrustedMintUrls,
+        long? MaxMeltFeeReserveSats,
+        decimal? MaxMeltFeeReservePercentOfMinted);
 
     public record CashuMeltPaymentResponse(
         string QuoteId,
@@ -228,5 +304,6 @@ public class CashuMeltApiController : ControllerBase
         string? SettlementReference,
         DateTimeOffset CreatedAt,
         DateTimeOffset? PaidAt,
-        DateTimeOffset? SettledAt);
+        DateTimeOffset? SettledAt,
+        string? MintQuotePollUrl);
 }

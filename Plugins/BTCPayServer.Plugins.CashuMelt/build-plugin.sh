@@ -33,7 +33,7 @@ $DOTNET publish "$SCRIPT_DIR/$PLUGIN_NAME.csproj" -c Release -o "$PUBLISH_DIR"
 echo "Packing plugin..."
 $DOTNET run --project "$PLUGIN_PACKER" -- "$PUBLISH_DIR" "$PLUGIN_NAME" "$OUTPUT_DIR"
 
-PLUGIN_VERSION=$(ls -1 "$OUTPUT_DIR/$PLUGIN_NAME/" 2>/dev/null | head -1)
+PLUGIN_VERSION=$(ls -1t "$OUTPUT_DIR/$PLUGIN_NAME/" 2>/dev/null | head -1)
 echo ""
 echo "Done! Installable plugin created at:"
 echo "  $OUTPUT_DIR/$PLUGIN_NAME/$PLUGIN_VERSION/$PLUGIN_NAME.btcpay"

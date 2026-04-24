@@ -56,6 +56,15 @@ public class CashuMeltPaymentMethodHandler : IPaymentMethodHandler
             throw new PaymentMethodUnavailableException("CashuMelt is not configured for this store");
         }
 
+        try
+        {
+            CashuMeltMintPolicy.ValidateStoreMintAgainstTrustedList(settings);
+        }
+        catch (InvalidOperationException ex)
+        {
+            throw new PaymentMethodUnavailableException(ex.Message);
+        }
+
         var invoice = context.InvoiceEntity;
         var due = context.Prompt.Calculate().Due;
 
