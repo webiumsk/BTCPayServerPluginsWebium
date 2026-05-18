@@ -54,6 +54,21 @@ public class CashuMeltPaymentRequest
     /// <summary>The BOLT11 invoice resolved for the merchant's Lightning address.</summary>
     public string? ForwardBolt11 { get; set; }
 
+    // ── Retry tracking ────────────────────────────────────────────────────────────
+
+    /// <summary>Number of background automatic retry attempts. Incremented by the reconciliation service.</summary>
+    public int RetryCount { get; set; }
+
+    /// <summary>
+    /// Set to true after <see cref="RetryCount"/> reaches the configured max (20).
+    /// Background reconciliation skips this row; only manual retry via UI/API can proceed.
+    /// </summary>
+    public bool NeedsManualReview { get; set; }
+
+    /// <summary>Machine-readable failure reason code from <c>CashuMeltFailureReasons</c>.</summary>
+    [MaxLength(100)]
+    public string? FailureReasonCode { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; }
 
     public DateTimeOffset? PaidAt { get; set; }

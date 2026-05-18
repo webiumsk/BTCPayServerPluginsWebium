@@ -72,5 +72,20 @@ public static class CashuMeltSchemaCreator
         await ctx.Database.ExecuteSqlRawAsync($@"
             CREATE INDEX IF NOT EXISTS ""IX_CashuMeltPaymentRequests_SettlementState"" 
             ON ""{schema}"".""CashuMeltPaymentRequests"" (""SettlementState"")", cancellationToken);
+
+        // 1.2.0 — retry tracking (also applied by EF migration AddRetryTracking when EF runs)
+        await ctx.Database.ExecuteSqlRawAsync(
+            $@"ALTER TABLE ""{schema}"".""CashuMeltPaymentRequests"" ADD COLUMN IF NOT EXISTS ""RetryCount"" integer NOT NULL DEFAULT 0",
+            cancellationToken);
+        await ctx.Database.ExecuteSqlRawAsync(
+            $@"ALTER TABLE ""{schema}"".""CashuMeltPaymentRequests"" ADD COLUMN IF NOT EXISTS ""NeedsManualReview"" boolean NOT NULL DEFAULT false",
+            cancellationToken);
+        await ctx.Database.ExecuteSqlRawAsync(
+            $@"ALTER TABLE ""{schema}"".""CashuMeltPaymentRequests"" ADD COLUMN IF NOT EXISTS ""FailureReasonCode"" varchar(100)",
+            cancellationToken);
+        await ctx.Database.ExecuteSqlRawAsync($@"
+            CREATE INDEX IF NOT EXISTS ""IX_CashuMeltPaymentRequests_NeedsManualReview""
+            ON ""{schema}"".""CashuMeltPaymentRequests"" (""NeedsManualReview"")
+            WHERE ""NeedsManualReview"" = true", cancellationToken);
     }
 }

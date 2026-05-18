@@ -37,19 +37,22 @@ public class CashuMeltApiController : ControllerBase
     private readonly CashuMeltPaymentService _paymentService;
     private readonly StoreRepository _storeRepository;
     private readonly PaymentMethodHandlerDictionary _handlers;
+    private readonly CashuMeltLightningAddressValidator _lightningAddressValidator;
 
     public CashuMeltApiController(
         CashuMeltConfigService configService,
         CashuMeltDbContextFactory dbContextFactory,
         CashuMeltPaymentService paymentService,
         StoreRepository storeRepository,
-        PaymentMethodHandlerDictionary handlers)
+        PaymentMethodHandlerDictionary handlers,
+        CashuMeltLightningAddressValidator lightningAddressValidator)
     {
         _configService    = configService;
         _dbContextFactory = dbContextFactory;
         _paymentService   = paymentService;
         _storeRepository  = storeRepository;
         _handlers         = handlers;
+        _lightningAddressValidator = lightningAddressValidator;
     }
 
     // ── Settings ───────────────────────────────────────────────────────────────
@@ -139,6 +142,9 @@ public class CashuMeltApiController : ControllerBase
             CashuMeltSettingsValidation.ValidateOptionalFeeCaps(
                 settings.MaxMeltFeeReserveSats,
                 settings.MaxMeltFeeReservePercentOfMinted);
+
+            if (settings.Enabled)
+                await _lightningAddressValidator.ValidateForPayoutAsync(settings.LightningAddress!, ct);
         }
         catch (InvalidOperationException ex)
         {
@@ -215,7 +221,10 @@ public class CashuMeltApiController : ControllerBase
                 r.SettlementReference,
                 r.CreatedAt,
                 r.PaidAt,
-                r.SettledAt
+                r.SettledAt,
+                r.RetryCount,
+                r.NeedsManualReview,
+                r.FailureReasonCode
             })
             .ToListAsync(ct);
 
@@ -234,7 +243,10 @@ public class CashuMeltApiController : ControllerBase
                 r.SettledAt,
                 string.IsNullOrEmpty(mintBase)
                     ? null
-                    : CashuMeltNutsUrls.MintQuoteBolt11PollUrl(mintBase, r.QuoteId)))
+                    : CashuMeltNutsUrls.MintQuoteBolt11PollUrl(mintBase, r.QuoteId),
+                r.RetryCount,
+                r.NeedsManualReview,
+                r.FailureReasonCode))
             .ToList();
 
         return Ok(new { total, offset, limit, items });
@@ -258,7 +270,8 @@ public class CashuMeltApiController : ControllerBase
         return Ok(new CashuMeltPaymentResponse(
             r.QuoteId, r.InvoiceId, r.AmountSats, r.Unit,
             r.State, r.SettlementState, r.SettlementError, r.SettlementReference,
-            r.CreatedAt, r.PaidAt, r.SettledAt, poll));
+            r.CreatedAt, r.PaidAt, r.SettledAt, poll,
+            r.RetryCount, r.NeedsManualReview, r.FailureReasonCode));
     }
 
     /// <summary>
@@ -305,5 +318,8 @@ public class CashuMeltApiController : ControllerBase
         DateTimeOffset CreatedAt,
         DateTimeOffset? PaidAt,
         DateTimeOffset? SettledAt,
-        string? MintQuotePollUrl);
+        string? MintQuotePollUrl,
+        int RetryCount,
+        bool NeedsManualReview,
+        string? FailureReasonCode);
 }

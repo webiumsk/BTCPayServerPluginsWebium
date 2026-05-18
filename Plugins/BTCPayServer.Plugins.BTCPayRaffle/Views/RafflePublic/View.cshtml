@@ -1,0 +1,156 @@
+@using BTCPayServer.Plugins.BTCPayRaffle.Data.Entities
+@model BTCPayServer.Plugins.BTCPayRaffle.ViewModels.RafflePublicViewModel
+@{
+    ViewData["Title"] = Model.Raffle.Name;
+    Layout = "_LayoutSimple";
+    var r = Model.Raffle;
+}
+
+<style>
+.raffle-hero {
+    background: var(--btcpay-bg-secondary);
+    border: 1px solid var(--btcpay-body-border-medium);
+    border-radius:20px; padding:2rem; text-align:center; margin-bottom:2rem;
+}
+.raffle-hero h1 { font-size:2rem; font-weight:800; color:var(--btcpay-body-text); }
+.raffle-stats { display:flex; justify-content:center; gap:2.5rem; margin-top:1.5rem; }
+.stat-value { font-size:2rem; font-weight:900; color:var(--btcpay-primary); }
+.stat-label { font-size:.8rem; color:var(--btcpay-body-text-muted); text-transform:uppercase; letter-spacing:.05em; }
+.buy-card { background:var(--btcpay-bg-tile,#fff); border:1px solid var(--btcpay-body-border-medium); border-radius:16px; padding:2rem; margin-bottom:2rem; }
+.ticket-counter { display:flex; align-items:center; width:fit-content; }
+.counter-btn {
+    width:44px; height:44px; border:2px solid var(--btcpay-body-border-medium);
+    background:var(--btcpay-body-bg); font-size:1.3rem; font-weight:700;
+    cursor:pointer; border-radius:8px 0 0 8px; transition:background .15s; user-select:none;
+}
+.counter-btn:last-of-type { border-radius:0 8px 8px 0; }
+.counter-input {
+    width:72px; height:44px; border:2px solid var(--btcpay-body-border-medium);
+    border-left:none; border-right:none; text-align:center;
+    font-size:1.3rem; font-weight:700; background:var(--btcpay-body-bg);
+    color:var(--btcpay-body-text); outline:none;
+}
+.counter-input::-webkit-outer-spin-button,.counter-input::-webkit-inner-spin-button{-webkit-appearance:none}
+.counter-input[type=number]{-moz-appearance:textfield}
+.price-summary {
+    background:var(--btcpay-bg-secondary); border:1px solid var(--btcpay-body-border-medium);
+    border-radius:12px; padding:1rem 1.5rem; font-size:1.15rem; margin-bottom:1.5rem; text-align:center;
+    color:var(--btcpay-body-text);
+}
+.price-summary strong { color:var(--btcpay-primary); }
+.btn-buy {
+    width:100%; background:linear-gradient(135deg,#f7931a,#e07800); color:#fff;
+    border:none; border-radius:12px; padding:1rem; font-size:1.15rem; font-weight:800;
+    cursor:pointer; box-shadow:0 6px 20px rgba(247,147,26,.35); transition:all .2s;
+}
+.btn-buy:hover { background:linear-gradient(135deg,#ffaa00,#f07800); transform:translateY(-2px); }
+</style>
+
+<div style="max-width:680px;margin:0 auto;padding:1rem">
+
+    <div class="raffle-hero">
+        <h1>🎟️ @r.Name</h1>
+        @if (r.Description is { Length: > 0 })
+        {
+            <p style="color:rgba(255,255,255,.75);margin-top:.5rem">@r.Description</p>
+        }
+        <div class="raffle-stats">
+            <div>
+                <div class="stat-value">@r.TicketPriceSats</div>
+                <div class="stat-label">sats / ticket</div>
+            </div>
+            <div>
+                <div class="stat-value">@Model.TicketsSold</div>
+                <div class="stat-label">tickets sold</div>
+            </div>
+            @if (r.MaxTickets.HasValue)
+            {
+                <div>
+                    <div class="stat-value">@(r.MaxTickets - Model.TicketsSold)</div>
+                    <div class="stat-label">remaining</div>
+                </div>
+            }
+        </div>
+    </div>
+
+    @if (r.Status == RaffleStatus.Open)
+    {
+        <div class="buy-card">
+            <h3 class="mb-4">Buy Tickets</h3>
+            <form asp-controller="RafflePublic" asp-action="Buy"
+                  asp-route-raffleId="@r.Id" method="post" asp-antiforgery="true">
+
+                <div class="mb-4">
+                    <label class="form-label fw-semibold">Number of tickets</label>
+                    <div class="ticket-counter">
+                        <button type="button" class="counter-btn" id="dec">−</button>
+                        <input type="number" name="TicketCount" id="ticketCount"
+                               value="1" min="1"
+                               max="@(r.MaxTickets.HasValue ? (r.MaxTickets - Model.TicketsSold) : 100)"
+                               class="counter-input" />
+                        <button type="button" class="counter-btn" id="inc">+</button>
+                    </div>
+                </div>
+
+                <div class="price-summary" id="priceSummary">
+                    Total: <strong id="totalPrice">@r.TicketPriceSats sats</strong>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">Email <small class="text-secondary">(optional — receive ticket numbers)</small></label>
+                    <input type="email" name="BuyerEmail" class="form-control" placeholder="you@example.com" />
+                </div>
+                <div class="mb-4">
+                    <label class="form-label">Name <small class="text-secondary">(optional)</small></label>
+                    <input type="text" name="BuyerName" class="form-control" placeholder="Jane Doe" />
+                </div>
+                <button type="submit" class="btn-buy">⚡ Pay via Lightning</button>
+            </form>
+        </div>
+    }
+    else if (r.Status is RaffleStatus.Closed or RaffleStatus.Drawing)
+    {
+        <div class="text-center py-4" style="background:var(--btcpay-bg-secondary);border:1px solid var(--btcpay-body-border-medium);border-radius:16px;margin-bottom:2rem">
+            <div style="font-size:2.5rem">🔒</div>
+            <h4 class="mt-2">Ticket sales have ended</h4>
+            <p class="mb-0 text-secondary">The draw is in progress.</p>
+        </div>
+    }
+    else if (r.Status == RaffleStatus.Completed)
+    {
+        <div class="alert alert-success text-center py-4">
+            <div style="font-size:2.5rem">🏆</div>
+            <h4>Raffle Complete</h4>
+            @foreach (var d in r.Drawings.OrderByDescending(d => d.DrawOrder))
+            {
+                var total = r.Drawings.Count;
+                <div class="mt-2">
+                    @(d.DrawOrder == total ? "🥇" : d.DrawOrder == total-1 ? "🥈" : d.DrawOrder == total-2 ? "🥉" : "🎖️")
+                    Ticket <strong>#@d.WinningTicket.TicketNumber</strong>
+                    @if (d.WinningTicket.BuyerName is { Length: > 0 } n) { <span class="text-secondary"> — @n</span> }
+                </div>
+            }
+        </div>
+    }
+
+    <!-- Share QR -->
+    <div class="text-center mt-3 p-3" style="background:var(--btcpay-bg-secondary);border:1px solid var(--btcpay-body-border-medium);border-radius:12px">
+        <p class="text-secondary small mb-2">Share this raffle</p>
+        <img src="@Model.QrCodeDataUrl" class="rounded" style="max-width:160px" alt="QR code" />
+    </div>
+
+</div>
+
+@section PageFootContent {
+<script>
+const ppt = @r.TicketPriceSats;
+const inp = document.getElementById('ticketCount');
+const tot = document.getElementById('totalPrice');
+const dec = document.getElementById('dec');
+const inc = document.getElementById('inc');
+function upd() { tot.textContent = ((parseInt(inp.value)||1)*ppt).toLocaleString()+' sats'; }
+inp.addEventListener('input', upd);
+dec.addEventListener('click', () => { if(parseInt(inp.value)>1){inp.value--;upd();} });
+inc.addEventListener('click', () => { inp.value=(parseInt(inp.value)||1)+1; upd(); });
+</script>
+}

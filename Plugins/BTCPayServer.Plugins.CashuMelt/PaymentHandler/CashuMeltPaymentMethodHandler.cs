@@ -67,23 +67,9 @@ public class CashuMeltPaymentMethodHandler : IPaymentMethodHandler
 
         var invoice = context.InvoiceEntity;
         var due = context.Prompt.Calculate().Due;
-
-        long amountSats;
         string unit = settings.Unit ?? "sat";
-
-        if (unit == "usd")
-        {
-            // Due is in USD (cents or dollars - divisibility 2 means cents)
-            amountSats = (long)Math.Round(due * 100_000_000); // Treat due as USD, convert to "sats" equivalent for mint (some mints use usd as unit with different scale)
-            // Actually for usd unit, mint might expect amount in cents. Let me check NUT-23 - unit is "sat" or "usd". For usd, the amount might be in smallest unit. Common: usd = cents (1 USD = 100). So amount 1000 = $10.
-            amountSats = (long)Math.Round(due * 100); // if due is in USD (e.g. 10.50), then 10.50*100 = 1050 cents
-        }
-        else
-        {
-            // Due is in BTC
-            amountSats = (long)Math.Round(due * 100_000_000);
-            if (amountSats < 1) amountSats = 1;
-        }
+        long amountSats = CashuMeltAmountCalculator.ComputeMintAmount(
+            invoice.Currency, invoice.Price, due, unit);
 
         var quote = await _mintClient.CreateMintQuoteAsync(settings.MintUrl, amountSats, unit);
         if (quote == null || string.IsNullOrEmpty(quote.Quote) || string.IsNullOrEmpty(quote.Request))

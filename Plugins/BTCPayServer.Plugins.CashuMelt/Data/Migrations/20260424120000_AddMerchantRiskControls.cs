@@ -1,3 +1,5 @@
+using BTCPayServer.Plugins.CashuMelt.Data;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
@@ -5,6 +7,8 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace BTCPayServer.Plugins.CashuMelt.Data.Migrations;
 
 /// <inheritdoc />
+[DbContext(typeof(CashuMeltDbContext))]
+[Migration("20260424120000_AddMerchantRiskControls")]
 public partial class AddMerchantRiskControls : Migration
 {
     private const string Schema = "BTCPayServer.Plugins.CashuMelt";

@@ -38,6 +38,7 @@ public class CashuMeltPlugin : BaseBTCPayServerPlugin
 
         // ── Services ─────────────────────────────────────────────────────────
         services.AddSingleton<CashuMeltConfigService>();
+        services.AddSingleton<CashuMeltLightningAddressValidator>();
         services.AddSingleton<StoreLightningBackendService>();
         services.AddTransient<CashuMeltPaymentService>();
         services.AddHostedService<CashuMeltReconciliationHostedService>();

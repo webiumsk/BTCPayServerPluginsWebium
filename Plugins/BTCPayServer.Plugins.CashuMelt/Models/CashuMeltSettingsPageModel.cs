@@ -30,4 +30,7 @@ public record CashuMeltRecentPaymentRow(
     DateTimeOffset CreatedAt,
     bool CanRetry,
     string? Bolt11Invoice,
-    string MintQuotePollUrl);
+    string MintQuotePollUrl,
+    bool NeedsManualReview,
+    int RetryCount,
+    string? FailureReasonCode);

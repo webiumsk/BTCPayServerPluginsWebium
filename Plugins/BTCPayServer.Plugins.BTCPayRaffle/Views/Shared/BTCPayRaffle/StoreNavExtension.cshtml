@@ -1,0 +1,21 @@
+@using BTCPayServer.Abstractions.Contracts
+@using BTCPayServer.Abstractions.Extensions
+@using BTCPayServer.Client
+@using BTCPayServer.Abstractions.Constants
+@inject IScopeProvider ScopeProvider
+@{
+    var storeId = ScopeProvider.GetCurrentStoreId();
+}
+@if (!string.IsNullOrEmpty(storeId))
+{
+    <li class="nav-item">
+        <a permission="@Policies.CanModifyStoreSettings"
+           layout-menu-item="BTCPayRaffle"
+           asp-controller="UIRaffle"
+           asp-action="Index"
+           asp-route-storeId="@storeId">
+            <vc:icon symbol="shop" />
+            <span>Raffles</span>
+        </a>
+    </li>
+}

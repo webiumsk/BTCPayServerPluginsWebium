@@ -1,0 +1,59 @@
+@model BTCPayServer.Plugins.BTCPayRaffle.ViewModels.CreateEditRaffleViewModel
+@{
+    ViewData["Title"] = "New Raffle";
+}
+
+<div class="row">
+    <div class="col-xl-6">
+        <h2 class="mb-4">🎟️ New Raffle</h2>
+        <div class="card">
+            <div class="card-body">
+                <form method="post" asp-antiforgery="true">
+                    <div class="mb-3">
+                        <label asp-for="Name" class="form-label fw-semibold"></label>
+                        <input asp-for="Name" class="form-control" placeholder="e.g. Christmas Raffle 2025" autofocus />
+                        <span asp-validation-for="Name" class="text-danger small"></span>
+                    </div>
+                    <div class="mb-3">
+                        <label asp-for="Description" class="form-label fw-semibold">Description (optional)</label>
+                        <textarea asp-for="Description" class="form-control" rows="3"
+                                  placeholder="Describe the raffle and its prizes..."></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label asp-for="TicketPriceSats" class="form-label fw-semibold"></label>
+                        <div class="input-group">
+                            <input asp-for="TicketPriceSats" class="form-control" type="number" min="1" />
+                            <span class="input-group-text">sats</span>
+                        </div>
+                        <div class="form-text" id="btcHint"></div>
+                        <span asp-validation-for="TicketPriceSats" class="text-danger small"></span>
+                    </div>
+                    <div class="mb-4">
+                        <label asp-for="MaxTickets" class="form-label fw-semibold"></label>
+                        <input asp-for="MaxTickets" class="form-control" type="number" min="1"
+                               placeholder="Leave blank for unlimited" />
+                        <span asp-validation-for="MaxTickets" class="text-danger small"></span>
+                    </div>
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn btn-primary">Create Raffle</button>
+                        <a asp-action="Index" asp-route-storeId="@ViewContext.RouteData.Values["storeId"]"
+                           class="btn btn-secondary">Cancel</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section PageHeadContent {
+<script>
+const inp = document.getElementById('TicketPriceSats');
+const hint = document.getElementById('btcHint');
+function refresh() {
+    const sats = parseInt(inp.value) || 0;
+    hint.textContent = `≈ ${(sats / 1e8).toFixed(8)} BTC`;
+}
+inp.addEventListener('input', refresh);
+refresh();
+</script>
+}

@@ -1,0 +1,165 @@
+@using BTCPayServer.Plugins.BTCPayRaffle.Data.Entities
+@model BTCPayServer.Plugins.BTCPayRaffle.ViewModels.RaffleManageViewModel
+@{
+    ViewData["Title"] = Model.Raffle.Name;
+    var r = Model.Raffle;
+    var (cls, label) = r.Status switch
+    {
+        RaffleStatus.Draft     => ("secondary", "Draft"),
+        RaffleStatus.Open      => ("success",   "Sales Open"),
+        RaffleStatus.Closed    => ("warning",   "Sales Closed"),
+        RaffleStatus.Drawing   => ("info",      "Drawing"),
+        RaffleStatus.Completed => ("dark",      "Completed"),
+        _                      => ("light",     r.Status.ToString())
+    };
+}
+
+<div class="d-flex justify-content-between align-items-start mb-3">
+    <div>
+        <a asp-action="Index" asp-route-storeId="@Model.StoreId" class="btn btn-sm btn-link ps-0">← Raffles</a>
+        <h2 class="mb-0">@r.Name</h2>
+    </div>
+    <span class="badge bg-@cls fs-6">@label</span>
+</div>
+
+<div class="row g-4">
+    <div class="col-lg-7">
+        <!-- Stats -->
+        <div class="row g-3 mb-4">
+            <div class="col-4">
+                <div class="card text-center h-100">
+                    <div class="card-body py-3">
+                        <div class="fs-1 fw-bold text-primary">@Model.TotalTicketsSold</div>
+                        <small class="text-secondary">Tickets sold</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-4">
+                <div class="card text-center h-100">
+                    <div class="card-body py-3">
+                        <div class="fs-2 fw-bold">@r.TicketPriceSats</div>
+                        <small class="text-secondary">sats / ticket</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-4">
+                <div class="card text-center h-100">
+                    <div class="card-body py-3">
+                        <div class="fs-2 fw-bold text-success">@Model.TotalRevenueSats</div>
+                        <small class="text-secondary">total sats</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        @if (r.Description is { Length: > 0 })
+        {
+            <div class="card mb-4">
+                <div class="card-body">
+                    <h5 class="card-title">Description</h5>
+                    <p class="mb-0">@r.Description</p>
+                </div>
+            </div>
+        }
+
+        <!-- Actions -->
+        <div class="card mb-4">
+            <div class="card-body">
+                <h5 class="card-title">Actions</h5>
+                <div class="d-flex flex-wrap gap-2">
+                    @if (r.Status == RaffleStatus.Draft)
+                    {
+                        <a asp-action="Edit" asp-route-storeId="@Model.StoreId"
+                           asp-route-raffleId="@r.Id" class="btn btn-outline-secondary">
+                            ✏️ Edit
+                        </a>
+                        <form method="post" asp-action="Open" asp-route-storeId="@Model.StoreId"
+                              asp-route-raffleId="@r.Id" asp-antiforgery="true">
+                            <button class="btn btn-success">🚀 Publish &amp; Open Sales</button>
+                        </form>
+                    }
+                    @if (r.Status == RaffleStatus.Open)
+                    {
+                        <a href="@Model.PublicUrl" target="_blank" class="btn btn-outline-primary">
+                            👁️ View Public Page
+                        </a>
+                        <form method="post" asp-action="CloseSales" asp-route-storeId="@Model.StoreId"
+                              asp-route-raffleId="@r.Id" asp-antiforgery="true"
+                              onsubmit="return confirm('Close ticket sales?')">
+                            <button class="btn btn-warning">🔒 Close Sales</button>
+                        </form>
+                    }
+                    @if (r.Status is RaffleStatus.Closed or RaffleStatus.Drawing)
+                    {
+                        <a asp-action="Draw" asp-route-storeId="@Model.StoreId"
+                           asp-route-raffleId="@r.Id" class="btn btn-danger btn-lg">
+                            🎲 Start Drawing
+                        </a>
+                    }
+                    @if (r.Status == RaffleStatus.Drawing)
+                    {
+                        <form method="post" asp-action="Complete" asp-route-storeId="@Model.StoreId"
+                              asp-route-raffleId="@r.Id" asp-antiforgery="true"
+                              onsubmit="return confirm('Mark raffle as completed?')">
+                            <button class="btn btn-dark">✅ Complete Raffle</button>
+                        </form>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <!-- Ticket list -->
+        @if (r.Tickets.Any())
+        {
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span>Sold Tickets</span>
+                    <small class="text-secondary">@r.Tickets.Count total</small>
+                </div>
+                <div class="table-responsive" style="max-height:300px;overflow-y:auto">
+                    <table class="table table-sm mb-0">
+                        <thead class="sticky-top bg-body">
+                            <tr>
+                                <th>#</th><th>Time</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var t in r.Tickets.OrderBy(t => t.TicketNumber))
+                            {
+                                <tr>
+                                    <td><strong>#@t.TicketNumber</strong></td>
+                                    <td class="text-secondary small">@t.AllocatedAt.LocalDateTime.ToString("MM-dd HH:mm")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
+    </div>
+
+    <!-- QR code -->
+    <div class="col-lg-5">
+        @if (r.Status != RaffleStatus.Draft)
+        {
+            <div class="card text-center">
+                <div class="card-body">
+                    <h5 class="card-title">Public Raffle URL</h5>
+                    <img src="@Model.QrCodeDataUrl" class="img-fluid mb-3 rounded"
+                         style="max-width:220px" alt="Raffle QR code" />
+                    <div class="input-group input-group-sm">
+                        <input type="text" class="form-control font-monospace"
+                               id="pubUrl" value="@Model.PublicUrl" readonly />
+                        <button class="btn btn-outline-secondary" type="button"
+                                onclick="navigator.clipboard.writeText(document.getElementById('pubUrl').value)">
+                            Copy
+                        </button>
+                    </div>
+                    <p class="text-secondary small mt-2">
+                        Display this QR code at your event — visitors scan it to buy tickets.
+                    </p>
+                </div>
+            </div>
+        }
+    </div>
+</div>

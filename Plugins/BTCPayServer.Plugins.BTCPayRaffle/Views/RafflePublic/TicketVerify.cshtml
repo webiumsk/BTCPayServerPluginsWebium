@@ -1,0 +1,100 @@
+@using BTCPayServer.Plugins.BTCPayRaffle.Data.Entities
+@model BTCPayServer.Plugins.BTCPayRaffle.ViewModels.TicketVerifyViewModel
+@{
+    ViewData["Title"] = "Ticket Verification";
+    Layout = "_LayoutSimple";
+
+    var isCompleted = Model.Raffle.Status == RaffleStatus.Completed;
+    var isDrawing   = Model.Raffle.Status is RaffleStatus.Closed or RaffleStatus.Drawing;
+
+    // Prize rank: last drawn (highest DrawOrder) = 1st prize
+    string? prizeName = null;
+    if (Model.IsWinner && Model.DrawOrder.HasValue && Model.TotalDrawings > 0)
+    {
+        var rank = Model.TotalDrawings - Model.DrawOrder.Value + 1;
+        prizeName = rank switch { 1 => "1st Prize 🥇", 2 => "2nd Prize 🥈", 3 => "3rd Prize 🥉", _ => $"Prize #{rank}" };
+    }
+}
+
+<style>
+.verify-page { max-width:480px; margin:0 auto; padding:1.5rem; }
+.ticket-card {
+    background:var(--btcpay-bg-tile, #fff);
+    border:2px solid var(--btcpay-body-border-medium); border-radius:16px;
+    padding:1.5rem; text-align:center; margin-bottom:1.5rem;
+}
+.ticket-number {
+    font-size:4rem; font-weight:900; font-family:monospace;
+    color:var(--btcpay-body-text); line-height:1; margin:.5rem 0;
+}
+.raffle-name { font-size:.8rem; color:var(--btcpay-body-text-muted); text-transform:uppercase; letter-spacing:.06em; }
+.buyer-name  { font-size:.95rem; color:var(--btcpay-body-text-muted); margin-top:.25rem; }
+.status-box  { border-radius:12px; padding:1.25rem; text-align:center; }
+.status-box .status-icon { font-size:2.5rem; }
+.status-box .status-title { font-size:1.3rem; font-weight:700; margin:.4rem 0 .2rem; }
+.status-box .status-sub   { font-size:.9rem; opacity:.8; }
+.winner-box  { background:var(--btcpay-success-bg, #d1fae5); border:2px solid var(--btcpay-success, #16a34a); }
+.pending-box { background:var(--btcpay-warning-bg, #fef9c3); border:2px solid var(--btcpay-warning, #ca8a04); }
+.loser-box   { background:var(--btcpay-bg-secondary); border:2px solid var(--btcpay-body-border-medium); }
+</style>
+
+<div class="verify-page">
+
+    <div class="text-center mb-3">
+        <span style="font-size:2rem">🎟️</span>
+        <h4 class="mt-1 mb-0">Ticket Verification</h4>
+        <div class="text-secondary small">@Model.Raffle.Name</div>
+    </div>
+
+    <div class="ticket-card">
+        <div class="raffle-name">@Model.Raffle.Name</div>
+        <div class="ticket-number">#@Model.Ticket.TicketNumber</div>
+        @if (!string.IsNullOrEmpty(Model.Ticket.BuyerName))
+        {
+            <div class="buyer-name">@Model.Ticket.BuyerName</div>
+        }
+    </div>
+
+    @if (Model.IsWinner)
+    {
+        <div class="status-box winner-box">
+            <div class="status-icon">🏆</div>
+            <div class="status-title" style="color:var(--btcpay-success,#16a34a)">Winner!</div>
+            @if (prizeName is not null)
+            {
+                <div class="status-sub">@prizeName</div>
+            }
+        </div>
+    }
+    else if (!isCompleted && !isDrawing)
+    {
+        <div class="status-box pending-box">
+            <div class="status-icon">⏳</div>
+            <div class="status-title">Raffle in progress</div>
+            <div class="status-sub">Ticket sales are still open. Check back after the draw.</div>
+        </div>
+    }
+    else if (!isCompleted)
+    {
+        <div class="status-box pending-box">
+            <div class="status-icon">🎲</div>
+            <div class="status-title">Draw in progress</div>
+            <div class="status-sub">The draw has not yet finished. Results will appear here when complete.</div>
+        </div>
+    }
+    else
+    {
+        <div class="status-box loser-box">
+            <div class="status-icon">😔</div>
+            <div class="status-title">Not a winner</div>
+            <div class="status-sub">Better luck next time!</div>
+        </div>
+    }
+
+    <div class="text-center mt-4">
+        <a href="@Url.Action("View", "RafflePublic", new { raffleId = Model.Raffle.Id })" class="btn btn-outline-secondary btn-sm">
+            Back to raffle
+        </a>
+    </div>
+
+</div>
