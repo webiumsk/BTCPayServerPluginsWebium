@@ -250,8 +250,8 @@ public class RaffleApiController : ControllerBase
     private static object MapTicket(RaffleTicket t) => new
     {
         t.TicketNumber,
-        t.BuyerName,
-        t.BuyerEmail,
+        buyerName = RaffleBuyerDisplay.DisplayBuyerName(t.BuyerName),
+        buyerEmail = RaffleBuyerDisplay.MaskEmail(t.BuyerEmail),
         t.AllocatedAt,
         t.IsManual,
         receiptUrl = t.IsManual ? null : $"/raffle/receipt/{t.InvoiceId}"
@@ -261,8 +261,8 @@ public class RaffleApiController : ControllerBase
     {
         DrawOrder = d.DrawOrder,
         WinningTicketNumber = w.TicketNumber,
-        WinnerName = w.BuyerName,
-        WinnerEmail = w.BuyerEmail,
+        WinnerName = RaffleBuyerDisplay.DisplayBuyerName(w.BuyerName),
+        WinnerEmail = RaffleBuyerDisplay.MaskEmail(w.BuyerEmail),
         DrawnAt = d.DrawnAt
     };
 }

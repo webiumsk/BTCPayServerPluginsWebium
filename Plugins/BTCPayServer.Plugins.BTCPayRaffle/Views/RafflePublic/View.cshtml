@@ -79,6 +79,7 @@
             <h3 class="mb-4">Buy Tickets</h3>
             <form asp-controller="RafflePublic" asp-action="Buy"
                   asp-route-raffleId="@r.Id" method="post" asp-antiforgery="true">
+                <div asp-validation-summary="All" class="text-danger mb-3"></div>
 
                 <div class="mb-4">
                     <label class="form-label fw-semibold">Number of tickets</label>
@@ -97,12 +98,14 @@
                 </div>
 
                 <div class="mb-3">
-                    <label class="form-label">Email <small class="text-secondary">(optional — receive ticket numbers)</small></label>
-                    <input type="email" name="BuyerEmail" class="form-control" placeholder="you@example.com" />
+                    <label class="form-label fw-semibold">Email <span class="text-danger">*</span></label>
+                    <input type="email" name="BuyerEmail" class="form-control" placeholder="you@example.com" required />
+                    <div class="form-text">Required — your ticket numbers will be sent to this address.</div>
                 </div>
                 <div class="mb-4">
-                    <label class="form-label">Name <small class="text-secondary">(optional)</small></label>
-                    <input type="text" name="BuyerName" class="form-control" placeholder="Jane Doe" />
+                    <label class="form-label">Display name <small class="text-secondary">(optional)</small></label>
+                    <input type="text" name="BuyerName" class="form-control" placeholder="Nickname" maxlength="100" />
+                    <div class="form-text">Shown on the ticket list and during the draw (e.g. a nickname). Email is never shown in full.</div>
                 </div>
                 <button type="submit" class="btn-buy">⚡ Pay</button>
             </form>

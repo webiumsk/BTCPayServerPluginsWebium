@@ -44,8 +44,12 @@ public class RafflePublicController : Controller
     {
         var raffle = await _raffle.GetRaffleAsync(raffleId);
         if (raffle is null || raffle.Status == RaffleStatus.Draft) return NotFound();
+        return PublicRaffleView(raffle);
+    }
 
-        var pageUrl = Url.Action(nameof(View), "RafflePublic", new { raffleId }, Request.Scheme)!;
+    private IActionResult PublicRaffleView(Raffle raffle)
+    {
+        var pageUrl = Url.Action(nameof(View), "RafflePublic", new { raffleId = raffle.Id }, Request.Scheme)!;
         return View(new RafflePublicViewModel
         {
             Raffle = raffle,
@@ -66,7 +70,7 @@ public class RafflePublicController : Controller
             return RedirectToAction(nameof(View), new { raffleId });
 
         if (!ModelState.IsValid)
-            return View(vm);
+            return PublicRaffleView(raffle);
 
         if (raffle.MaxTickets.HasValue)
         {
@@ -75,7 +79,7 @@ public class RafflePublicController : Controller
             {
                 ModelState.AddModelError(nameof(vm.TicketCount),
                     $"Only {remaining} ticket(s) remaining");
-                return View(vm);
+                return PublicRaffleView(raffle);
             }
         }
 

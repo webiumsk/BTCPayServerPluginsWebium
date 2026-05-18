@@ -1,4 +1,5 @@
 @using BTCPayServer.Plugins.BTCPayRaffle.Data.Entities
+@using BTCPayServer.Plugins.BTCPayRaffle.Services
 @model BTCPayServer.Plugins.BTCPayRaffle.ViewModels.RaffleManageViewModel
 @{
     ViewData["Title"] = Model.Raffle.Name;
@@ -132,12 +133,13 @@
                             <input type="number" name="Count" value="1" min="1" max="100" class="form-control" />
                         </div>
                         <div class="col-sm-4">
-                            <label class="form-label small">Email (optional)</label>
-                            <input type="email" name="BuyerEmail" class="form-control" />
+                            <label class="form-label small">Email <span class="text-danger">*</span></label>
+                            <input type="email" name="BuyerEmail" class="form-control" required />
                         </div>
                         <div class="col-sm-4">
-                            <label class="form-label small">Name (optional)</label>
-                            <input type="text" name="BuyerName" class="form-control" />
+                            <label class="form-label small">Display name (optional)</label>
+                            <input type="text" name="BuyerName" class="form-control" placeholder="Nickname" maxlength="200" />
+                            <div class="form-text">Shown on the ticket list and during the draw (e.g. a nickname).</div>
                         </div>
                         <div class="col-sm-2">
                             <button type="submit" class="btn btn-primary w-100">Add</button>
@@ -171,7 +173,11 @@
                                         @if (t.IsManual) { <span class="badge bg-secondary ms-1">manual</span> }
                                     </td>
                                     <td class="small">
-                                        @(t.BuyerName ?? t.BuyerEmail ?? "—")
+                                        <div>@RaffleBuyerDisplay.DisplayBuyerName(t.BuyerName)</div>
+                                        @if (!string.IsNullOrEmpty(t.BuyerEmail))
+                                        {
+                                            <div class="text-secondary">@RaffleBuyerDisplay.MaskEmail(t.BuyerEmail)</div>
+                                        }
                                     </td>
                                     <td class="text-secondary small">@t.AllocatedAt.LocalDateTime.ToString("MM-dd HH:mm")</td>
                                 </tr>

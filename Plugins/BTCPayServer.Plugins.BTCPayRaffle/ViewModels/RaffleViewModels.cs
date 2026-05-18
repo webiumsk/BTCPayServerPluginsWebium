@@ -65,9 +65,10 @@ public class ManualTicketsViewModel
     [Display(Name = "Number of tickets")]
     public int Count { get; set; } = 1;
 
+    [Required]
     [EmailAddress]
-    [Display(Name = "Buyer email (optional)")]
-    public string? BuyerEmail { get; set; }
+    [Display(Name = "Buyer email")]
+    public string BuyerEmail { get; set; } = "";
 
     [MaxLength(200)]
     [Display(Name = "Buyer name (optional)")]
@@ -107,12 +108,13 @@ public class BuyTicketsViewModel
     [Display(Name = "Number of tickets")]
     public int TicketCount { get; set; } = 1;
 
+    [Required]
     [EmailAddress]
-    [Display(Name = "Your email (optional — we'll send your ticket numbers)")]
-    public string? BuyerEmail { get; set; }
+    [Display(Name = "Your email (required — we send your ticket numbers here)")]
+    public string BuyerEmail { get; set; } = "";
 
     [MaxLength(100)]
-    [Display(Name = "Your name (optional)")]
+    [Display(Name = "Display name (optional)")]
     public string? BuyerName { get; set; }
 }
 
@@ -162,7 +164,12 @@ public class AddManualTicketsRequest
 {
     [Required, Range(1, 100)]
     public int Count { get; set; } = 1;
-    public string? BuyerEmail { get; set; }
+
+    [Required]
+    [EmailAddress]
+    public string BuyerEmail { get; set; } = "";
+
+    [MaxLength(200)]
     public string? BuyerName { get; set; }
 }
 

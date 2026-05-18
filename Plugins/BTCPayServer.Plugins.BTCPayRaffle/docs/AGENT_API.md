@@ -146,15 +146,30 @@ The BTCPay store UI may still edit non-draft raffles under stricter rules; that 
 ```json
 {
   "ticketNumber": 1,
-  "buyerName": "string|null",
-  "buyerEmail": "string|null",
+  "buyerName": "Alice",
+  "buyerEmail": "a***@example.com",
   "allocatedAt": "2026-05-17T12:00:00Z",
   "isManual": false,
   "receiptUrl": "/raffle/receipt/{invoiceId}"
 }
 ```
 
+- `buyerName` is the display name, or `"—"` when not set (never falls back to email).
+- `buyerEmail` is masked (`a***@domain`); full addresses are not exposed in API responses.
 - `receiptUrl` is **`null`** for manual tickets.
+
+### Manual tickets — `POST .../tickets/manual`
+
+```json
+{
+  "count": 1,
+  "buyerEmail": "buyer@example.com",
+  "buyerName": "Nickname"
+}
+```
+
+- `buyerEmail` is **required** (valid email).
+- `buyerName` is optional (shown on ticket list and during draw).
 
 ### Draw result — `POST .../draw`, `GET .../drawings`
 
@@ -162,11 +177,13 @@ The BTCPay store UI may still edit non-draft raffles under stricter rules; that 
 {
   "drawOrder": 1,
   "winningTicketNumber": 42,
-  "winnerName": "string|null",
-  "winnerEmail": "string|null",
+  "winnerName": "Alice",
+  "winnerEmail": "a***@example.com",
   "drawnAt": "2026-05-17T20:00:00Z"
 }
 ```
+
+- `winnerName` / `winnerEmail` follow the same display rules as ticket `buyerName` / `buyerEmail`.
 
 Presenter UI `POST /raffle/{id}/present/draw` returns a compatible shape with `success: true` and `ticketNumber` (same semantics as UI draw).
 
