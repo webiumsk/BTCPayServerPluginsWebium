@@ -99,6 +99,7 @@ public class RafflePublicViewModel
     public string QrCodeDataUrl { get; set; } = "";
     public int TicketsSold { get; set; }
     public string TicketPriceDisplay { get; set; } = "";
+    public BuyTicketsViewModel BuyForm { get; set; } = new();
 }
 
 public class BuyTicketsViewModel

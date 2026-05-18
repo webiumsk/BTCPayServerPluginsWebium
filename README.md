@@ -14,7 +14,12 @@ Raffle / tombola plugin: sell numbered tickets through BTCPay checkout, email ti
 
 ## Build
 
-Requires the BTCPay Server codebase cloned as a sibling directory (`BTCPayServerPluginsKukks`) or `submodules/btcpayserver` in this repo.
+Requires the BTCPay Server source for `ProjectReference` builds. Use either layout:
+
+- **Sibling checkout** (typical): clone this repo and BTCPay Server next to each other, e.g. `../btcpayserver` or `../BTCPayServer` (directory name must match the path in each plugin `.csproj` / `build-plugin.sh`).
+- **Submodule in this repo**: `submodules/btcpayserver` (already wired in plugin projects here).
+
+`BTCPayServerPluginsKukks` is an older wrapper repo name some setups still use; it should contain the same BTCPay Server tree. **PluginPacker** for `.btcpay` packages may live under that wrapper’s `submodules/btcpayserver` — see each plugin’s `build-plugin.sh`.
 
 ```bash
 # Cashu Melt

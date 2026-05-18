@@ -47,7 +47,7 @@ public class RafflePublicController : Controller
         return PublicRaffleView(raffle);
     }
 
-    private IActionResult PublicRaffleView(Raffle raffle)
+    private IActionResult PublicRaffleView(Raffle raffle, BuyTicketsViewModel? buyForm = null)
     {
         var pageUrl = Url.Action(nameof(View), "RafflePublic", new { raffleId = raffle.Id }, Request.Scheme)!;
         return View(new RafflePublicViewModel
@@ -55,7 +55,8 @@ public class RafflePublicController : Controller
             Raffle = raffle,
             QrCodeDataUrl = QrCodeService.GenerateQrBase64(pageUrl),
             TicketsSold = raffle.Tickets.Count,
-            TicketPriceDisplay = RafflePricing.FormatTicketPrice(raffle)
+            TicketPriceDisplay = RafflePricing.FormatTicketPrice(raffle),
+            BuyForm = buyForm ?? new BuyTicketsViewModel()
         });
     }
 
@@ -63,35 +64,38 @@ public class RafflePublicController : Controller
 
     [HttpPost("{raffleId}/buy")]
     [ValidateAntiForgeryToken]
-    public async Task<IActionResult> Buy(Guid raffleId, BuyTicketsViewModel vm, CancellationToken ct)
+    public async Task<IActionResult> Buy(
+        Guid raffleId,
+        [Bind(Prefix = nameof(RafflePublicViewModel.BuyForm))] BuyTicketsViewModel buyForm,
+        CancellationToken ct)
     {
         var raffle = await _raffle.GetRaffleAsync(raffleId);
         if (raffle is null || raffle.Status != RaffleStatus.Open)
             return RedirectToAction(nameof(View), new { raffleId });
 
         if (!ModelState.IsValid)
-            return PublicRaffleView(raffle);
+            return PublicRaffleView(raffle, buyForm);
 
         if (raffle.MaxTickets.HasValue)
         {
             var remaining = raffle.MaxTickets.Value - raffle.Tickets.Count;
-            if (vm.TicketCount > remaining)
+            if (buyForm.TicketCount > remaining)
             {
-                ModelState.AddModelError(nameof(vm.TicketCount),
+                ModelState.AddModelError($"{nameof(RafflePublicViewModel.BuyForm)}.{nameof(BuyTicketsViewModel.TicketCount)}",
                     $"Only {remaining} ticket(s) remaining");
-                return PublicRaffleView(raffle);
+                return PublicRaffleView(raffle, buyForm);
             }
         }
 
         var store = await _storeRepo.FindStore(raffle.StoreId);
         if (store is null) return Problem("Store not found");
 
-        var totalAmount = raffle.TicketPrice * vm.TicketCount;
+        var totalAmount = raffle.TicketPrice * buyForm.TicketCount;
         var currency = raffle.TicketCurrency;
 
         // Raffle metadata stored in PosData — RaffleInvoiceWatcher reads it on payment confirmation
         var baseUrl = $"{Request.Scheme}://{Request.Host}";
-        var meta = new RaffleInvoiceMeta(raffleId, vm.TicketCount, vm.BuyerEmail, vm.BuyerName, baseUrl, raffle.Name);
+        var meta = new RaffleInvoiceMeta(raffleId, buyForm.TicketCount, buyForm.BuyerEmail, buyForm.BuyerName, baseUrl, raffle.Name);
 
         // entityManipulator gives access to the invoice ID before it's persisted,
         // so we can set the redirect URL to our per-invoice receipt page.
@@ -102,10 +106,10 @@ public class RafflePublicController : Controller
                 Currency = currency,
                 Metadata = new InvoiceMetadata
                 {
-                    BuyerEmail = vm.BuyerEmail,
-                    BuyerName = vm.BuyerName,
+                    BuyerEmail = buyForm.BuyerEmail,
+                    BuyerName = buyForm.BuyerName,
                     ItemCode = $"raffle-{raffleId}",
-                    ItemDesc = $"{raffle.Name} — {vm.TicketCount}× ticket",
+                    ItemDesc = $"{raffle.Name} — {buyForm.TicketCount}× ticket",
                     PosData = JObject.FromObject(meta)
                 }.ToJObject()
             },

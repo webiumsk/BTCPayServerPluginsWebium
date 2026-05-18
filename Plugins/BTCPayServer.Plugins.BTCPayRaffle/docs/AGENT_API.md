@@ -192,7 +192,7 @@ Presenter UI `POST /raffle/{id}/present/draw` returns a compatible shape with `s
 ```json
 {
   "token": "protected-string",
-  "expiresAt": "2026-05-17T24:00:00Z",
+  "expiresAt": "2026-05-18T00:00:00Z",
   "presenterUrl": "https://btcpay.example.com/raffle/{raffleId}/present?token=..."
 }
 ```

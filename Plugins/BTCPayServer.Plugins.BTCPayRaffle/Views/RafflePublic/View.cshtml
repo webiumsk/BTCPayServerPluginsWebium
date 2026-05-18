@@ -82,15 +82,15 @@
                 <div asp-validation-summary="All" class="text-danger mb-3"></div>
 
                 <div class="mb-4">
-                    <label class="form-label fw-semibold">Number of tickets</label>
+                    <label class="form-label fw-semibold" asp-for="BuyForm.TicketCount"></label>
                     <div class="ticket-counter">
                         <button type="button" class="counter-btn" id="dec">−</button>
-                        <input type="number" name="TicketCount" id="ticketCount"
-                               value="1" min="1"
+                        <input asp-for="BuyForm.TicketCount" id="ticketCount" min="1"
                                max="@(r.MaxTickets.HasValue ? (r.MaxTickets - Model.TicketsSold) : 100)"
                                class="counter-input" />
                         <button type="button" class="counter-btn" id="inc">+</button>
                     </div>
+                    <span asp-validation-for="BuyForm.TicketCount" class="text-danger small"></span>
                 </div>
 
                 <div class="price-summary" id="priceSummary">
@@ -98,13 +98,17 @@
                 </div>
 
                 <div class="mb-3">
-                    <label class="form-label fw-semibold">Email <span class="text-danger">*</span></label>
-                    <input type="email" name="BuyerEmail" class="form-control" placeholder="you@example.com" required />
+                    <label class="form-label fw-semibold" asp-for="BuyForm.BuyerEmail"></label>
+                    <span class="text-danger">*</span>
+                    <input asp-for="BuyForm.BuyerEmail" class="form-control" placeholder="you@example.com" />
+                    <span asp-validation-for="BuyForm.BuyerEmail" class="text-danger small"></span>
                     <div class="form-text">Required — your ticket numbers will be sent to this address.</div>
                 </div>
                 <div class="mb-4">
-                    <label class="form-label">Display name <small class="text-secondary">(optional)</small></label>
-                    <input type="text" name="BuyerName" class="form-control" placeholder="Nickname" maxlength="100" />
+                    <label class="form-label" asp-for="BuyForm.BuyerName"></label>
+                    <small class="text-secondary">(optional)</small>
+                    <input asp-for="BuyForm.BuyerName" class="form-control" placeholder="Nickname" />
+                    <span asp-validation-for="BuyForm.BuyerName" class="text-danger small"></span>
                     <div class="form-text">Shown on the ticket list and during the draw (e.g. a nickname). Email is never shown in full.</div>
                 </div>
                 <button type="submit" class="btn-buy">⚡ Pay</button>
