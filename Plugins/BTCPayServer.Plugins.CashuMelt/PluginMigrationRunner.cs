@@ -1,3 +1,4 @@
+using System;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -48,14 +49,9 @@ public class PluginMigrationRunner : IStartupTask
 
         try
         {
-            var pending = await ctx.Database.GetPendingMigrationsAsync(cancellationToken);
-            if (pending.Any())
-            {
-                _logger.LogInformation("Applying {Count} CashuMelt migrations", pending.Count());
-                await ctx.Database.MigrateAsync(cancellationToken);
-            }
+            await ApplyEfMigrationsAsync(ctx, cancellationToken);
         }
-        catch (PostgresException ex) when (ex.SqlState is "42P01" or "42703")
+        catch (Exception ex)
         {
             _logger.LogWarning(ex, "CashuMelt EF migrations failed; falling back to raw SQL schema creator.");
         }
@@ -69,6 +65,29 @@ public class PluginMigrationRunner : IStartupTask
         // Stores configured via the API before this fix was deployed would be missing
         // this entry, causing "No wallet has been linked" errors on invoice creation.
         await EnsurePaymentMethodRegisteredAsync(ctx, cancellationToken);
+    }
+
+    private async Task ApplyEfMigrationsAsync(CashuMeltDbContext ctx, CancellationToken cancellationToken)
+    {
+        await CashuMeltEfMigrationBaseliner.TryBaselineAsync(ctx, _logger, cancellationToken);
+
+        var pending = await ctx.Database.GetPendingMigrationsAsync(cancellationToken);
+        if (!pending.Any())
+            return;
+
+        _logger.LogInformation("Applying {Count} CashuMelt migration(s)", pending.Count());
+        try
+        {
+            await ctx.Database.MigrateAsync(cancellationToken);
+        }
+        catch (PostgresException ex) when (ex.SqlState is "42P07" or "42701")
+        {
+            _logger.LogWarning(
+                "CashuMelt migration hit an already-existing object ({SqlState}); baselining history and retrying.",
+                ex.SqlState);
+            await CashuMeltEfMigrationBaseliner.TryBaselineAsync(ctx, _logger, cancellationToken);
+            await ctx.Database.MigrateAsync(cancellationToken);
+        }
     }
 
     /// <summary>

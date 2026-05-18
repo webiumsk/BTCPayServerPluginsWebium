@@ -1,4 +1,6 @@
 using System;
+using BTCPayServer.Plugins.CashuMelt.Data;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
@@ -6,6 +8,8 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace BTCPayServer.Plugins.CashuMelt.Data.Migrations
 {
     /// <inheritdoc />
+    [DbContext(typeof(CashuMeltDbContext))]
+    [Migration("20240319000000_InitialCreate")]
     public partial class InitialCreate : Migration
     {
         /// <inheritdoc />

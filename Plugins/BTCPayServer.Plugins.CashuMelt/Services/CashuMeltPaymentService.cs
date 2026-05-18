@@ -237,7 +237,8 @@ public class CashuMeltPaymentService
             {
                 _mintQuotePollBackoff.TryRemove(quoteId, out _);
                 var hardErr = pollResult.ErrorMessage ?? "Failed to get quote status from mint";
-                await MarkFailedAsync(ctx, req, CashuMeltObservability.PhaseMintPoll, hardErr, ct);
+                await MarkFailedAsync(ctx, req, CashuMeltObservability.PhaseMintPoll, hardErr, ct,
+                    CashuMeltFailureReasons.MintPollError);
                 return (false, hardErr, null);
             }
 
@@ -271,7 +272,8 @@ public class CashuMeltPaymentService
             if (string.IsNullOrWhiteSpace(settings.LightningAddress))
             {
                 await MarkFailedAsync(ctx, req, CashuMeltObservability.PhaseForward,
-                    "No Lightning address configured for merchant payout.", ct);
+                    "No Lightning address configured for merchant payout.", ct,
+                    CashuMeltFailureReasons.LightningAddressUnresolvable);
                 return (false, req.SettlementError, null);
             }
 
@@ -294,10 +296,10 @@ public class CashuMeltPaymentService
             }
             else
             {
-                var (mintedProofs, mintError) = await MintProofsAsync(settings, req, mintQuote.State, ctx, ct);
+                var (mintedProofs, mintError, mintReasonCode) = await MintProofsAsync(settings, req, mintQuote.State, ctx, ct);
                 if (mintError is not null)
                 {
-                    await MarkFailedAsync(ctx, req, CashuMeltObservability.PhaseMintProof, mintError, ct);
+                    await MarkFailedAsync(ctx, req, CashuMeltObservability.PhaseMintProof, mintError, ct, mintReasonCode);
                     return (false, mintError, null);
                 }
                 proofs = mintedProofs!;
@@ -369,8 +371,12 @@ public class CashuMeltPaymentService
         if (string.IsNullOrEmpty(r.MintedProofsJson) && r.SettlementState == "FAILED")
             return new CashuMeltRetryOutcome(CashuMeltRetryKind.CannotRetryMissingProofs);
 
+        // Manual retry resets escalation state so background reconciliation can resume.
         r.SettlementState = "PENDING";
         r.SettlementError = null;
+        r.NeedsManualReview = false;
+        r.RetryCount = 0;
+        r.FailureReasonCode = null;
         await ctx.SaveChangesAsync(ct);
 
         var (paid, error, retryAfter) = await CheckAndRecordPaymentAsync(quoteId, ct);
@@ -382,21 +388,24 @@ public class CashuMeltPaymentService
         CashuMeltPaymentRequest req,
         string phase,
         string error,
-        CancellationToken ct)
+        CancellationToken ct,
+        string? reasonCode = null)
     {
         if (req.SettlementState is "SETTLED" or "FAILED")
             return;
         var e = error.Length > 500 ? error[..500] : error;
         req.SettlementState = "FAILED";
         req.SettlementError = e;
+        req.FailureReasonCode = reasonCode;
         await ctx.SaveChangesAsync(ct);
         _logger.LogWarning(
-            "{Event} phase={Phase} invoice={InvoiceId} quote={QuoteId} amountSat={AmountSat} msg={Detail}",
+            "{Event} phase={Phase} invoice={InvoiceId} quote={QuoteId} amountSat={AmountSat} reasonCode={ReasonCode} msg={Detail}",
             CashuMeltObservability.TagSettlementFailed,
             phase,
             req.InvoiceId,
             req.QuoteId,
             req.AmountSats,
+            reasonCode ?? "unclassified",
             e);
     }
 
@@ -412,7 +421,7 @@ public class CashuMeltPaymentService
     // Step 2: Mint proofs (NUT-05)
     // ──────────────────────────────────────────────────────────────
 
-    private async Task<(CashuMeltProof[]? Proofs, string? Error)> MintProofsAsync(
+    private async Task<(CashuMeltProof[]? Proofs, string? Error, string? ReasonCode)> MintProofsAsync(
         CashuMeltStoreSettings settings,
         CashuMeltPaymentRequest req,
         string mintQuoteState,
@@ -424,11 +433,11 @@ public class CashuMeltPaymentService
             string.Equals(k.Unit, req.Unit, StringComparison.OrdinalIgnoreCase));
 
         if (keyset is null)
-            return (null, $"No keyset for unit '{req.Unit}' found on mint {settings.MintUrl}");
+            return (null, $"No keyset for unit '{req.Unit}' found on mint {settings.MintUrl}", CashuMeltFailureReasons.MintProofFailed);
 
         var denominations = CashuMeltCrypto.DecomposeAmount(req.AmountSats);
         if (denominations.Length == 0)
-            return (null, $"Cannot decompose amount {req.AmountSats}");
+            return (null, $"Cannot decompose amount {req.AmountSats}", CashuMeltFailureReasons.MintProofFailed);
 
         var blindingData = new (string secretHex, byte[] r)[denominations.Length];
         var outputs = new BlindedMessage[denominations.Length];
@@ -439,7 +448,7 @@ public class CashuMeltPaymentService
             var denomKey = denominations[i].ToString();
 
             if (!keyset.Keys.TryGetValue(denomKey, out _))
-                return (null, $"Mint has no key for denomination {denom} in keyset {keyset.Id}");
+                return (null, $"Mint has no key for denomination {denom} in keyset {keyset.Id}", CashuMeltFailureReasons.MintProofFailed);
 
             var secretHex = Convert.ToHexString(
                 System.Security.Cryptography.RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
@@ -458,11 +467,24 @@ public class CashuMeltPaymentService
         catch (Exception ex)
         {
             _logger.LogError(ex, "MintTokens call failed for invoice {InvoiceId} quote {QuoteId}", req.InvoiceId, req.QuoteId);
-            return (null, $"Mint refused to issue tokens: {ex.Message}");
+            return (null, $"Mint refused to issue tokens: {ex.Message}", CashuMeltFailureReasons.MintProofFailed);
         }
 
         if (mintResp?.Signatures is null || mintResp.Signatures.Length != denominations.Length)
-            return (null, "Mint returned unexpected number of signatures");
+            return (null, "Mint returned unexpected number of signatures", CashuMeltFailureReasons.MintProofFailed);
+
+        // Verify all returned signatures belong to the expected keyset (keyset conflict detection).
+        for (int i = 0; i < mintResp.Signatures.Length; i++)
+        {
+            if (mintResp.Signatures[i].Id != keyset.Id)
+            {
+                var conflict = $"Mint returned signature with unexpected keyset ID '{mintResp.Signatures[i].Id}' (expected '{keyset.Id}'). Refusing mint to prevent keyset collision.";
+                _logger.LogWarning(
+                    "cashumelt_keyset_conflict invoice={InvoiceId} quote={QuoteId} expectedKeysetId={Expected} actualKeysetId={Actual}",
+                    req.InvoiceId, req.QuoteId, keyset.Id, mintResp.Signatures[i].Id);
+                return (null, conflict, CashuMeltFailureReasons.KeysetConflict);
+            }
+        }
 
         var proofs = new CashuMeltProof[denominations.Length];
         for (int i = 0; i < denominations.Length; i++)
@@ -470,7 +492,7 @@ public class CashuMeltPaymentService
             var sig = mintResp.Signatures[i];
 
             if (!keyset.Keys.TryGetValue(denominations[i].ToString(), out var mintPubKeyHex))
-                return (null, $"Keyset missing key for denomination {denominations[i]}");
+                return (null, $"Keyset missing key for denomination {denominations[i]}", CashuMeltFailureReasons.MintProofFailed);
 
             var (secretHex, r) = blindingData[i];
             var C_hex = sig.C_;
@@ -493,7 +515,7 @@ public class CashuMeltPaymentService
             proofs.Sum(p => p.Amount),
             proofs.Length);
 
-        return (proofs, null);
+        return (proofs, null, null);
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -516,18 +538,9 @@ public class CashuMeltPaymentService
 
         if (forwardSat <= 0)
         {
-            req.SettlementState = "FAILED";
-            req.SettlementError =
-                $"Amount ({totalMintedSat} sat) too small to cover routing fee buffer ({feeBuffer} sat)";
-            await ctx.SaveChangesAsync(ct);
-            _logger.LogWarning(
-                "{Event} phase={Phase} invoice={InvoiceId} quote={QuoteId} amountSat={AmountSat} msg={Detail}",
-                CashuMeltObservability.TagSettlementFailed,
-                CashuMeltObservability.PhaseForward,
-                req.InvoiceId,
-                req.QuoteId,
-                totalMintedSat,
-                req.SettlementError);
+            await MarkFailedAsync(ctx, req, CashuMeltObservability.PhaseForward,
+                $"Amount ({totalMintedSat} sat) too small to cover routing fee buffer ({feeBuffer} sat)",
+                ct, CashuMeltFailureReasons.AmountTooSmall);
             return (false, req.SettlementError, false);
         }
 
@@ -548,17 +561,16 @@ public class CashuMeltPaymentService
         }
         catch (Exception ex)
         {
-            req.SettlementState = "FAILED";
-            req.SettlementError = $"Could not resolve Lightning address: {ex.Message}";
-            await ctx.SaveChangesAsync(ct);
+            await MarkFailedAsync(ctx, req, CashuMeltObservability.PhaseForward,
+                $"Could not resolve Lightning address: {ex.Message}", ct,
+                CashuMeltFailureReasons.LightningAddressUnresolvable);
             _logger.LogError(ex,
-                "{Event} phase={Phase} invoice={InvoiceId} quote={QuoteId} amountSat={AmountSat} msg={Detail}",
+                "{Event} phase={Phase} invoice={InvoiceId} quote={QuoteId} amountSat={AmountSat}",
                 CashuMeltObservability.TagSettlementFailed,
                 CashuMeltObservability.PhaseForward,
                 req.InvoiceId,
                 req.QuoteId,
-                totalMintedSat,
-                req.SettlementError);
+                totalMintedSat);
             return (false, req.SettlementError, false);
         }
 
@@ -597,32 +609,24 @@ public class CashuMeltPaymentService
         }
         catch (Exception ex)
         {
-            req.SettlementState = "FAILED";
-            req.SettlementError = $"Melt quote request failed: {ex.Message}";
-            await ctx.SaveChangesAsync(ct);
+            await MarkFailedAsync(ctx, req, CashuMeltObservability.PhaseForward,
+                $"Melt quote request failed: {ex.Message}", ct,
+                CashuMeltFailureReasons.MeltQuoteFailed);
             _logger.LogError(ex,
-                "{Event} phase={Phase} invoice={InvoiceId} quote={QuoteId} amountSat={AmountSat} msg={Detail}",
-                CashuMeltObservability.TagSettlementFailed,
-                CashuMeltObservability.PhaseForward,
-                req.InvoiceId,
-                req.QuoteId,
-                totalMintedSat,
-                req.SettlementError);
-            return (false, req.SettlementError, false);
-        }
-
-        if (meltQuote is null)
-        {
-            req.SettlementState = "FAILED";
-            req.SettlementError = "Mint returned no melt quote";
-            await ctx.SaveChangesAsync(ct);
-            _logger.LogWarning(
-                "{Event} phase={Phase} invoice={InvoiceId} quote={QuoteId} amountSat={AmountSat} msg=no_melt_quote",
+                "{Event} phase={Phase} invoice={InvoiceId} quote={QuoteId} amountSat={AmountSat}",
                 CashuMeltObservability.TagSettlementFailed,
                 CashuMeltObservability.PhaseForward,
                 req.InvoiceId,
                 req.QuoteId,
                 totalMintedSat);
+            return (false, req.SettlementError, false);
+        }
+
+        if (meltQuote is null)
+        {
+            await MarkFailedAsync(ctx, req, CashuMeltObservability.PhaseForward,
+                "Mint returned no melt quote", ct,
+                CashuMeltFailureReasons.MeltQuoteFailed);
             return (false, req.SettlementError, false);
         }
 
@@ -633,16 +637,14 @@ public class CashuMeltPaymentService
             settings.MaxMeltFeeReservePercentOfMinted);
         if (feeCapErr is not null)
         {
-            req.SettlementState = "FAILED";
-            req.SettlementError = feeCapErr;
-            await ctx.SaveChangesAsync(ct);
+            await MarkFailedAsync(ctx, req, CashuMeltObservability.PhaseForward,
+                feeCapErr, ct, CashuMeltFailureReasons.FeeTooHigh);
             _logger.LogWarning(
-                "{Event} phase={Phase} invoice={InvoiceId} quote={QuoteId} amountSat={AmountSat} feeReserve={FeeReserve} msg=fee_cap",
+                "{Event} phase={Phase} invoice={InvoiceId} quote={QuoteId} feeReserve={FeeReserve} msg=fee_cap",
                 CashuMeltObservability.TagSettlementFailed,
                 CashuMeltObservability.PhaseForward,
                 req.InvoiceId,
                 req.QuoteId,
-                totalMintedSat,
                 meltQuote.FeeReserve);
             return (false, feeCapErr, false);
         }
@@ -650,18 +652,17 @@ public class CashuMeltPaymentService
         long totalNeeded = meltQuote.Amount + meltQuote.FeeReserve;
         if (totalNeeded > totalMintedSat)
         {
-            req.SettlementState = "FAILED";
-            req.SettlementError =
+            var feeErr =
                 $"Lightning routing fee reserve ({meltQuote.FeeReserve} sat) is too high for this payment ({totalMintedSat} sat minted). " +
                 "Try a slightly larger amount or adjust the merchant Lightning address limits.";
-            await ctx.SaveChangesAsync(ct);
+            await MarkFailedAsync(ctx, req, CashuMeltObservability.PhaseForward,
+                feeErr, ct, CashuMeltFailureReasons.FeeTooHigh);
             _logger.LogWarning(
-                "{Event} phase={Phase} invoice={InvoiceId} quote={QuoteId} amountSat={AmountSat} feeReserve={FeeReserve} msg=fee_reserve_exceeds_minted",
+                "{Event} phase={Phase} invoice={InvoiceId} quote={QuoteId} feeReserve={FeeReserve} msg=fee_reserve_exceeds_minted",
                 CashuMeltObservability.TagSettlementFailed,
                 CashuMeltObservability.PhaseForward,
                 req.InvoiceId,
                 req.QuoteId,
-                totalMintedSat,
                 meltQuote.FeeReserve);
             return (false, req.SettlementError, false);
         }
@@ -711,17 +712,8 @@ public class CashuMeltPaymentService
         if (meltResp is null || !meltResp.Paid)
         {
             var err = meltResp is null ? "Mint returned empty melt response" : "Mint did not confirm Lightning payment";
-            req.SettlementState = "FAILED";
-            req.SettlementError = err;
-            await ctx.SaveChangesAsync(ct);
-            _logger.LogWarning(
-                "{Event} phase={Phase} invoice={InvoiceId} quote={QuoteId} amountSat={AmountSat} msg={Detail}",
-                CashuMeltObservability.TagSettlementFailed,
-                CashuMeltObservability.PhaseForward,
-                req.InvoiceId,
-                req.QuoteId,
-                totalMintedSat,
-                err);
+            await MarkFailedAsync(ctx, req, CashuMeltObservability.PhaseForward, err, ct,
+                CashuMeltFailureReasons.MeltFailed);
             return (false, err, false);
         }
 

@@ -34,6 +34,7 @@ public class UICashuMeltController : Controller
     private readonly CashuMeltPaymentService _paymentService;
     private readonly PaymentMethodHandlerDictionary _handlers;
     private readonly StoreLightningBackendService _backendService;
+    private readonly CashuMeltLightningAddressValidator _lightningAddressValidator;
 
     public UICashuMeltController(
         StoreRepository storeRepository,
@@ -41,7 +42,8 @@ public class UICashuMeltController : Controller
         CashuMeltDbContextFactory dbContextFactory,
         CashuMeltPaymentService paymentService,
         PaymentMethodHandlerDictionary handlers,
-        StoreLightningBackendService backendService)
+        StoreLightningBackendService backendService,
+        CashuMeltLightningAddressValidator lightningAddressValidator)
     {
         _storeRepository = storeRepository;
         _configService = configService;
@@ -49,6 +51,7 @@ public class UICashuMeltController : Controller
         _paymentService = paymentService;
         _handlers = handlers;
         _backendService = backendService;
+        _lightningAddressValidator = lightningAddressValidator;
     }
 
     private void PopulateLightningBackendViewData(StoreData store)
@@ -200,6 +203,18 @@ public class UICashuMeltController : Controller
                 {
                     ModelState.AddModelError(string.Empty, ex.Message);
                 }
+
+                if (ModelState.IsValid && model.Enabled && !string.IsNullOrWhiteSpace(model.LightningAddress))
+                {
+                    try
+                    {
+                        await _lightningAddressValidator.ValidateForPayoutAsync(model.LightningAddress);
+                    }
+                    catch (InvalidOperationException ex)
+                    {
+                        ModelState.AddModelError(nameof(model.LightningAddress), ex.Message);
+                    }
+                }
             }
 
             if (!ModelState.IsValid)
@@ -261,7 +276,7 @@ public class UICashuMeltController : Controller
     private IActionResult ExportPaymentsCsv(string storeId, CashuMeltSettingsPageModel page)
     {
         var sb = new StringBuilder();
-        sb.AppendLine("quote_id,invoice_id,amount_sats,unit,mint_state,settlement_state,created_utc,settlement_error,mint_quote_poll_url");
+        sb.AppendLine("quote_id,invoice_id,amount_sats,unit,mint_state,settlement_state,retry_count,needs_manual_review,failure_reason_code,created_utc,settlement_error,mint_quote_poll_url");
         foreach (var r in page.RecentPayments)
         {
             static string Csv(string? s)
@@ -276,6 +291,9 @@ public class UICashuMeltController : Controller
                 .Append(Csv("sat")).Append(',')
                 .Append(Csv(r.State)).Append(',')
                 .Append(Csv(r.SettlementState)).Append(',')
+                .Append(r.RetryCount.ToString(CultureInfo.InvariantCulture)).Append(',')
+                .Append(r.NeedsManualReview ? "true" : "false").Append(',')
+                .Append(Csv(r.FailureReasonCode)).Append(',')
                 .Append(Csv(r.CreatedAt.UtcDateTime.ToString("O", CultureInfo.InvariantCulture))).Append(',')
                 .Append(Csv(r.SettlementError)).Append(',')
                 .Append(Csv(r.MintQuotePollUrl))
@@ -323,7 +341,10 @@ public class UICashuMeltController : Controller
                 r.SettlementError,
                 r.CreatedAt,
                 r.MintedProofsJson,
-                r.Bolt11Invoice
+                r.Bolt11Invoice,
+                r.NeedsManualReview,
+                r.RetryCount,
+                r.FailureReasonCode
             })
             .ToListAsync();
 
@@ -338,7 +359,10 @@ public class UICashuMeltController : Controller
                 r.CreatedAt,
                 CanRetryForRow(r.SettlementState, r.MintedProofsJson),
                 r.Bolt11Invoice,
-                CashuMeltNutsUrls.MintQuoteBolt11PollUrl(mintBase, r.QuoteId)))
+                CashuMeltNutsUrls.MintQuoteBolt11PollUrl(mintBase, r.QuoteId),
+                r.NeedsManualReview,
+                r.RetryCount,
+                r.FailureReasonCode))
             .ToList();
 
         return new CashuMeltSettingsPageModel

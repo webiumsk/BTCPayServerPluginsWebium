@@ -1,4 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk.Razor">
+
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <LangVersion>13</LangVersion>
@@ -6,9 +7,9 @@
   </PropertyGroup>
 
   <PropertyGroup>
-    <Product>Cashu Melt</Product>
-    <Description>Cashu-assisted checkout: mint quote, forward to merchant Lightning address after melt, optional fee caps and trusted mint list, background reconciliation. Does not custodian customer ecash.</Description>
-    <Version>1.2.0.3</Version>
+    <Product>BTCPay Raffle</Product>
+    <Description>Raffle / tombola plugin for BTCPay Server. Organise Lightning-powered ticket sales, perform live prize draws with animated slot-machine UI, and distribute verifiable digital tickets to buyers.</Description>
+    <Version>1.0.0.3</Version>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
   </PropertyGroup>
 
@@ -27,16 +28,14 @@
   </ItemDefinitionGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.0" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.1" />
     <PackageReference Include="QRCoder" Version="1.7.0" />
   </ItemGroup>
 
-
   <ItemGroup>
     <!--
       BTCPay Server reference — paths tried in order:
-        1. BTCPay official plugin builder: btcpayserver as submodule in this repo (submodules/btcpayserver)
+        1. Official plugin builder: btcpayserver as submodule in this repo (submodules/btcpayserver)
         2. Local dev: btcpayserver cloned as sibling to the repo root (../../../btcpayserver)
         3. Local dev fallback: BTCPayServerPluginsKukks sibling directory
     -->
@@ -47,4 +46,5 @@
     <ProjectReference Include="..\..\..\BTCPayServerPluginsKukks\submodules\btcpayserver\BTCPayServer\BTCPayServer.csproj"
                       Condition="!Exists('..\..\submodules\btcpayserver\BTCPayServer\BTCPayServer.csproj') And !Exists('..\..\..\btcpayserver\BTCPayServer\BTCPayServer.csproj')" />
   </ItemGroup>
+
 </Project>

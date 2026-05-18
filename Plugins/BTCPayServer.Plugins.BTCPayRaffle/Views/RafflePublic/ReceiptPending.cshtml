@@ -1,0 +1,33 @@
+@model string
+@{
+    ViewData["Title"] = "Processing Payment";
+    Layout = "_LayoutSimple";
+    var invoiceId = Model;
+}
+
+<style>
+.pending-page { max-width:520px; margin:4rem auto; padding:1rem; text-align:center; }
+.spinner-ring {
+    width:80px; height:80px; margin:0 auto 2rem;
+    border:6px solid var(--btcpay-body-border-medium);
+    border-top-color:#f7931a; border-radius:50%;
+    animation:spin 1s linear infinite;
+}
+@@keyframes spin { to { transform:rotate(360deg); } }
+</style>
+
+<div class="pending-page">
+    <div class="spinner-ring"></div>
+    <h3>Confirming your payment…</h3>
+    <p class="text-secondary">Your tickets are being allocated. This page will refresh automatically.</p>
+    <p class="text-secondary small mt-3">Invoice: <code>@invoiceId</code></p>
+</div>
+
+@section PageFootContent {
+<script>
+// Poll until tickets are allocated (invoice confirmed by watcher)
+(function poll() {
+    setTimeout(function () { window.location.reload(); }, 4000);
+})();
+</script>
+}

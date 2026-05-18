@@ -1,0 +1,78 @@
+@using BTCPayServer.Plugins.BTCPayRaffle.Data.Entities
+@model BTCPayServer.Plugins.BTCPayRaffle.ViewModels.RaffleAdminListViewModel
+@{
+    ViewData["Title"] = "Raffles";
+}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2 class="mb-0">🎰 Raffles</h2>
+    <a asp-action="Create" asp-route-storeId="@Model.StoreId" class="btn btn-primary">
+        <span class="fa fa-plus"></span> New Raffle
+    </a>
+</div>
+
+@if (!Model.Raffles.Any())
+{
+    <div class="text-center py-5 text-secondary">
+        <div class="mb-3" style="font-size:3rem">🎟️</div>
+        <p>No raffles yet. Create your first one!</p>
+        <a asp-action="Create" asp-route-storeId="@Model.StoreId" class="btn btn-primary">Create Raffle</a>
+    </div>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table table-hover">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Ticket Price</th>
+                    <th>Tickets Sold</th>
+                    <th>Status</th>
+                    <th>Created</th>
+                    <th class="text-end"></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var r in Model.Raffles)
+                {
+                    <tr>
+                        <td><strong>@r.Name</strong></td>
+                        <td>@r.TicketPriceSats sats</td>
+                        <td>@r.Tickets.Count @(r.MaxTickets.HasValue ? $"/ {r.MaxTickets}" : "")</td>
+                        <td>
+                            @{
+                                var (cls, label) = r.Status switch
+                                {
+                                    RaffleStatus.Draft     => ("secondary", "Draft"),
+                                    RaffleStatus.Open      => ("success",   "Sales Open"),
+                                    RaffleStatus.Closed    => ("warning",   "Sales Closed"),
+                                    RaffleStatus.Drawing   => ("info",      "Drawing"),
+                                    RaffleStatus.Completed => ("dark",      "Completed"),
+                                    _                      => ("light",     r.Status.ToString())
+                                };
+                            }
+                            <span class="badge bg-@cls">@label</span>
+                        </td>
+                        <td class="text-secondary" style="font-size:.85em">
+                            @r.CreatedAt.LocalDateTime.ToString("yyyy-MM-dd")
+                        </td>
+                        <td class="text-end">
+                            <a asp-action="Manage" asp-route-storeId="@Model.StoreId"
+                               asp-route-raffleId="@r.Id" class="btn btn-sm btn-outline-primary">
+                                Manage
+                            </a>
+                            @if (r.Status is RaffleStatus.Closed or RaffleStatus.Drawing)
+                            {
+                                <a asp-action="Draw" asp-route-storeId="@Model.StoreId"
+                                   asp-route-raffleId="@r.Id" class="btn btn-sm btn-danger ms-1">
+                                    🎲 Draw
+                                </a>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}

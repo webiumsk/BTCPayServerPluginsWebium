@@ -1,0 +1,112 @@
+@model BTCPayServer.Plugins.BTCPayRaffle.ViewModels.ReceiptViewModel
+@{
+    ViewData["Title"] = "Your Tickets — " + Model.Raffle.Name;
+    Layout = "_LayoutSimple";
+}
+
+<style>
+.receipt-page { max-width:680px; margin:0 auto; padding:1rem; }
+.receipt-header {
+    background:linear-gradient(135deg,#1a1a2e,#0f3460); color:#fff;
+    border-radius:16px; padding:2rem; text-align:center; margin-bottom:2rem;
+}
+.ticket {
+    display:flex; min-height:98px; border-radius:12px; overflow:hidden;
+    box-shadow:0 4px 12px rgba(0,0,0,.1);
+    border:2px solid var(--btcpay-body-border-medium); margin-bottom:.75rem;
+}
+.ticket-winner { border-color:#ffd700; box-shadow:0 4px 20px rgba(255,215,0,.3); }
+.ticket-stub {
+    flex:1; background:linear-gradient(135deg,#1a1a2e,#0f3460); color:#fff;
+    padding:.75rem 1.25rem; display:flex; flex-direction:column; justify-content:center;
+}
+.ticket-winner .ticket-stub { background:linear-gradient(135deg,#7c3f00,#c8a000); }
+.ticket-raffle { font-size:.7rem; opacity:.65; text-transform:uppercase; letter-spacing:.05em; }
+.ticket-number { font-size:2.4rem; font-weight:900; color:#ffd700; font-family:monospace; line-height:1; }
+.ticket-winner .ticket-number { color:#1a1a2e; }
+.ticket-tear {
+    width:18px;
+    background: repeating-linear-gradient(to bottom,var(--btcpay-body-border-medium) 0,var(--btcpay-body-border-medium) 4px,transparent 4px,transparent 8px);
+    border-left:2px dashed var(--btcpay-body-border-medium); border-right:2px dashed var(--btcpay-body-border-medium);
+}
+.ticket-side {
+    width:90px; background:var(--btcpay-body-bg-light);
+    display:flex; align-items:center; justify-content:center; padding:4px;
+}
+.ticket-side img { border-radius:4px; display:block; }
+.verify-section { text-align:center; border:2px solid var(--btcpay-body-border-medium); border-radius:16px; padding:1.5rem; margin-top:1.5rem; }
+@@media print { nav,footer,.btn,.verify-section,.receipt-header~div { display:none!important; } }
+</style>
+
+<div class="receipt-page">
+
+    <div class="receipt-header">
+        <div style="font-size:3rem">🎟️</div>
+        <h2>Your Tickets</h2>
+        <p style="color:rgba(255,255,255,.7)">@Model.Raffle.Name</p>
+    </div>
+
+    @foreach (var ticket in Model.Tickets)
+    {
+        var won = Model.WinningNumbers.Contains(ticket.TicketNumber);
+        <div class="ticket @(won ? "ticket-winner" : "")">
+            <div class="ticket-stub">
+                <div class="ticket-raffle">@Model.Raffle.Name</div>
+                <div class="ticket-number">#@ticket.TicketNumber</div>
+                @if (won) { <div style="font-size:.75rem;font-weight:700;color:#1a1a2e;background:#ffd700;padding:.1rem .4rem;border-radius:4px;width:fit-content;margin-top:.2rem">🏆 WINNER</div> }
+            </div>
+            <div class="ticket-tear"></div>
+            <div class="ticket-side">
+                @if (Model.TicketQrCodes.TryGetValue(ticket.Id, out var qr))
+                {
+                    <img src="@qr" width="80" height="80" alt="Ticket QR" title="Scan to verify" />
+                }
+            </div>
+        </div>
+    }
+
+    <div class="mt-3 p-3" style="background:var(--btcpay-body-bg-light);border-radius:12px">
+        <div class="d-flex justify-content-between py-1 border-bottom">
+            <span>Tickets:</span> <strong>@Model.Tickets.Count</strong>
+        </div>
+        <div class="d-flex justify-content-between py-1 border-bottom">
+            <span>Numbers:</span>
+            <strong>@string.Join(", ", Model.Tickets.Select(t => $"#{t.TicketNumber}"))</strong>
+        </div>
+        <div class="d-flex justify-content-between py-1">
+            <span>Paid:</span>
+            <strong>@(Model.Raffle.TicketPriceSats * Model.Tickets.Count) sats</strong>
+        </div>
+    </div>
+
+    <!-- Winner announcement -->
+    @if (Model.WinningNumbers.Any())
+    {
+        var myWin = Model.Tickets.Where(t => Model.WinningNumbers.Contains(t.TicketNumber)).Select(t => t.TicketNumber).ToList();
+        <div class="alert @(myWin.Any() ? "alert-success" : "alert-secondary") mt-3">
+            @if (myWin.Any())
+            {
+                <strong>🏆 Congratulations! Your winning ticket(s): @string.Join(", ", myWin.Select(n => $"#{n}"))</strong><br />
+                <small>Show this QR code to claim your prize.</small>
+            }
+            else
+            {
+                <text>The winning numbers were: @string.Join(", ", Model.WinningNumbers.Select(n => $"#{n}"))</text>
+            }
+        </div>
+    }
+
+    <!-- Proof of purchase QR -->
+    <div class="verify-section">
+        <h5>Proof of Purchase</h5>
+        <p class="text-secondary small">
+            Save or screenshot this page. This URL proves you own these tickets.
+        </p>
+        <img src="@Model.QrCodeDataUrl" class="rounded" style="max-width:160px" alt="Receipt QR" />
+        <div class="mt-2">
+            <input class="form-control form-control-sm font-monospace" value="@Model.VerifyUrl" readonly />
+        </div>
+        <button onclick="window.print()" class="btn btn-sm btn-outline-secondary mt-2">🖨️ Print</button>
+    </div>
+
+</div>
