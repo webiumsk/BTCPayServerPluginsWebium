@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Globalization;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Json;
+using System.Net.Sockets;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
@@ -107,17 +109,45 @@ public class CashuMeltMintClient
             var quote = await JsonSerializer.DeserializeAsync<MintQuoteBolt11Response>(stream, JsonOptions, ct);
             return new MintQuotePollResult(true, false, null, null, quote);
         }
-        catch (HttpRequestException ex)
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
-            _logger.LogWarning(ex, "GetMintQuote network error for quote {QuoteId} (treating as transient)", quoteId);
-            return new MintQuotePollResult(false, true, 5, null, null);
-        }
-        catch (TaskCanceledException ex) when (!ct.IsCancellationRequested)
-        {
-            _logger.LogWarning(ex, "GetMintQuote timeout for quote {QuoteId} (treating as transient)", quoteId);
-            return new MintQuotePollResult(false, true, 5, null, null);
+            return HandleMintPollTransientFailure(mintBaseUrl, quoteId, ex);
         }
     }
+
+    private MintQuotePollResult HandleMintPollTransientFailure(string mintBaseUrl, string quoteId, Exception ex)
+    {
+        const int retryAfter = 5;
+        var reason = DescribePollFailure(ex);
+        var mintHost = TryGetMintHost(mintBaseUrl);
+        _logger.LogWarning(
+            "{Tag} phase={Phase} mintHost={MintHost} quote={QuoteId} reason={Reason} retryAfter={RetryAfter}s",
+            CashuMeltObservability.TagMintPollTransient,
+            CashuMeltObservability.PhaseMintPoll,
+            mintHost,
+            quoteId,
+            reason,
+            retryAfter);
+        return new MintQuotePollResult(false, true, retryAfter, null, null);
+    }
+
+    private static string TryGetMintHost(string mintBaseUrl)
+    {
+        if (Uri.TryCreate(mintBaseUrl, UriKind.Absolute, out var uri))
+            return uri.Host;
+        return mintBaseUrl;
+    }
+
+    private static string DescribePollFailure(Exception ex) => ex switch
+    {
+        TaskCanceledException => "request_timeout",
+        HttpRequestException { InnerException: SocketException se } => $"socket_{se.SocketErrorCode}",
+        HttpRequestException hre => string.IsNullOrWhiteSpace(hre.Message) ? "http_request_failed" : hre.Message,
+        SocketException se => $"socket_{se.SocketErrorCode}",
+        IOException => "io_error",
+        JsonException => "invalid_mint_json",
+        _ => ex.GetType().Name
+    };
 
     private static int? ParseRetryAfterSeconds(HttpResponseMessage resp)
     {

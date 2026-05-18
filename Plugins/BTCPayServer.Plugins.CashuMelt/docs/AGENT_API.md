@@ -64,3 +64,4 @@ On **`PUT /settings`**, use **camelCase** JSON keys (`mintUrl`, `lightningAddres
 
 - **Default**: 2–5 s between polls is reasonable; **if `retryAfterSeconds` is returned**, wait at least that many seconds before the next poll.
 - Server also enforces **per-quote backoff** on mint HTTP 429/500/502/503/504 so rapid polls do not hit the mint every 2 s.
+- **Mint unreachable** (DNS, firewall, `Network is unreachable`): checkout poll stays **200 OK** with `paid: false` and `retryAfterSeconds` (typically 5). Logs use `cashumelt_mint_poll_transient` without a full exception stack (≥ 1.2.0.4).

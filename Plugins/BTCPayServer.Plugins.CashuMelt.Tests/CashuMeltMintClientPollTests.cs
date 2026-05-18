@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using BTCPayServer.Plugins.CashuMelt.Services;
@@ -52,6 +53,26 @@ public sealed class CashuMeltMintClientPollTests
 
         Assert.False(r.Success);
         Assert.True(r.TransientFailure);
+        Assert.Null(r.Quote);
+    }
+
+    [Fact]
+    public async Task GetMintQuoteForPollAsync_NetworkUnreachable_ReturnsTransient_NoThrow()
+    {
+        var handler = new StubHandler
+        {
+            OnSend = (_, _) => throw new HttpRequestException(
+                "Network is unreachable (mint.minibits.cash:443)",
+                new SocketException((int)SocketError.NetworkUnreachable))
+        };
+        using var http = new HttpClient(handler);
+        var sut = new CashuMeltMintClient(http, NullLogger<CashuMeltMintClient>.Instance);
+
+        var r = await sut.GetMintQuoteForPollAsync("https://mint.minibits.cash", "quote-net", default);
+
+        Assert.False(r.Success);
+        Assert.True(r.TransientFailure);
+        Assert.Equal(5, r.RetryAfterSeconds);
         Assert.Null(r.Quote);
     }
 
