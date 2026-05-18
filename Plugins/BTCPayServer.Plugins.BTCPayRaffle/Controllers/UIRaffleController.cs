@@ -227,8 +227,8 @@ public class UIRaffleController : Controller
                 success = true,
                 drawOrder = drawing.DrawOrder,
                 ticketNumber = winner.TicketNumber,
-                winnerName = winner.BuyerName,
-                winnerEmail = winner.BuyerEmail,
+                winnerName = RaffleBuyerDisplay.DisplayBuyerName(winner.BuyerName),
+                winnerEmail = RaffleBuyerDisplay.MaskEmail(winner.BuyerEmail),
                 drawnAt = drawing.DrawnAt
             });
         }

@@ -316,7 +316,10 @@
     // ── Winner reveal ──────────────────────────────────────────────────
     function revealWinner(data) {
         winNum.textContent = `#${data.ticketNumber}`;
-        winInfo.textContent = [data.winnerName, data.winnerEmail].filter(Boolean).join(' · ') || 'Anonymous';
+        const parts = [];
+        if (data.winnerName && data.winnerName !== '—') parts.push(data.winnerName);
+        if (data.winnerEmail) parts.push(data.winnerEmail);
+        winInfo.textContent = parts.length ? parts.join(' · ') : 'Anonymous';
 
         const order = data.drawOrder;
         winBadge.textContent = `Draw #${order}`;
