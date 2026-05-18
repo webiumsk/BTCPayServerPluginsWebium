@@ -1,5 +1,19 @@
 # CashuMelt plugin — release notes
 
+## 1.2.0.4 (quieter mint poll logs for network errors)
+
+### Checkout poll when the mint is unreachable
+
+- `GET /plugins/cashumelt/poll/{quoteId}` already treated `HttpRequestException` (e.g. *Network is unreachable*) as **transient** with `retryAfterSeconds` — behavior unchanged.
+- Logs no longer attach the full exception stack for these expected failures; one line with `cashumelt_mint_poll_transient`, `mintHost`, `quote`, and `reason` (e.g. `socket_NetworkUnreachable`).
+- Broader catch covers timeouts, I/O errors, and invalid JSON from the mint on poll.
+
+### Upgrade
+
+Install **1.2.0.4**. If polls keep failing, verify connectivity from the BTCPay host to your configured `mintUrl` (e.g. `curl https://your-mint/v1/info`).
+
+---
+
 ## 1.2.0.3 (EF migration baseline for existing databases)
 
 ### Startup warning: `relation "CashuMeltStoreSettings" already exists`
