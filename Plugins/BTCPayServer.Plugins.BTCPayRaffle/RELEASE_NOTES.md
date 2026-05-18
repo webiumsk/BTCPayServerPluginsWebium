@@ -1,6 +1,6 @@
 # BTCPay Raffle plugin — release notes
 
-## 1.2.0.4 (buyer email required, privacy on display)
+## 1.2.0.2 (buyer email required, privacy on display)
 
 ### Public purchase & manual tickets
 
@@ -21,7 +21,7 @@
 ### Upgrade
 
 1. Back up PostgreSQL.
-2. Install **1.2.0.4** and restart BTCPay Server.
+2. Install **1.2.0.2** and restart BTCPay Server.
 3. No new database migration.
 
 ---
