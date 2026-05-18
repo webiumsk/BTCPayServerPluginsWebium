@@ -21,6 +21,8 @@ public class RaffleDbContext : DbContext
         {
             e.HasKey(r => r.Id);
             e.HasIndex(r => r.StoreId);
+            e.Property(r => r.TicketPrice).HasPrecision(18, 8);
+            e.Property(r => r.TicketCurrency).HasMaxLength(10);
             e.HasMany(r => r.Tickets)
                 .WithOne(t => t.Raffle)
                 .HasForeignKey(t => t.RaffleId)

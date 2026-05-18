@@ -22,10 +22,13 @@ public class RaffleService
         _logger = logger;
     }
 
-    // ── Raffle CRUD ──────────────────────────────────────────────────────────
-
     public async Task<Raffle> CreateRaffleAsync(
-        string storeId, string name, string? description, long priceSats, int? maxTickets = null)
+        string storeId,
+        string name,
+        string? description,
+        string ticketCurrency,
+        decimal ticketPrice,
+        int? maxTickets = null)
     {
         await using var ctx = _db.CreateContext();
         var raffle = new Raffle
@@ -33,9 +36,9 @@ public class RaffleService
             StoreId = storeId,
             Name = name,
             Description = description,
-            TicketPriceSats = priceSats,
             MaxTickets = maxTickets
         };
+        RafflePricing.ApplyPricing(raffle, ticketCurrency, ticketPrice);
         ctx.Raffles.Add(raffle);
         await ctx.SaveChangesAsync();
         return raffle;
@@ -61,19 +64,92 @@ public class RaffleService
             .ToListAsync();
     }
 
-    public async Task UpdateRaffleAsync(
-        Guid id, string name, string? description, long priceSats, int? maxTickets)
+    /// <summary>Greenfield / Satflux: only while <see cref="RaffleStatus.Draft"/>.</summary>
+    public async Task UpdateDraftRaffleAsync(
+        Guid id,
+        string name,
+        string? description,
+        string ticketCurrency,
+        decimal ticketPrice,
+        int? maxTickets)
     {
         await using var ctx = _db.CreateContext();
         var raffle = await ctx.Raffles.FindAsync(id)
             ?? throw new InvalidOperationException("Raffle not found");
+
         if (raffle.Status != RaffleStatus.Draft)
-            throw new InvalidOperationException("Only Draft raffles can be edited");
+            throw new InvalidOperationException("Only Draft raffles can be updated via the API");
+
         raffle.Name = name;
         raffle.Description = description;
-        raffle.TicketPriceSats = priceSats;
+        RafflePricing.ApplyPricing(raffle, ticketCurrency, ticketPrice);
         raffle.MaxTickets = maxTickets;
         await ctx.SaveChangesAsync();
+    }
+
+    /// <summary>BTCPay store UI: broader edit rules by status.</summary>
+    public async Task UpdateRaffleAsync(
+        Guid id,
+        string name,
+        string? description,
+        string? ticketCurrency,
+        decimal? ticketPrice,
+        int? maxTickets)
+    {
+        await using var ctx = _db.CreateContext();
+        var raffle = await ctx.Raffles.Include(r => r.Tickets).FirstOrDefaultAsync(r => r.Id == id)
+            ?? throw new InvalidOperationException("Raffle not found");
+
+        var ticketsSold = raffle.Tickets.Count;
+        var canEditPricing = raffle.Status switch
+        {
+            RaffleStatus.Draft => true,
+            RaffleStatus.Open => ticketsSold == 0,
+            _ => false
+        };
+        var canEditMaxTickets = canEditPricing;
+
+        if (raffle.Status is RaffleStatus.Completed)
+            throw new InvalidOperationException("Completed raffles cannot be edited");
+
+        raffle.Name = name;
+        raffle.Description = description;
+
+        if (ticketCurrency is not null && ticketPrice is not null)
+        {
+            if (!canEditPricing)
+                throw new InvalidOperationException(
+                    "Ticket price and currency can only be changed while the raffle is in Draft, or Open with no tickets sold");
+            RafflePricing.ApplyPricing(raffle, ticketCurrency, ticketPrice.Value);
+        }
+
+        if (maxTickets != raffle.MaxTickets)
+        {
+            if (!canEditMaxTickets)
+                throw new InvalidOperationException(
+                    "Max tickets can only be changed while the raffle is in Draft, or Open with no tickets sold");
+            if (maxTickets.HasValue && maxTickets.Value < ticketsSold)
+                throw new InvalidOperationException(
+                    $"Max tickets cannot be less than tickets already sold ({ticketsSold})");
+            raffle.MaxTickets = maxTickets;
+        }
+
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task DeleteRaffleAsync(Guid id)
+    {
+        await using var ctx = _db.CreateContext();
+        var raffle = await ctx.Raffles.FindAsync(id)
+            ?? throw new InvalidOperationException("Raffle not found");
+
+        if (raffle.Status is not (RaffleStatus.Draft or RaffleStatus.Completed))
+            throw new InvalidOperationException(
+                "Only Draft or Completed raffles can be deleted. Close sales and complete the raffle first, or delete while still in Draft.");
+
+        ctx.Raffles.Remove(raffle);
+        await ctx.SaveChangesAsync();
+        _logger.LogInformation("Deleted raffle {RaffleId} (status was {Status})", id, raffle.Status);
     }
 
     public async Task OpenRaffleAsync(Guid id)
@@ -107,15 +183,12 @@ public class RaffleService
         await ctx.SaveChangesAsync();
     }
 
-    // ── Ticket Allocation ────────────────────────────────────────────────────
-
-    /// <summary>
-    /// Allocates ticket numbers after a payment is confirmed.
-    /// Idempotent: a second call for the same invoiceId returns the existing tickets with isNew=false.
-    /// </summary>
     public async Task<(List<RaffleTicket> Tickets, bool IsNew)> AllocateTicketsAsync(
         string invoiceId, Guid raffleId, int count, string? buyerEmail, string? buyerName)
     {
+        if (RaffleTicketIds.IsManual(invoiceId))
+            throw new InvalidOperationException("Invalid invoice id for paid allocation");
+
         await using var ctx = _db.CreateContext();
 
         var existing = await ctx.RaffleTickets
@@ -130,19 +203,7 @@ public class RaffleService
         if (raffle.Status != RaffleStatus.Open)
             throw new InvalidOperationException("Raffle is not accepting ticket purchases");
 
-        var nextNumber = raffle.Tickets.Count == 0
-            ? 1
-            : raffle.Tickets.Max(t => t.TicketNumber) + 1;
-
-        var tickets = Enumerable.Range(0, count).Select(i => new RaffleTicket
-        {
-            RaffleId = raffleId,
-            TicketNumber = nextNumber + i,
-            InvoiceId = invoiceId,
-            BuyerEmail = buyerEmail,
-            BuyerName = buyerName
-        }).ToList();
-
+        var tickets = CreateTicketEntities(raffle, count, invoiceId, buyerEmail, buyerName, isManual: false);
         ctx.RaffleTickets.AddRange(tickets);
         await ctx.SaveChangesAsync();
 
@@ -153,22 +214,40 @@ public class RaffleService
         return (tickets, true);
     }
 
-    public async Task<(RaffleTicket? Ticket, Raffle? Raffle)> GetTicketWithDetailsAsync(Guid ticketId)
+    public async Task<List<RaffleTicket>> AddManualTicketsAsync(
+        Guid raffleId, int count, string? buyerEmail, string? buyerName)
     {
+        if (count < 1 || count > 100)
+            throw new ArgumentException("Count must be between 1 and 100");
+
         await using var ctx = _db.CreateContext();
-        var ticket = await ctx.RaffleTickets
-            .Include(t => t.Raffle)
-                .ThenInclude(r => r.Drawings)
-            .FirstOrDefaultAsync(t => t.Id == ticketId);
-        return (ticket, ticket?.Raffle);
+        var raffle = await ctx.Raffles
+            .Include(r => r.Tickets)
+            .Include(r => r.Drawings)
+            .FirstOrDefaultAsync(r => r.Id == raffleId)
+            ?? throw new InvalidOperationException("Raffle not found");
+
+        if (raffle.Status is not (RaffleStatus.Open or RaffleStatus.Closed))
+            throw new InvalidOperationException(
+                "Manual tickets can only be added while sales are open or after sales are closed (before drawing)");
+
+        if (raffle.Drawings.Count > 0)
+            throw new InvalidOperationException("Cannot add manual tickets after drawing has started");
+
+        EnsureCapacity(raffle, count);
+
+        var invoiceId = RaffleTicketIds.NewManual();
+        var tickets = CreateTicketEntities(raffle, count, invoiceId, buyerEmail, buyerName, isManual: true);
+        ctx.RaffleTickets.AddRange(tickets);
+        await ctx.SaveChangesAsync();
+
+        _logger.LogInformation(
+            "Added {Count} manual ticket(s) {First}-{Last} (raffle={RaffleId})",
+            count, tickets[0].TicketNumber, tickets[^1].TicketNumber, raffleId);
+
+        return tickets;
     }
 
-    // ── Drawing ──────────────────────────────────────────────────────────────
-
-    /// <summary>
-    /// Draws the next prize using a cryptographically secure RNG.
-    /// The first call draws the last prize; the final call draws the grand prize.
-    /// </summary>
     public async Task<(RaffleDrawing Drawing, RaffleTicket Winner)> DrawNextPrizeAsync(Guid raffleId)
     {
         await using var ctx = _db.CreateContext();
@@ -202,6 +281,44 @@ public class RaffleService
         return (drawing, winner);
     }
 
+    public async Task<RaffleDrawing> UndoLastDrawingAsync(Guid raffleId)
+    {
+        await using var ctx = _db.CreateContext();
+        var raffle = await ctx.Raffles
+            .Include(r => r.Drawings)
+            .FirstOrDefaultAsync(r => r.Id == raffleId)
+            ?? throw new InvalidOperationException("Raffle not found");
+
+        if (raffle.Status != RaffleStatus.Drawing)
+            throw new InvalidOperationException("Undo is only available while the raffle is in Drawing status");
+
+        var last = await ctx.RaffleDrawings
+            .Where(d => d.RaffleId == raffleId)
+            .OrderByDescending(d => d.DrawOrder)
+            .FirstOrDefaultAsync();
+
+        if (last is null)
+            throw new InvalidOperationException("No drawings to undo");
+
+        ctx.RaffleDrawings.Remove(last);
+        if (raffle.Drawings.Count == 1)
+            raffle.Status = RaffleStatus.Closed;
+
+        await ctx.SaveChangesAsync();
+        _logger.LogInformation("Undid draw order {DrawOrder} for raffle {RaffleId}", last.DrawOrder, raffleId);
+        return last;
+    }
+
+    public async Task<(RaffleTicket? Ticket, Raffle? Raffle)> GetTicketWithDetailsAsync(Guid ticketId)
+    {
+        await using var ctx = _db.CreateContext();
+        var ticket = await ctx.RaffleTickets
+            .Include(t => t.Raffle)
+                .ThenInclude(r => r.Drawings)
+            .FirstOrDefaultAsync(t => t.Id == ticketId);
+        return (ticket, ticket?.Raffle);
+    }
+
     public async Task<List<RaffleDrawing>> GetDrawingsAsync(Guid raffleId)
     {
         await using var ctx = _db.CreateContext();
@@ -211,8 +328,6 @@ public class RaffleService
             .OrderBy(d => d.DrawOrder)
             .ToListAsync();
     }
-
-    // ── Receipt Lookup ───────────────────────────────────────────────────────
 
     public async Task<List<RaffleTicket>> GetTicketsByInvoiceAsync(string invoiceId)
     {
@@ -225,13 +340,49 @@ public class RaffleService
 
     public async Task<(Raffle? Raffle, List<RaffleTicket> Tickets)> GetReceiptAsync(string invoiceId)
     {
+        if (RaffleTicketIds.IsManual(invoiceId))
+            return (null, new List<RaffleTicket>());
+
         await using var ctx = _db.CreateContext();
         var tickets = await ctx.RaffleTickets
             .Where(t => t.InvoiceId == invoiceId)
             .OrderBy(t => t.TicketNumber)
             .ToListAsync();
-        if (tickets.Count == 0) return (null, new());
+        if (tickets.Count == 0) return (null, new List<RaffleTicket>());
         var raffle = await ctx.Raffles.FindAsync(tickets[0].RaffleId);
         return (raffle, tickets);
+    }
+
+    private static List<RaffleTicket> CreateTicketEntities(
+        Raffle raffle,
+        int count,
+        string invoiceId,
+        string? buyerEmail,
+        string? buyerName,
+        bool isManual)
+    {
+        EnsureCapacity(raffle, count);
+
+        var nextNumber = raffle.Tickets.Count == 0
+            ? 1
+            : raffle.Tickets.Max(t => t.TicketNumber) + 1;
+
+        return Enumerable.Range(0, count).Select(i => new RaffleTicket
+        {
+            RaffleId = raffle.Id,
+            TicketNumber = nextNumber + i,
+            InvoiceId = invoiceId,
+            IsManual = isManual,
+            BuyerEmail = buyerEmail,
+            BuyerName = buyerName
+        }).ToList();
+    }
+
+    private static void EnsureCapacity(Raffle raffle, int count)
+    {
+        if (!raffle.MaxTickets.HasValue) return;
+        var remaining = raffle.MaxTickets.Value - raffle.Tickets.Count;
+        if (count > remaining)
+            throw new InvalidOperationException($"Only {remaining} ticket(s) remaining");
     }
 }

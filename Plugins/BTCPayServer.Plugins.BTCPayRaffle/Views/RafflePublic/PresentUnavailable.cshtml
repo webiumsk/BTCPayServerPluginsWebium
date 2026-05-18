@@ -1,0 +1,16 @@
+@model BTCPayServer.Plugins.BTCPayRaffle.Data.Entities.Raffle
+@{
+    ViewData["Title"] = Model.Name;
+    Layout = "_LayoutSimple";
+}
+
+<div class="text-center py-5" style="max-width:480px;margin:0 auto">
+    <h2>@Model.Name</h2>
+    <p class="text-secondary mt-3">
+        The presenter screen is available after ticket sales are closed.
+        Current status: <strong>@Model.Status</strong>.
+    </p>
+    <p class="small text-secondary">
+        Close sales via the merchant API (<code>POST .../close</code>), then open this presenter link again.
+    </p>
+</div>

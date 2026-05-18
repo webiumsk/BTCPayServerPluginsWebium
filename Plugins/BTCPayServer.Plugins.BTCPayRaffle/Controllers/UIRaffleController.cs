@@ -3,10 +3,14 @@ using System;
 using System.Linq;
 using System.Threading.Tasks;
 using BTCPayServer.Abstractions.Constants;
+using BTCPayServer.Abstractions.Models;
 using BTCPayServer.Client;
+using BTCPayServer.Data;
 using BTCPayServer.Plugins.BTCPayRaffle.Data.Entities;
 using BTCPayServer.Plugins.BTCPayRaffle.Services;
 using BTCPayServer.Plugins.BTCPayRaffle.ViewModels;
+using BTCPayServer.Services.Rates;
+using BTCPayServer.Services.Stores;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -18,10 +22,18 @@ namespace BTCPayServer.Plugins.BTCPayRaffle.Controllers;
 public class UIRaffleController : Controller
 {
     private readonly RaffleService _raffle;
+    private readonly StoreRepository _storeRepo;
+    private readonly CurrencyNameTable _currencies;
 
-    public UIRaffleController(RaffleService raffle) => _raffle = raffle;
-
-    // ── Index ─────────────────────────────────────────────────────────────────
+    public UIRaffleController(
+        RaffleService raffle,
+        StoreRepository storeRepo,
+        CurrencyNameTable currencies)
+    {
+        _raffle = raffle;
+        _storeRepo = storeRepo;
+        _currencies = currencies;
+    }
 
     [HttpGet]
     public async Task<IActionResult> Index(string storeId)
@@ -30,47 +42,58 @@ public class UIRaffleController : Controller
         return View(new RaffleAdminListViewModel { StoreId = storeId, Raffles = raffles });
     }
 
-    // ── Create ────────────────────────────────────────────────────────────────
-
     [HttpGet("create")]
-    public IActionResult Create(string storeId) => View(new CreateEditRaffleViewModel());
+    public async Task<IActionResult> Create(string storeId) =>
+        View(await BuildEditViewModelAsync(storeId, null));
 
     [HttpPost("create")]
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> Create(string storeId, CreateEditRaffleViewModel vm)
     {
+        if (!await ValidateCurrencyAsync(storeId, vm)) return View(vm);
         if (!ModelState.IsValid) return View(vm);
-        var raffle = await _raffle.CreateRaffleAsync(
-            storeId, vm.Name, vm.Description, vm.TicketPriceSats, vm.MaxTickets);
-        TempData[WellKnownTempData.SuccessMessage] = "Raffle created successfully";
-        return RedirectToAction(nameof(Manage), new { storeId, raffleId = raffle.Id });
+        try
+        {
+            var raffle = await _raffle.CreateRaffleAsync(
+                storeId, vm.Name, vm.Description, vm.TicketCurrency, vm.TicketPrice, vm.MaxTickets);
+            TempData[WellKnownTempData.SuccessMessage] = "Raffle created successfully";
+            return RedirectToAction(nameof(Manage), new { storeId, raffleId = raffle.Id });
+        }
+        catch (ArgumentException ex)
+        {
+            ModelState.AddModelError("", ex.Message);
+            return View(vm);
+        }
     }
-
-    // ── Edit ──────────────────────────────────────────────────────────────────
 
     [HttpGet("{raffleId}/edit")]
     public async Task<IActionResult> Edit(string storeId, Guid raffleId)
     {
         var raffle = await _raffle.GetRaffleAsync(raffleId);
         if (raffle is null || raffle.StoreId != storeId) return NotFound();
-        return View(new CreateEditRaffleViewModel
-        {
-            Name = raffle.Name,
-            Description = raffle.Description,
-            TicketPriceSats = raffle.TicketPriceSats,
-            MaxTickets = raffle.MaxTickets
-        });
+        if (raffle.Status == RaffleStatus.Completed)
+            return RedirectToAction(nameof(Manage), new { storeId, raffleId });
+        return View(await BuildEditViewModelAsync(storeId, raffle));
     }
 
     [HttpPost("{raffleId}/edit")]
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> Edit(string storeId, Guid raffleId, CreateEditRaffleViewModel vm)
     {
+        var raffle = await _raffle.GetRaffleAsync(raffleId);
+        if (raffle is null || raffle.StoreId != storeId) return NotFound();
+        vm = await BuildEditViewModelAsync(storeId, raffle, vm);
+        if (!await ValidateCurrencyAsync(storeId, vm)) return View(vm);
         if (!ModelState.IsValid) return View(vm);
         try
         {
-            await _raffle.UpdateRaffleAsync(raffleId, vm.Name, vm.Description,
-                vm.TicketPriceSats, vm.MaxTickets);
+            await _raffle.UpdateRaffleAsync(
+                raffleId,
+                vm.Name,
+                vm.Description,
+                vm.CanEditPricing ? vm.TicketCurrency : null,
+                vm.CanEditPricing ? vm.TicketPrice : null,
+                vm.CanEditMaxTickets ? vm.MaxTickets : raffle.MaxTickets);
         }
         catch (InvalidOperationException ex)
         {
@@ -80,8 +103,6 @@ public class UIRaffleController : Controller
         TempData[WellKnownTempData.SuccessMessage] = "Raffle updated";
         return RedirectToAction(nameof(Manage), new { storeId, raffleId });
     }
-
-    // ── Manage ────────────────────────────────────────────────────────────────
 
     [HttpGet("{raffleId}")]
     public async Task<IActionResult> Manage(string storeId, Guid raffleId)
@@ -95,11 +116,62 @@ public class UIRaffleController : Controller
             Raffle = raffle,
             StoreId = storeId,
             PublicUrl = publicUrl,
-            QrCodeDataUrl = QrCodeService.GenerateQrBase64(publicUrl)
+            QrCodeDataUrl = QrCodeService.GenerateQrBase64(publicUrl),
+            TicketPriceDisplay = RafflePricing.FormatTicketPrice(raffle)
         });
     }
 
-    // ── Status Transitions ────────────────────────────────────────────────────
+    [HttpPost("{raffleId}/manual-tickets")]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> AddManualTickets(
+        string storeId, Guid raffleId, ManualTicketsViewModel vm)
+    {
+        if (!ModelState.IsValid)
+            return RedirectToAction(nameof(Manage), new { storeId, raffleId });
+        try
+        {
+            await _raffle.AddManualTicketsAsync(raffleId, vm.Count, vm.BuyerEmail, vm.BuyerName);
+            TempData[WellKnownTempData.SuccessMessage] = $"Added {vm.Count} manual ticket(s)";
+        }
+        catch (Exception ex)
+        {
+            TempData[WellKnownTempData.ErrorMessage] = ex.Message;
+        }
+        return RedirectToAction(nameof(Manage), new { storeId, raffleId });
+    }
+
+    [HttpGet("{raffleId}/delete")]
+    public async Task<IActionResult> Delete(string storeId, Guid raffleId)
+    {
+        var raffle = await _raffle.GetRaffleAsync(raffleId);
+        if (raffle is null || raffle.StoreId != storeId) return NotFound();
+        if (raffle.Status is not (RaffleStatus.Draft or RaffleStatus.Completed))
+            return RedirectToAction(nameof(Manage), new { storeId, raffleId });
+
+        return View("Confirm", new ConfirmModel(
+            "Delete raffle",
+            $"The raffle <strong>{System.Net.WebUtility.HtmlEncode(raffle.Name)}</strong> and all tickets and draw history will be permanently deleted.",
+            "Delete"));
+    }
+
+    [HttpPost("{raffleId}/delete")]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> DeletePost(string storeId, Guid raffleId)
+    {
+        var raffle = await _raffle.GetRaffleAsync(raffleId);
+        if (raffle is null || raffle.StoreId != storeId) return NotFound();
+        try
+        {
+            await _raffle.DeleteRaffleAsync(raffleId);
+            TempData[WellKnownTempData.SuccessMessage] = "Raffle deleted";
+        }
+        catch (InvalidOperationException ex)
+        {
+            TempData[WellKnownTempData.ErrorMessage] = ex.Message;
+            return RedirectToAction(nameof(Manage), new { storeId, raffleId });
+        }
+        return RedirectToAction(nameof(Index), new { storeId });
+    }
 
     [HttpPost("{raffleId}/open")]
     [ValidateAntiForgeryToken]
@@ -118,8 +190,6 @@ public class UIRaffleController : Controller
         TempData[WellKnownTempData.SuccessMessage] = "Ticket sales closed — you can now start the draw";
         return RedirectToAction(nameof(Manage), new { storeId, raffleId });
     }
-
-    // ── Drawing ───────────────────────────────────────────────────────────────
 
     [HttpGet("{raffleId}/draw")]
     public async Task<IActionResult> Draw(string storeId, Guid raffleId)
@@ -142,10 +212,6 @@ public class UIRaffleController : Controller
         });
     }
 
-    /// <summary>
-    /// AJAX endpoint — server picks the winner, client runs the slot-machine animation,
-    /// then reveals the result after ~5 seconds.
-    /// </summary>
     [HttpPost("{raffleId}/draw")]
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> DrawNext(string storeId, Guid raffleId)
@@ -172,6 +238,22 @@ public class UIRaffleController : Controller
         }
     }
 
+    [HttpPost("{raffleId}/undo-draw")]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> UndoLastDraw(string storeId, Guid raffleId)
+    {
+        try
+        {
+            await _raffle.UndoLastDrawingAsync(raffleId);
+            TempData[WellKnownTempData.SuccessMessage] = "Last draw undone — winner is eligible again";
+        }
+        catch (InvalidOperationException ex)
+        {
+            TempData[WellKnownTempData.ErrorMessage] = ex.Message;
+        }
+        return RedirectToAction(nameof(Draw), new { storeId, raffleId });
+    }
+
     [HttpPost("{raffleId}/complete")]
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> Complete(string storeId, Guid raffleId)
@@ -179,5 +261,62 @@ public class UIRaffleController : Controller
         await _raffle.CompleteRaffleAsync(raffleId);
         TempData[WellKnownTempData.SuccessMessage] = "Raffle completed";
         return RedirectToAction(nameof(Index), new { storeId });
+    }
+
+    private async Task<CreateEditRaffleViewModel> BuildEditViewModelAsync(
+        string storeId, Raffle? raffle, CreateEditRaffleViewModel? posted = null)
+    {
+        var store = await _storeRepo.FindStore(storeId);
+        var defaultCurrency = store?.GetStoreBlob().DefaultCurrency ?? "USD";
+        var currencies = _currencies.Currencies.Select(c => c.Code).OrderBy(c => c).ToList();
+        if (!currencies.Contains(RafflePricing.SatsCurrency, StringComparer.OrdinalIgnoreCase))
+            currencies.Insert(0, RafflePricing.SatsCurrency);
+
+        var ticketsSold = raffle?.Tickets.Count ?? 0;
+        var status = raffle?.Status ?? RaffleStatus.Draft;
+        var canEditPricing = status == RaffleStatus.Draft
+            || (status == RaffleStatus.Open && ticketsSold == 0);
+
+        var vm = posted ?? new CreateEditRaffleViewModel();
+        if (posted is null && raffle is not null)
+        {
+            vm.RaffleId = raffle.Id;
+            vm.Status = raffle.Status;
+            vm.TicketsSold = ticketsSold;
+            vm.Name = raffle.Name;
+            vm.Description = raffle.Description;
+            vm.TicketCurrency = raffle.TicketCurrency;
+            vm.TicketPrice = raffle.TicketPrice;
+            vm.MaxTickets = raffle.MaxTickets;
+        }
+        else if (posted is null)
+        {
+            vm.TicketCurrency = defaultCurrency;
+            vm.TicketPrice = 10;
+        }
+
+        vm.AvailableCurrencies = currencies;
+        vm.CanEditPricing = canEditPricing;
+        vm.CanEditMaxTickets = canEditPricing;
+        vm.TicketsSold = ticketsSold;
+        vm.Status = status;
+        return vm;
+    }
+
+    private async Task<bool> ValidateCurrencyAsync(string storeId, CreateEditRaffleViewModel vm)
+    {
+        vm.AvailableCurrencies = (await BuildEditViewModelAsync(storeId, null)).AvailableCurrencies;
+        if (_currencies.GetCurrencyData(vm.TicketCurrency, false) is null)
+        {
+            ModelState.AddModelError(nameof(vm.TicketCurrency), "Invalid currency");
+            return false;
+        }
+        if (RafflePricing.NormalizeCurrency(vm.TicketCurrency) == RafflePricing.SatsCurrency
+            && vm.TicketPrice != decimal.Truncate(vm.TicketPrice))
+        {
+            ModelState.AddModelError(nameof(vm.TicketPrice), "SATS price must be a whole number");
+            return false;
+        }
+        return true;
     }
 }

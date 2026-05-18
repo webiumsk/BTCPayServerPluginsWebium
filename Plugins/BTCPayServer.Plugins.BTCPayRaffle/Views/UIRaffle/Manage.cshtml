@@ -37,16 +37,16 @@
             <div class="col-4">
                 <div class="card text-center h-100">
                     <div class="card-body py-3">
-                        <div class="fs-2 fw-bold">@r.TicketPriceSats</div>
-                        <small class="text-secondary">sats / ticket</small>
+                        <div class="fs-5 fw-bold">@Model.TicketPriceDisplay</div>
+                        <small class="text-secondary">per ticket</small>
                     </div>
                 </div>
             </div>
             <div class="col-4">
                 <div class="card text-center h-100">
                     <div class="card-body py-3">
-                        <div class="fs-2 fw-bold text-success">@Model.TotalRevenueSats</div>
-                        <small class="text-secondary">total sats</small>
+                        <div class="fs-2 fw-bold text-success">@(r.MaxTickets?.ToString() ?? "∞")</div>
+                        <small class="text-secondary">max tickets</small>
                     </div>
                 </div>
             </div>
@@ -67,12 +67,22 @@
             <div class="card-body">
                 <h5 class="card-title">Actions</h5>
                 <div class="d-flex flex-wrap gap-2">
-                    @if (r.Status == RaffleStatus.Draft)
+                    @if (r.Status != RaffleStatus.Completed)
                     {
                         <a asp-action="Edit" asp-route-storeId="@Model.StoreId"
                            asp-route-raffleId="@r.Id" class="btn btn-outline-secondary">
                             ✏️ Edit
                         </a>
+                    }
+                    @if (Model.CanDelete)
+                    {
+                        <a asp-action="Delete" asp-route-storeId="@Model.StoreId"
+                           asp-route-raffleId="@r.Id" class="btn btn-outline-danger">
+                            🗑️ Delete
+                        </a>
+                    }
+                    @if (r.Status == RaffleStatus.Draft)
+                    {
                         <form method="post" asp-action="Open" asp-route-storeId="@Model.StoreId"
                               asp-route-raffleId="@r.Id" asp-antiforgery="true">
                             <button class="btn btn-success">🚀 Publish &amp; Open Sales</button>
@@ -108,6 +118,35 @@
             </div>
         </div>
 
+        @if (Model.CanAddManualTickets)
+        {
+            <div class="card mb-4">
+                <div class="card-body">
+                    <h5 class="card-title">Add manual tickets</h5>
+                    <p class="text-secondary small">Allocate tickets without payment (e.g. complimentary or cash sales).</p>
+                    <form method="post" asp-action="AddManualTickets"
+                          asp-route-storeId="@Model.StoreId" asp-route-raffleId="@r.Id" asp-antiforgery="true"
+                          class="row g-2 align-items-end">
+                        <div class="col-sm-2">
+                            <label class="form-label small">Count</label>
+                            <input type="number" name="Count" value="1" min="1" max="100" class="form-control" />
+                        </div>
+                        <div class="col-sm-4">
+                            <label class="form-label small">Email (optional)</label>
+                            <input type="email" name="BuyerEmail" class="form-control" />
+                        </div>
+                        <div class="col-sm-4">
+                            <label class="form-label small">Name (optional)</label>
+                            <input type="text" name="BuyerName" class="form-control" />
+                        </div>
+                        <div class="col-sm-2">
+                            <button type="submit" class="btn btn-primary w-100">Add</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        }
+
         <!-- Ticket list -->
         @if (r.Tickets.Any())
         {
@@ -120,14 +159,20 @@
                     <table class="table table-sm mb-0">
                         <thead class="sticky-top bg-body">
                             <tr>
-                                <th>#</th><th>Time</th>
+                                <th>#</th><th>Buyer</th><th>Time</th>
                             </tr>
                         </thead>
                         <tbody>
                             @foreach (var t in r.Tickets.OrderBy(t => t.TicketNumber))
                             {
                                 <tr>
-                                    <td><strong>#@t.TicketNumber</strong></td>
+                                    <td>
+                                        <strong>#@t.TicketNumber</strong>
+                                        @if (t.IsManual) { <span class="badge bg-secondary ms-1">manual</span> }
+                                    </td>
+                                    <td class="small">
+                                        @(t.BuyerName ?? t.BuyerEmail ?? "—")
+                                    </td>
                                     <td class="text-secondary small">@t.AllocatedAt.LocalDateTime.ToString("MM-dd HH:mm")</td>
                                 </tr>
                             }

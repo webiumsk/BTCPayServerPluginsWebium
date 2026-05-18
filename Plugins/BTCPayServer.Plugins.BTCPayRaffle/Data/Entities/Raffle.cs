@@ -27,8 +27,13 @@ public class Raffle
     [Required, MaxLength(100)]
     public string StoreId { get; set; } = "";
 
-    /// <summary>Ticket price in satoshis.</summary>
+    /// <summary>Legacy satoshi price; kept in sync when <see cref="TicketCurrency"/> is SATS.</summary>
     public long TicketPriceSats { get; set; }
+
+    [Required, MaxLength(10)]
+    public string TicketCurrency { get; set; } = "SATS";
+
+    public decimal TicketPrice { get; set; }
 
     /// <summary>Maximum number of tickets; null means unlimited.</summary>
     public int? MaxTickets { get; set; }
@@ -40,7 +45,6 @@ public class Raffle
     public DateTimeOffset? ClosedAt { get; set; }
     public DateTimeOffset? CompletedAt { get; set; }
 
-    // Navigation
     public List<RaffleTicket> Tickets { get; set; } = new();
     public List<RaffleDrawing> Drawings { get; set; } = new();
 }

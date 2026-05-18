@@ -56,8 +56,8 @@
         }
         <div class="raffle-stats">
             <div>
-                <div class="stat-value">@r.TicketPriceSats</div>
-                <div class="stat-label">sats / ticket</div>
+                <div class="stat-value" style="font-size:1.25rem">@Model.TicketPriceDisplay</div>
+                <div class="stat-label">per ticket</div>
             </div>
             <div>
                 <div class="stat-value">@Model.TicketsSold</div>
@@ -93,7 +93,7 @@
                 </div>
 
                 <div class="price-summary" id="priceSummary">
-                    Total: <strong id="totalPrice">@r.TicketPriceSats sats</strong>
+                    Total: <strong id="totalPrice"></strong>
                 </div>
 
                 <div class="mb-3">
@@ -104,7 +104,7 @@
                     <label class="form-label">Name <small class="text-secondary">(optional)</small></label>
                     <input type="text" name="BuyerName" class="form-control" placeholder="Jane Doe" />
                 </div>
-                <button type="submit" class="btn-buy">⚡ Pay via Lightning</button>
+                <button type="submit" class="btn-buy">⚡ Pay</button>
             </form>
         </div>
     }
@@ -143,14 +143,21 @@
 
 @section PageFootContent {
 <script>
-const ppt = @r.TicketPriceSats;
+const ppt = @r.TicketPrice.ToString(System.Globalization.CultureInfo.InvariantCulture);
+const currency = '@r.TicketCurrency';
 const inp = document.getElementById('ticketCount');
 const tot = document.getElementById('totalPrice');
 const dec = document.getElementById('dec');
 const inc = document.getElementById('inc');
-function upd() { tot.textContent = ((parseInt(inp.value)||1)*ppt).toLocaleString()+' sats'; }
+function formatTotal(count) {
+    const total = (parseFloat(ppt) || 0) * count;
+    if (currency === 'SATS') return Math.round(total).toLocaleString() + ' sats';
+    return total.toFixed(2) + ' ' + currency;
+}
+function upd() { tot.textContent = formatTotal(parseInt(inp.value) || 1); }
 inp.addEventListener('input', upd);
 dec.addEventListener('click', () => { if(parseInt(inp.value)>1){inp.value--;upd();} });
 inc.addEventListener('click', () => { inp.value=(parseInt(inp.value)||1)+1; upd(); });
+upd();
 </script>
 }

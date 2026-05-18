@@ -1,40 +1,47 @@
 @model BTCPayServer.Plugins.BTCPayRaffle.ViewModels.CreateEditRaffleViewModel
 @{
     ViewData["Title"] = "Edit Raffle";
+    var storeId = ViewContext.RouteData.Values["storeId"];
+    var raffleId = ViewContext.RouteData.Values["raffleId"];
 }
+
 <div class="row">
     <div class="col-xl-6">
         <h2 class="mb-4">✏️ Edit Raffle</h2>
         <div class="card">
             <div class="card-body">
                 <form method="post" asp-antiforgery="true">
-                    <div class="mb-3">
-                        <label asp-for="Name" class="form-label fw-semibold"></label>
-                        <input asp-for="Name" class="form-control" />
-                        <span asp-validation-for="Name" class="text-danger small"></span>
-                    </div>
-                    <div class="mb-3">
-                        <label asp-for="Description" class="form-label fw-semibold">Description</label>
-                        <textarea asp-for="Description" class="form-control" rows="3"></textarea>
-                    </div>
-                    <div class="mb-3">
-                        <label asp-for="TicketPriceSats" class="form-label fw-semibold"></label>
-                        <div class="input-group">
-                            <input asp-for="TicketPriceSats" class="form-control" type="number" min="1" />
-                            <span class="input-group-text">sats</span>
-                        </div>
-                        <span asp-validation-for="TicketPriceSats" class="text-danger small"></span>
-                    </div>
-                    <div class="mb-4">
-                        <label asp-for="MaxTickets" class="form-label fw-semibold"></label>
-                        <input asp-for="MaxTickets" class="form-control" type="number" min="1" />
-                    </div>
+                    <partial name="_RaffleFormFields" />
                     <div class="d-flex gap-2">
                         <button type="submit" class="btn btn-primary">Save</button>
-                        <a asp-action="Manage" class="btn btn-secondary">Cancel</a>
+                        <a asp-action="Manage" asp-route-storeId="@storeId" asp-route-raffleId="@raffleId"
+                           class="btn btn-secondary">Cancel</a>
                     </div>
                 </form>
             </div>
         </div>
     </div>
 </div>
+
+@section PageHeadContent {
+<script>
+const cur = document.getElementById('ticketCurrency');
+const price = document.getElementById('ticketPrice');
+const hint = document.getElementById('priceHint');
+function refresh() {
+    if (!cur || !price || !hint) return;
+    const c = cur.value;
+    const p = parseFloat(price.value) || 0;
+    if (c === 'SATS') {
+        price.step = '1';
+        hint.textContent = p > 0 ? `≈ ${(p / 1e8).toFixed(8)} BTC` : '';
+    } else {
+        price.step = 'any';
+        hint.textContent = `Price per ticket in ${c}`;
+    }
+}
+cur?.addEventListener('change', refresh);
+price?.addEventListener('input', refresh);
+refresh();
+</script>
+}
