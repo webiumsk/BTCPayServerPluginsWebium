@@ -1,5 +1,31 @@
 # BTCPay Raffle plugin — release notes
 
+## 1.2.0.4 (buyer email required, privacy on display)
+
+### Public purchase & manual tickets
+
+- **Email required** on `/raffle/{id}` buy form and store **Add manual tickets** (HTML + server validation).
+- **Display name optional** — shown on ticket list and during draw (nickname); help text on both forms.
+- Failed buy validation **repopulates** the form (`BuyForm` + `asp-for`).
+
+### API & draw UIs
+
+- `buyerEmail` / `winnerEmail` **masked** in Greenfield API and draw/presenter JSON (`RaffleBuyerDisplay.MaskEmail`).
+- `buyerName` / `winnerName` show **`—`** when empty (no fallback to email).
+- Manual tickets API: `buyerEmail` required.
+
+### Documentation
+
+- Plugin [README.md](README.md); root repo README lists Raffle; [docs/AGENT_API.md](docs/AGENT_API.md) updated.
+
+### Upgrade
+
+1. Back up PostgreSQL.
+2. Install **1.2.0.4** and restart BTCPay Server.
+3. No new database migration.
+
+---
+
 ## 1.2.0.1 (presenter view path fix)
 
 - Fix presenter pages not resolving in the plugin host: explicit paths to `Present.cshtml` and `PresentUnavailable.cshtml`.
