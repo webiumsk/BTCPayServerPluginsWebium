@@ -33,7 +33,7 @@ public class RafflePresentController : Controller
         if (!TryValidateToken(token, raffle, out var bad)) return bad;
 
         if (raffle.Status is RaffleStatus.Draft or RaffleStatus.Open)
-            return View("PresentUnavailable", raffle);
+            return View("~/Views/RafflePublic/PresentUnavailable.cshtml", raffle);
 
         var drawings = await _raffle.GetDrawingsAsync(raffleId);
         var drawnIds = drawings.Select(d => d.WinningTicketId).ToHashSet();
@@ -50,7 +50,7 @@ public class RafflePresentController : Controller
             DrawStateUrl = Url.Action(nameof(DrawState), "RafflePresent", new { raffleId, token }, Request.Scheme)!
         };
 
-        return View("Present", vm);
+        return View("~/Views/RafflePublic/Present.cshtml", vm);
     }
 
     [HttpGet("{raffleId}/present/draw-state")]

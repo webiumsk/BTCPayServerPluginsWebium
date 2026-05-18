@@ -1,5 +1,12 @@
 # BTCPay Raffle plugin — release notes
 
+## 1.2.0.1 (presenter view path fix)
+
+- Fix presenter pages not resolving in the plugin host: explicit paths to `Present.cshtml` and `PresentUnavailable.cshtml`.
+- No API or database changes from 1.2.0.0.
+
+---
+
 ## 1.2.0.0 (Satflux: presenter token, draft-only API PUT, draw-state)
 
 ### Integrator API (Greenfield)
