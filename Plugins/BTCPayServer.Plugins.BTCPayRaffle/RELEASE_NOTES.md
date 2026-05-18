@@ -1,5 +1,53 @@
 # BTCPay Raffle plugin — release notes
 
+## 1.2.0.0 (Satflux: presenter token, draft-only API PUT, draw-state)
+
+### Integrator API (Greenfield)
+
+- **POST** `.../raffle/{raffleId}/presenter-token` → `{ token, expiresAt, presenterUrl }` — live draw screen without BTCPay login (default 4 h TTL).
+- **GET** `.../raffle/{raffleId}/draw-state` — `eligibleTicketsRemaining`, `canDraw`, `canUndoLastDraw`, etc.
+- **PUT** `.../raffle/{raffleId}` — **Draft only** (Satflux/API); BTCPay UI keeps broader edit rules.
+- Public **GET** `/raffle/{raffleId}/present?token=…` — presenter UI; draws via `POST .../present/draw` (token + antiforgery), not anonymous Greenfield draw.
+
+### Documentation
+
+- Full agent notes: [docs/AGENT_API.md](docs/AGENT_API.md) — explicitly documents that `/stores/{storeId}/plugins/raffle/{id}/draw` requires a **BTCPay user session** and is **not** for Satflux.
+
+### Upgrade
+
+1. Back up PostgreSQL.
+2. Install **1.2.0.0** and restart BTCPay Server.
+3. Satflux: plugin **≥ 1.2.0.0**; Cashu stores: **CashuMelt ≥ 1.2.0.2**.
+
+---
+
+## 1.1.0.0 (admin API, fiat pricing, manual tickets)
+
+### Edit, delete, and pricing
+
+- **PUT** `/api/v1/stores/{storeId}/raffle/{raffleId}` — update while Draft (see [docs/AGENT_API.md](docs/AGENT_API.md); **1.2.0.0+** restricts Greenfield PUT to Draft only).
+- **DELETE** raffle — allowed only in **Draft** or **Completed** status.
+- Ticket price can be set in **fiat** (EUR, USD, store default, …) or **SATS**; checkout invoices use the configured currency.
+- Legacy field `ticketPriceSats` still accepted on create for SATS-only integrations.
+
+### Manual tickets and draw undo
+
+- **POST** `.../tickets/manual` — add tickets without payment (Open or Closed, before any draw).
+- **DELETE** `.../drawings/last` — undo the latest prize draw while status is **Drawing** (winner becomes eligible again).
+
+### Database
+
+- Migration `20260518000000_RafflePricingAndManualTickets` adds `TicketCurrency`, `TicketPrice`, `RaffleTickets.IsManual`.
+- Schema creator updated for idempotent installs.
+
+### Upgrade
+
+1. Back up PostgreSQL.
+2. Install **1.1.0.0** and restart BTCPay Server (migration runs on startup).
+3. Satflux / external panels: use plugin **≥ 1.1.0.0** and updated API notes in `docs/AGENT_API.md`.
+
+---
+
 ## 1.0.0.3 (checkout default payment method, CashuMelt stores)
 
 ### Checkout after ticket purchase

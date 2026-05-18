@@ -50,7 +50,8 @@ public class RafflePublicController : Controller
         {
             Raffle = raffle,
             QrCodeDataUrl = QrCodeService.GenerateQrBase64(pageUrl),
-            TicketsSold = raffle.Tickets.Count
+            TicketsSold = raffle.Tickets.Count,
+            TicketPriceDisplay = RafflePricing.FormatTicketPrice(raffle)
         });
     }
 
@@ -81,7 +82,8 @@ public class RafflePublicController : Controller
         var store = await _storeRepo.FindStore(raffle.StoreId);
         if (store is null) return Problem("Store not found");
 
-        var totalSats = raffle.TicketPriceSats * vm.TicketCount;
+        var totalAmount = raffle.TicketPrice * vm.TicketCount;
+        var currency = raffle.TicketCurrency;
 
         // Raffle metadata stored in PosData — RaffleInvoiceWatcher reads it on payment confirmation
         var baseUrl = $"{Request.Scheme}://{Request.Host}";
@@ -92,8 +94,8 @@ public class RafflePublicController : Controller
         var invoice = await _invoiceController.CreateInvoiceCoreRaw(
             new CreateInvoiceRequest
             {
-                Amount = totalSats,
-                Currency = "SATS",
+                Amount = totalAmount,
+                Currency = currency,
                 Metadata = new InvoiceMetadata
                 {
                     BuyerEmail = vm.BuyerEmail,

@@ -1,0 +1,68 @@
+@model BTCPayServer.Plugins.BTCPayRaffle.ViewModels.CreateEditRaffleViewModel
+@using BTCPayServer.Plugins.BTCPayRaffle.Data.Entities
+
+@if (Model.Status is not null && Model.Status != RaffleStatus.Draft)
+{
+    <div class="alert alert-info mb-3">
+        @if (Model.TicketsSold > 0)
+        {
+            <text>With @Model.TicketsSold ticket(s) sold, only name and description can be changed.</text>
+        }
+        else if (Model.Status == RaffleStatus.Open)
+        {
+            <text>Sales are open — you can still change price and max tickets until the first ticket is sold.</text>
+        }
+        else
+        {
+            <text>Only name and description can be changed in this state.</text>
+        }
+    </div>
+}
+
+<div class="mb-3">
+    <label asp-for="Name" class="form-label fw-semibold"></label>
+    <input asp-for="Name" class="form-control" autofocus />
+    <span asp-validation-for="Name" class="text-danger small"></span>
+</div>
+<div class="mb-3">
+    <label asp-for="Description" class="form-label fw-semibold">Description (optional)</label>
+    <textarea asp-for="Description" class="form-control" rows="3"></textarea>
+</div>
+
+@if (Model.CanEditPricing)
+{
+    <div class="mb-3">
+        <label asp-for="TicketCurrency" class="form-label fw-semibold"></label>
+        <select asp-for="TicketCurrency" class="form-select" id="ticketCurrency">
+            @foreach (var c in Model.AvailableCurrencies)
+            {
+                <option value="@c">@c</option>
+            }
+        </select>
+        <span asp-validation-for="TicketCurrency" class="text-danger small"></span>
+    </div>
+    <div class="mb-3">
+        <label asp-for="TicketPrice" class="form-label fw-semibold"></label>
+        <input asp-for="TicketPrice" class="form-control" type="number" min="0.00000001" step="any" id="ticketPrice" />
+        <div class="form-text" id="priceHint"></div>
+        <span asp-validation-for="TicketPrice" class="text-danger small"></span>
+    </div>
+}
+else
+{
+    <input type="hidden" asp-for="TicketCurrency" />
+    <input type="hidden" asp-for="TicketPrice" />
+}
+
+@if (Model.CanEditMaxTickets)
+{
+    <div class="mb-4">
+        <label asp-for="MaxTickets" class="form-label fw-semibold"></label>
+        <input asp-for="MaxTickets" class="form-control" type="number" min="1" placeholder="Leave blank for unlimited" />
+        <span asp-validation-for="MaxTickets" class="text-danger small"></span>
+    </div>
+}
+else
+{
+    <input type="hidden" asp-for="MaxTickets" />
+}
