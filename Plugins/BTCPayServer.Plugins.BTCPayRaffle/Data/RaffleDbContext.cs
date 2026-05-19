@@ -37,6 +37,7 @@ public class RaffleDbContext : DbContext
         {
             e.HasKey(t => t.Id);
             e.HasIndex(t => t.InvoiceId);
+            e.HasIndex(t => new { t.RaffleId, t.BuyerEmail });
             e.HasIndex(t => new { t.RaffleId, t.TicketNumber }).IsUnique();
         });
 

@@ -226,11 +226,32 @@ Token-authenticated mirror: `GET /raffle/{raffleId}/present/draw-state?token=...
 | `GET /raffle/{raffleId}` | Raffle landing + QR |
 | `GET /raffle/{raffleId}/buy` | Buy tickets form |
 | `POST /raffle/{raffleId}/buy` | Create BTCPay invoice → redirect to checkout |
-| `GET /raffle/receipt/{invoiceId}` | Ticket receipt after payment |
+| `GET /raffle/receipt/{invoiceId}` | Ticket receipt after payment (this purchase only) |
+| `GET /raffle/{raffleId}/my?token=…` | **Buyer wallet** — all tickets for one email on this raffle (≥ 1.3.0.0) |
+| `GET /raffle/{raffleId}/my/state?token=…` | Buyer wallet JSON (live draw updates) |
 | `GET /raffle/ticket/{ticketId}` | Verify ticket |
 | `GET /raffle/{raffleId}/present?token=…` | **Presenter** draw screen (≥ 1.2.0.0) |
 
 Presenter page is shown when status is **Closed**, **Drawing**, or **Completed**. For **Draft** / **Open**, a short “not available yet” page is shown — close sales first (`POST .../close`).
+
+### Buyer wallet — `GET /raffle/{raffleId}/my` (≥ 1.3.0.0)
+
+Token is issued when tickets are allocated (embedded in the buyer email). Payload is signed with ASP.NET Data Protection (`BuyerWallet.v1`); default lifetime **90 days**.
+
+**State JSON** (`GET .../my/state?token=...`):
+
+```json
+{
+  "status": "Drawing",
+  "ticketNumbers": [3, 7, 12, 41],
+  "winningNumbers": [7, 41],
+  "myWinningNumbers": [7, 41],
+  "drawingsCount": 2,
+  "purchaseCount": 3
+}
+```
+
+Do not expose buyer email in the URL — only the token.
 
 ---
 

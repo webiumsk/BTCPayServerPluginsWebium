@@ -1,0 +1,120 @@
+#nullable enable
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using BTCPayServer.Logging;
+using BTCPayServer.Plugins.BTCPayRaffle.Data.Entities;
+using BTCPayServer.Plugins.Emails.Services;
+using Microsoft.Extensions.Logging;
+using MimeKit;
+
+namespace BTCPayServer.Plugins.BTCPayRaffle.Services;
+
+public class RaffleTicketEmailService
+{
+    private readonly EmailSenderFactory _emailSenderFactory;
+    private readonly RaffleBuyerWalletTokenService _walletTokens;
+    private readonly Logs _logs;
+
+    public RaffleTicketEmailService(
+        EmailSenderFactory emailSenderFactory,
+        RaffleBuyerWalletTokenService walletTokens,
+        Logs logs)
+    {
+        _emailSenderFactory = emailSenderFactory;
+        _walletTokens = walletTokens;
+        _logs = logs;
+    }
+
+    public async Task SendTicketsEmailAsync(
+        Guid raffleId,
+        string raffleName,
+        string buyerEmail,
+        string? buyerName,
+        IReadOnlyList<RaffleTicket> tickets,
+        string baseUrl,
+        string? receiptUrl = null,
+        bool manualAllocation = false)
+    {
+        if (tickets.Count == 0 || string.IsNullOrWhiteSpace(buyerEmail))
+            return;
+
+        try
+        {
+            var sender = await _emailSenderFactory.GetEmailSender();
+            var settings = await sender.GetEmailSettings();
+            if (settings?.IsComplete() != true)
+                return;
+
+            var (walletToken, _) = _walletTokens.CreateToken(raffleId, buyerEmail);
+            var walletUrl = $"{baseUrl.TrimEnd('/')}/raffle/{raffleId}/my?token={Uri.EscapeDataString(walletToken)}";
+            var ticketNumbers = string.Join(", ", tickets.Select(t => $"#{t.TicketNumber}"));
+            var subject = $"Your tickets — {raffleName}";
+            var intro = manualAllocation
+                ? "Your ticket(s) have been allocated!"
+                : "Your ticket purchase was confirmed!";
+            var body = BuildEmailHtml(raffleName, intro, tickets, walletUrl, receiptUrl, baseUrl);
+
+            sender.SendEmail(
+                new MailboxAddress(buyerName ?? buyerEmail, buyerEmail),
+                subject,
+                body);
+        }
+        catch (Exception ex)
+        {
+            _logs.PayServer.LogWarning(ex, "Could not send ticket email to {Email}", buyerEmail);
+        }
+    }
+
+    private static string BuildEmailHtml(
+        string raffleName,
+        string introLine,
+        IReadOnlyList<RaffleTicket> tickets,
+        string walletUrl,
+        string? receiptUrl,
+        string baseUrl)
+    {
+        var sb = new StringBuilder();
+        sb.Append($@"<!DOCTYPE html><html><body style=""font-family:sans-serif;max-width:600px;margin:0 auto;padding:20px"">
+<div style=""background:#f8f9fa;border-radius:12px;padding:24px;text-align:center"">
+  <div style=""font-size:48px"">🎟️</div>
+  <h2 style=""margin:8px 0"">{System.Net.WebUtility.HtmlEncode(raffleName)}</h2>
+  <p style=""color:#666"">{System.Net.WebUtility.HtmlEncode(introLine)}</p>
+</div>
+<div style=""margin:24px 0"">
+  <h3>Your ticket numbers:</h3>");
+
+        foreach (var t in tickets)
+        {
+            var verifyUrl = $"{baseUrl.TrimEnd('/')}/raffle/ticket/{t.Id}";
+            sb.Append($@"
+  <div style=""border:2px solid #dee2e6;border-radius:8px;padding:12px 16px;margin:8px 0;display:flex;align-items:center;justify-content:space-between"">
+    <span style=""font-size:28px;font-weight:900;font-family:monospace;color:#333"">#{t.TicketNumber}</span>
+    <a href=""{verifyUrl}"" style=""font-size:12px;color:#0d6efd"">Verify</a>
+  </div>");
+        }
+
+        sb.Append($@"
+</div>
+<div style=""text-align:center;margin:24px 0"">
+  <a href=""{walletUrl}"" style=""background:#0d6efd;color:#fff;text-decoration:none;padding:12px 28px;border-radius:8px;font-weight:600;display:inline-block"">
+    View all my tickets
+  </a>
+  <p style=""margin:12px 0 0;font-size:13px;color:#666"">Same email on later purchases? Everything appears on one page.</p>");
+
+        if (!string.IsNullOrEmpty(receiptUrl))
+        {
+            sb.Append($@"
+  <p style=""margin:8px 0 0""><a href=""{receiptUrl}"" style=""font-size:13px;color:#0d6efd"">Receipt for this purchase only</a></p>");
+        }
+
+        sb.Append($@"
+</div>
+<p style=""color:#999;font-size:12px;text-align:center"">Keep this link private — it shows all tickets for your email on this raffle.</p>
+</body></html>");
+
+        return sb.ToString();
+    }
+}

@@ -43,7 +43,8 @@
     border:none; border-radius:12px; padding:1rem; font-size:1.15rem; font-weight:800;
     cursor:pointer; box-shadow:0 6px 20px rgba(247,147,26,.35); transition:all .2s;
 }
-.btn-buy:hover { background:linear-gradient(135deg,#ffaa00,#f07800); transform:translateY(-2px); }
+.btn-buy:hover:not(:disabled) { background:linear-gradient(135deg,#ffaa00,#f07800); transform:translateY(-2px); }
+.btn-buy:disabled { opacity:.45; cursor:not-allowed; box-shadow:none; transform:none; }
 </style>
 
 <div style="max-width:680px;margin:0 auto;padding:1rem">
@@ -100,7 +101,7 @@
                 <div class="mb-3">
                     <label class="form-label fw-semibold" asp-for="BuyForm.BuyerEmail"></label>
                     <span class="text-danger">*</span>
-                    <input asp-for="BuyForm.BuyerEmail" class="form-control" placeholder="you@example.com" />
+                    <input asp-for="BuyForm.BuyerEmail" id="buyerEmail" class="form-control" placeholder="you@example.com" required autocomplete="email" />
                     <span asp-validation-for="BuyForm.BuyerEmail" class="text-danger small"></span>
                     <div class="form-text">Required — your ticket numbers will be sent to this address.</div>
                 </div>
@@ -111,7 +112,7 @@
                     <span asp-validation-for="BuyForm.BuyerName" class="text-danger small"></span>
                     <div class="form-text">Shown on the ticket list and during the draw (e.g. a nickname). Email is never shown in full.</div>
                 </div>
-                <button type="submit" class="btn-buy">⚡ Pay</button>
+                <button type="submit" class="btn-buy" id="buyBtn" disabled>⚡ Pay</button>
             </form>
         </div>
     }
@@ -156,6 +157,18 @@ const inp = document.getElementById('ticketCount');
 const tot = document.getElementById('totalPrice');
 const dec = document.getElementById('dec');
 const inc = document.getElementById('inc');
+const emailInp = document.getElementById('buyerEmail');
+const buyBtn = document.getElementById('buyBtn');
+const buyForm = emailInp?.closest('form');
+function isEmailValid(v) {
+    const s = (v || '').trim();
+    const at = s.indexOf('@@');
+    const dot = s.lastIndexOf('.');
+    return at > 0 && dot > at + 1 && dot < s.length - 1;
+}
+function updateBuyBtn() {
+    if (buyBtn && emailInp) buyBtn.disabled = !isEmailValid(emailInp.value);
+}
 function formatTotal(count) {
     const total = (parseFloat(ppt) || 0) * count;
     if (currency === 'SATS') return Math.round(total).toLocaleString() + ' sats';
@@ -165,6 +178,16 @@ function upd() { tot.textContent = formatTotal(parseInt(inp.value) || 1); }
 inp.addEventListener('input', upd);
 dec.addEventListener('click', () => { if(parseInt(inp.value)>1){inp.value--;upd();} });
 inc.addEventListener('click', () => { inp.value=(parseInt(inp.value)||1)+1; upd(); });
+if (emailInp) {
+    emailInp.addEventListener('input', updateBuyBtn);
+    emailInp.addEventListener('change', updateBuyBtn);
+}
+if (buyForm) {
+    buyForm.addEventListener('submit', e => {
+        if (buyBtn?.disabled || !isEmailValid(emailInp?.value)) e.preventDefault();
+    });
+}
 upd();
+updateBuyBtn();
 </script>
 }

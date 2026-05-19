@@ -24,15 +24,18 @@ public class UIRaffleController : Controller
     private readonly RaffleService _raffle;
     private readonly StoreRepository _storeRepo;
     private readonly CurrencyNameTable _currencies;
+    private readonly RaffleTicketEmailService _ticketEmail;
 
     public UIRaffleController(
         RaffleService raffle,
         StoreRepository storeRepo,
-        CurrencyNameTable currencies)
+        CurrencyNameTable currencies,
+        RaffleTicketEmailService ticketEmail)
     {
         _raffle = raffle;
         _storeRepo = storeRepo;
         _currencies = currencies;
+        _ticketEmail = ticketEmail;
     }
 
     [HttpGet]
@@ -130,7 +133,15 @@ public class UIRaffleController : Controller
             return RedirectToAction(nameof(Manage), new { storeId, raffleId });
         try
         {
-            await _raffle.AddManualTicketsAsync(raffleId, vm.Count, vm.BuyerEmail, vm.BuyerName);
+            var tickets = await _raffle.AddManualTicketsAsync(raffleId, vm.Count, vm.BuyerEmail, vm.BuyerName);
+            var raffle = await _raffle.GetRaffleAsync(raffleId);
+            if (raffle is not null)
+            {
+                var baseUrl = $"{Request.Scheme}://{Request.Host}";
+                await _ticketEmail.SendTicketsEmailAsync(
+                    raffleId, raffle.Name, vm.BuyerEmail, vm.BuyerName, tickets, baseUrl,
+                    manualAllocation: true);
+            }
             TempData[WellKnownTempData.SuccessMessage] = $"Added {vm.Count} manual ticket(s)";
         }
         catch (Exception ex)

@@ -10,7 +10,7 @@ Cashu Melt is a BTCPay Server payment-method plugin that adds a Cashu-assisted L
 
 ### [BTCPay Raffle](Plugins/BTCPayServer.Plugins.BTCPayRaffle/README.md)
 
-Raffle / tombola plugin: sell numbered tickets through BTCPay checkout, email ticket numbers to buyers, add manual tickets from the store UI, and run live prize draws (store draw page or token-based presenter screen for events). Buyer **email is required** on purchase and manual tickets; an optional **display name** (nickname) appears on ticket lists and during draws. API and draw UIs expose **masked** email addresses only; missing display names show as **—** (no fallback to email).
+Raffle / tombola plugin: sell numbered tickets through BTCPay checkout, email ticket numbers to buyers, add manual tickets from the store UI, and run live prize draws (store draw page or token-based presenter screen for events). Buyer **email is required** on purchase and manual tickets; an optional **display name** (nickname) appears on ticket lists and during draws. **Buyer wallet** (≥ 1.3.0.0) aggregates all tickets for one email on a raffle with live draw highlights. API and draw UIs expose **masked** email addresses only; missing display names show as **—** (no fallback to email).
 
 ## Build
 

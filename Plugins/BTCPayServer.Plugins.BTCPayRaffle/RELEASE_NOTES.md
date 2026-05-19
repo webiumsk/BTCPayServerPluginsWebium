@@ -1,5 +1,33 @@
 # BTCPay Raffle plugin — release notes
 
+## 1.3.0.0 (buyer wallet — all tickets per email)
+
+### Buyer wallet
+
+- **`GET /raffle/{raffleId}/my?token=…`** — one page with every ticket for the buyer’s email on that raffle (all purchases combined).
+- **`GET /raffle/{raffleId}/my/state?token=…`** — JSON for live updates during the draw (highlights wins, confetti on new prizes).
+- Signed token (90-day default) in confirmation emails; same email on later purchases uses the same wallet link.
+- Receipt page links to the wallet; per-invoice receipt still available.
+
+### Email & buy form
+
+- **Manual tickets** (store UI and Greenfield API) send the same confirmation email as paid purchases (wallet link + ticket numbers).
+- Public buy form: **Pay** stays disabled until a valid email is entered (`required` + client-side check).
+- Shared `RaffleTicketEmailService` for invoice, manual, and wallet links.
+
+### Data
+
+- Migration `20260519000000_BuyerEmailIndex` — index on `(RaffleId, BuyerEmail)`.
+- New ticket rows store normalized buyer email.
+
+### Upgrade
+
+1. Back up PostgreSQL.
+2. Install **1.3.0.0** and restart BTCPay Server.
+3. Existing tickets remain queryable (case-insensitive email match).
+
+---
+
 ## 1.2.0.2 (buyer email required, privacy on display)
 
 ### Public purchase & manual tickets

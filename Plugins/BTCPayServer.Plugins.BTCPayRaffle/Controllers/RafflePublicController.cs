@@ -13,7 +13,9 @@ using BTCPayServer.Plugins.BTCPayRaffle.ViewModels;
 using BTCPayServer.Services.Invoices;
 using BTCPayServer.Services.Stores;
 using Microsoft.AspNetCore.Mvc;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using Newtonsoft.Json.Serialization;
 
 namespace BTCPayServer.Plugins.BTCPayRaffle.Controllers;
 
@@ -24,17 +26,20 @@ public class RafflePublicController : Controller
     private readonly InvoiceRepository _invoiceRepo;
     private readonly StoreRepository _storeRepo;
     private readonly UIInvoiceController _invoiceController;
+    private readonly RaffleBuyerWalletTokenService _walletTokens;
 
     public RafflePublicController(
         RaffleService raffle,
         InvoiceRepository invoiceRepo,
         StoreRepository storeRepo,
-        UIInvoiceController invoiceController)
+        UIInvoiceController invoiceController,
+        RaffleBuyerWalletTokenService walletTokens)
     {
         _raffle = raffle;
         _invoiceRepo = invoiceRepo;
         _storeRepo = storeRepo;
         _invoiceController = invoiceController;
+        _walletTokens = walletTokens;
     }
 
     // ── Public raffle page ────────────────────────────────────────────────────
@@ -156,16 +161,98 @@ public class RafflePublicController : Controller
                 Url.Action(nameof(TicketVerify), "RafflePublic",
                     new { ticketId = t.Id }, Request.Scheme)!));
 
+        var walletUrl = "";
+        var buyerEmail = tickets[0].BuyerEmail;
+        if (!string.IsNullOrEmpty(buyerEmail))
+        {
+            var (token, _) = _walletTokens.CreateToken(raffle.Id, buyerEmail);
+            walletUrl = Url.Action(nameof(MyTickets), "RafflePublic",
+                new { raffleId = raffle.Id, token }, Request.Scheme)!;
+        }
+
         return View(new ReceiptViewModel
         {
             Raffle = raffle,
             Tickets = tickets,
             InvoiceId = invoiceId,
             VerifyUrl = verifyUrl,
+            WalletUrl = walletUrl,
             QrCodeDataUrl = QrCodeService.GenerateQrBase64(verifyUrl),
             WinningNumbers = winningNumbers,
             TicketQrCodes = ticketQrCodes
         });
+    }
+
+    // ── Buyer wallet (all tickets for one email on this raffle) ─────────────────
+
+    [HttpGet("{raffleId}/my")]
+    public async Task<IActionResult> MyTickets(Guid raffleId, [FromQuery] string token)
+    {
+        if (!_walletTokens.TryValidate(token, raffleId, out var email, out _))
+            return NotFound();
+
+        var raffle = await _raffle.GetRaffleAsync(raffleId);
+        if (raffle is null || raffle.Status == RaffleStatus.Draft) return NotFound();
+
+        var tickets = await _raffle.GetTicketsByBuyerAsync(raffleId, email);
+        if (tickets.Count == 0) return NotFound();
+
+        var walletState = await _raffle.GetBuyerWalletStateAsync(raffleId, email);
+        if (walletState is null) return NotFound();
+
+        var displayName = tickets
+            .Select(t => t.BuyerName)
+            .LastOrDefault(n => !string.IsNullOrWhiteSpace(n));
+
+        return View("~/Views/RafflePublic/MyTickets.cshtml", new BuyerWalletViewModel
+        {
+            Raffle = raffle,
+            Tickets = tickets,
+            WalletToken = token,
+            StateUrl = Url.Action(nameof(MyTicketsState), "RafflePublic",
+                new { raffleId, token }, Request.Scheme)!,
+            DisplayName = RaffleBuyerDisplay.DisplayBuyerName(displayName),
+            WinningNumbers = walletState.WinningNumbers,
+            MyWinningNumbers = walletState.MyWinningNumbers,
+            PurchaseCount = walletState.PurchaseCount,
+            PendingDraw = walletState.PendingDraw is null ? null : new BuyerWalletPendingDrawResponse
+            {
+                DrawOrder = walletState.PendingDraw.DrawOrder,
+                RevealAt = walletState.PendingDraw.RevealAt
+            }
+        });
+    }
+
+    [HttpGet("{raffleId}/my/state")]
+    public async Task<IActionResult> MyTicketsState(Guid raffleId, [FromQuery] string token)
+    {
+        if (!_walletTokens.TryValidate(token, raffleId, out var email, out _))
+            return NotFound();
+
+        var state = await _raffle.GetBuyerWalletStateAsync(raffleId, email);
+        if (state is null) return NotFound();
+
+        var response = new BuyerWalletStateResponse
+        {
+            Status = state.Status,
+            TicketNumbers = state.TicketNumbers,
+            WinningNumbers = state.WinningNumbers,
+            MyWinningNumbers = state.MyWinningNumbers,
+            DrawingsCount = state.DrawingsCount,
+            PurchaseCount = state.PurchaseCount,
+            PendingDraw = state.PendingDraw is null ? null : new BuyerWalletPendingDrawResponse
+            {
+                DrawOrder = state.PendingDraw.DrawOrder,
+                RevealAt = state.PendingDraw.RevealAt
+            }
+        };
+        return new JsonResult(response)
+        {
+            SerializerSettings = new JsonSerializerSettings
+            {
+                ContractResolver = new CamelCasePropertyNamesContractResolver()
+            }
+        };
     }
 
     // ── Ticket verification ───────────────────────────────────────────────────
