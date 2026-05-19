@@ -8,9 +8,14 @@
 - Draw results on the wallet page appear after the same **~6 s delay** as the presenter slot animation (no early spoiler for winners).
 - Polling retries on transient errors (only `404` stops); cookie sent with `credentials: 'same-origin'`.
 
+### Presenter
+
+- **Undo last draw** on `/raffle/{id}/present?token=…` (same as store draw UI; requires presenter token).
+
 ### Security & robustness
 
 - Token payload: buyer email **Base64url-encoded** (delimiter-safe; legacy tokens still work).
+- Email link builder rejects `//` network-path URLs (`RafflePublicUrlHelper.BuildPath`).
 - Buyer queries use normalized `BuyerEmail` column directly (index-friendly).
 - Ticket emails: validated `http(s)` origins, HTML-encoded link attributes; masked email in failure logs.
 
