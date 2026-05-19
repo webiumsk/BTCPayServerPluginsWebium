@@ -165,9 +165,10 @@ public class RafflePublicController : Controller
         var buyerEmail = tickets[0].BuyerEmail;
         if (!string.IsNullOrEmpty(buyerEmail))
         {
-            var (token, _) = _walletTokens.CreateToken(raffle.Id, buyerEmail);
+            var (token, expiresAt) = _walletTokens.CreateToken(raffle.Id, buyerEmail);
+            RaffleBuyerWalletCookie.Set(Response, raffle.Id, token, expiresAt, Request.IsHttps);
             walletUrl = Url.Action(nameof(MyTickets), "RafflePublic",
-                new { raffleId = raffle.Id, token }, Request.Scheme)!;
+                new { raffleId = raffle.Id }, Request.Scheme)!;
         }
 
         return View(new ReceiptViewModel
@@ -186,9 +187,17 @@ public class RafflePublicController : Controller
     // ── Buyer wallet (all tickets for one email on this raffle) ─────────────────
 
     [HttpGet("{raffleId}/my")]
-    public async Task<IActionResult> MyTickets(Guid raffleId, [FromQuery] string token)
+    public async Task<IActionResult> MyTickets(Guid raffleId, [FromQuery] string? token)
     {
-        if (!_walletTokens.TryValidate(token, raffleId, out var email, out _))
+        if (!string.IsNullOrWhiteSpace(token))
+        {
+            if (!_walletTokens.TryValidate(token, raffleId, out _, out var expiresAt))
+                return NotFound();
+            RaffleBuyerWalletCookie.Set(Response, raffleId, token, expiresAt, Request.IsHttps);
+            return RedirectToAction(nameof(MyTickets), new { raffleId });
+        }
+
+        if (!TryGetWalletEmail(raffleId, out var email))
             return NotFound();
 
         var raffle = await _raffle.GetRaffleAsync(raffleId);
@@ -208,9 +217,8 @@ public class RafflePublicController : Controller
         {
             Raffle = raffle,
             Tickets = tickets,
-            WalletToken = token,
             StateUrl = Url.Action(nameof(MyTicketsState), "RafflePublic",
-                new { raffleId, token }, Request.Scheme)!,
+                new { raffleId }, Request.Scheme)!,
             DisplayName = RaffleBuyerDisplay.DisplayBuyerName(displayName),
             WinningNumbers = walletState.WinningNumbers,
             MyWinningNumbers = walletState.MyWinningNumbers,
@@ -224,9 +232,9 @@ public class RafflePublicController : Controller
     }
 
     [HttpGet("{raffleId}/my/state")]
-    public async Task<IActionResult> MyTicketsState(Guid raffleId, [FromQuery] string token)
+    public async Task<IActionResult> MyTicketsState(Guid raffleId)
     {
-        if (!_walletTokens.TryValidate(token, raffleId, out var email, out _))
+        if (!TryGetWalletEmail(raffleId, out var email))
             return NotFound();
 
         var state = await _raffle.GetBuyerWalletStateAsync(raffleId, email);
@@ -275,5 +283,14 @@ public class RafflePublicController : Controller
             DrawOrder = drawOrder,
             TotalDrawings = raffle.Drawings.Count
         });
+    }
+
+    private bool TryGetWalletEmail(Guid raffleId, out string normalizedEmail)
+    {
+        normalizedEmail = "";
+        var cookieToken = RaffleBuyerWalletCookie.Get(Request, raffleId);
+        if (string.IsNullOrEmpty(cookieToken))
+            return false;
+        return _walletTokens.TryValidate(cookieToken, raffleId, out normalizedEmail, out _);
     }
 }

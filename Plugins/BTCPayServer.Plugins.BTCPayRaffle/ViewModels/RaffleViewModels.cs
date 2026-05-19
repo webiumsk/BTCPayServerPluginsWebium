@@ -135,7 +135,6 @@ public class BuyerWalletViewModel
 {
     public Raffle Raffle { get; set; } = null!;
     public List<RaffleTicket> Tickets { get; set; } = new();
-    public string WalletToken { get; set; } = "";
     public string StateUrl { get; set; } = "";
     public string DisplayName { get; set; } = "";
     public List<int> WinningNumbers { get; set; } = new();

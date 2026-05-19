@@ -359,7 +359,7 @@ public class RaffleService
         return await ctx.RaffleTickets
             .Where(t => t.RaffleId == raffleId
                 && t.BuyerEmail != null
-                && t.BuyerEmail.ToLower() == normalizedEmail)
+                && t.BuyerEmail == normalizedEmail)
             .OrderBy(t => t.TicketNumber)
             .ToListAsync();
     }
@@ -375,7 +375,7 @@ public class RaffleService
         var tickets = await ctx.RaffleTickets
             .Where(t => t.RaffleId == raffleId
                 && t.BuyerEmail != null
-                && t.BuyerEmail.ToLower() == normalizedEmail)
+                && t.BuyerEmail == normalizedEmail)
             .ToListAsync();
 
         var now = DateTimeOffset.UtcNow;

@@ -48,14 +48,18 @@ public class RaffleTicketEmailService
             if (settings?.IsComplete() != true)
                 return;
 
+            if (!RafflePublicUrlHelper.TryGetTrustedOrigin(baseUrl, out var origin))
+                return;
+
             var (walletToken, _) = _walletTokens.CreateToken(raffleId, buyerEmail);
-            var walletUrl = $"{baseUrl.TrimEnd('/')}/raffle/{raffleId}/my?token={Uri.EscapeDataString(walletToken)}";
+            var walletPath = $"/raffle/{raffleId}/my?token={Uri.EscapeDataString(walletToken)}";
+            var walletUrl = RafflePublicUrlHelper.BuildPath(origin, walletPath);
             var ticketNumbers = string.Join(", ", tickets.Select(t => $"#{t.TicketNumber}"));
             var subject = $"Your tickets — {raffleName}";
             var intro = manualAllocation
                 ? "Your ticket(s) have been allocated!"
                 : "Your ticket purchase was confirmed!";
-            var body = BuildEmailHtml(raffleName, intro, tickets, walletUrl, receiptUrl, baseUrl);
+            var body = BuildEmailHtml(raffleName, intro, tickets, walletUrl, receiptUrl, origin);
 
             sender.SendEmail(
                 new MailboxAddress(buyerName ?? buyerEmail, buyerEmail),
@@ -64,7 +68,8 @@ public class RaffleTicketEmailService
         }
         catch (Exception ex)
         {
-            _logs.PayServer.LogWarning(ex, "Could not send ticket email to {Email}", buyerEmail);
+            _logs.PayServer.LogWarning(ex, "Could not send ticket email to {MaskedEmail}",
+                RaffleBuyerDisplay.MaskEmail(buyerEmail));
         }
     }
 
@@ -74,8 +79,9 @@ public class RaffleTicketEmailService
         IReadOnlyList<RaffleTicket> tickets,
         string walletUrl,
         string? receiptUrl,
-        string baseUrl)
+        Uri origin)
     {
+        var safeWalletUrl = RafflePublicUrlHelper.HtmlAttribute(walletUrl);
         var sb = new StringBuilder();
         sb.Append($@"<!DOCTYPE html><html><body style=""font-family:sans-serif;max-width:600px;margin:0 auto;padding:20px"">
 <div style=""background:#f8f9fa;border-radius:12px;padding:24px;text-align:center"">
@@ -88,7 +94,8 @@ public class RaffleTicketEmailService
 
         foreach (var t in tickets)
         {
-            var verifyUrl = $"{baseUrl.TrimEnd('/')}/raffle/ticket/{t.Id}";
+            var verifyUrl = RafflePublicUrlHelper.HtmlAttribute(
+                RafflePublicUrlHelper.BuildPath(origin, $"/raffle/ticket/{t.Id}"));
             sb.Append($@"
   <div style=""border:2px solid #dee2e6;border-radius:8px;padding:12px 16px;margin:8px 0;display:flex;align-items:center;justify-content:space-between"">
     <span style=""font-size:28px;font-weight:900;font-family:monospace;color:#333"">#{t.TicketNumber}</span>
@@ -99,15 +106,19 @@ public class RaffleTicketEmailService
         sb.Append($@"
 </div>
 <div style=""text-align:center;margin:24px 0"">
-  <a href=""{walletUrl}"" style=""background:#0d6efd;color:#fff;text-decoration:none;padding:12px 28px;border-radius:8px;font-weight:600;display:inline-block"">
+  <a href=""{safeWalletUrl}"" style=""background:#0d6efd;color:#fff;text-decoration:none;padding:12px 28px;border-radius:8px;font-weight:600;display:inline-block"">
     View all my tickets
   </a>
   <p style=""margin:12px 0 0;font-size:13px;color:#666"">Same email on later purchases? Everything appears on one page.</p>");
 
-        if (!string.IsNullOrEmpty(receiptUrl))
+        if (!string.IsNullOrEmpty(receiptUrl)
+            && Uri.TryCreate(receiptUrl, UriKind.Absolute, out var receiptUri)
+            && (receiptUri.Scheme == Uri.UriSchemeHttp || receiptUri.Scheme == Uri.UriSchemeHttps)
+            && receiptUri.Host.Length > 0)
         {
+            var safeReceiptUrl = RafflePublicUrlHelper.HtmlAttribute(receiptUri.ToString());
             sb.Append($@"
-  <p style=""margin:8px 0 0""><a href=""{receiptUrl}"" style=""font-size:13px;color:#0d6efd"">Receipt for this purchase only</a></p>");
+  <p style=""margin:8px 0 0""><a href=""{safeReceiptUrl}"" style=""font-size:13px;color:#0d6efd"">Receipt for this purchase only</a></p>");
         }
 
         sb.Append($@"

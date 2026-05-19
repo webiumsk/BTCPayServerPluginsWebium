@@ -397,8 +397,16 @@
     let pollTimer = null;
     async function poll() {
         try {
-            const res = await fetch(stateUrl, { headers: { 'Accept': 'application/json' }, cache: 'no-store' });
-            if (!res.ok) return;
+            const res = await fetch(stateUrl, {
+                headers: { 'Accept': 'application/json' },
+                cache: 'no-store',
+                credentials: 'same-origin'
+            });
+            if (res.status === 404) return;
+            if (!res.ok) {
+                pollTimer = setTimeout(poll, 5000);
+                return;
+            }
             const data = await res.json();
             applyState(data);
             const status = str(data, 'status', 'Status');

@@ -1,6 +1,7 @@
 #nullable enable
 using System;
 using System.Globalization;
+using System.Text;
 using Microsoft.AspNetCore.DataProtection;
 
 namespace BTCPayServer.Plugins.BTCPayRaffle.Services;
@@ -28,7 +29,7 @@ public class RaffleBuyerWalletTokenService
         var expiresAt = DateTimeOffset.UtcNow.Add(lifetime.Value);
         var payload = string.Join(Separator,
             raffleId.ToString("N"),
-            normalized,
+            EncodeEmailPart(normalized),
             expiresAt.ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture));
         return (_protector.Protect(payload), expiresAt);
     }
@@ -54,13 +55,47 @@ public class RaffleBuyerWalletTokenService
         if (!Guid.TryParseExact(parts[0], "N", out var tokenRaffleId) || tokenRaffleId != raffleId)
             return false;
 
-        normalizedEmail = parts[1];
-        if (string.IsNullOrEmpty(normalizedEmail)) return false;
+        if (!TryDecodeEmailPart(parts[1], out normalizedEmail))
+            return false;
 
         if (!long.TryParse(parts[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out var unix))
             return false;
 
         expiresAt = DateTimeOffset.FromUnixTimeSeconds(unix);
         return expiresAt > DateTimeOffset.UtcNow;
+    }
+
+    private static string EncodeEmailPart(string normalized) =>
+        Convert.ToBase64String(Encoding.UTF8.GetBytes(normalized))
+            .TrimEnd('=').Replace('+', '-').Replace('/', '_');
+
+    private static bool TryDecodeEmailPart(string part, out string email)
+    {
+        email = "";
+        if (string.IsNullOrEmpty(part))
+            return false;
+
+        if (part.IndexOf(Separator, StringComparison.Ordinal) >= 0)
+            return false;
+
+        try
+        {
+            var b64 = part.Replace('-', '+').Replace('_', '/');
+            switch (b64.Length % 4)
+            {
+                case 2: b64 += "=="; break;
+                case 3: b64 += "="; break;
+            }
+            email = Encoding.UTF8.GetString(Convert.FromBase64String(b64));
+            if (!string.IsNullOrEmpty(email))
+                return true;
+        }
+        catch
+        {
+            // fall through — legacy plain-email tokens
+        }
+
+        email = part;
+        return !string.IsNullOrEmpty(email);
     }
 }

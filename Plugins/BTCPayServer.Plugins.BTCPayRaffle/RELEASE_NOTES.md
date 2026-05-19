@@ -1,5 +1,26 @@
 # BTCPay Raffle plugin — release notes
 
+## 1.3.0.1 (wallet security & draw sync)
+
+### Buyer wallet
+
+- Wallet auth via **HttpOnly cookie** after one-time `?token=` redemption; receipt and `/my/state` no longer expose the token in URLs.
+- Draw results on the wallet page appear after the same **~6 s delay** as the presenter slot animation (no early spoiler for winners).
+- Polling retries on transient errors (only `404` stops); cookie sent with `credentials: 'same-origin'`.
+
+### Security & robustness
+
+- Token payload: buyer email **Base64url-encoded** (delimiter-safe; legacy tokens still work).
+- Buyer queries use normalized `BuyerEmail` column directly (index-friendly).
+- Ticket emails: validated `http(s)` origins, HTML-encoded link attributes; masked email in failure logs.
+
+### Upgrade
+
+1. Install **1.3.0.1** and restart BTCPay Server.
+2. Buyers with an old bookmarked wallet URL (`?token=…`) are redirected once and then use the cookie.
+
+---
+
 ## 1.3.0.0 (buyer wallet — all tickets per email)
 
 ### Buyer wallet
