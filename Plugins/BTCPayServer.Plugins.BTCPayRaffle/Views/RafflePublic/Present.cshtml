@@ -40,15 +40,12 @@
                 @if (Model.CanDrawMore) { <span>🎲 Draw Next Prize</span> }
                 else { <span>✅ All prizes drawn</span> }
             </button>
-            @if (Model.CanUndoLastDraw)
-            {
-                <form method="post" class="mt-3"
-                      action="@Url.Action("UndoLastDraw", "RafflePresent", new { raffleId = Model.Raffle.Id, token = Model.PresenterToken })"
-                      onsubmit="return confirm('Undo the last draw? The winning ticket becomes eligible again.')">
-                    @Html.AntiForgeryToken()
-                    <button type="submit" class="btn btn-outline-warning">↩ Undo last draw</button>
-                </form>
-            }
+            <form id="undoForm" method="post" class="mt-3 @(Model.CanUndoLastDraw ? "" : "d-none")"
+                  action="@Url.Action("UndoLastDraw", "RafflePresent", new { raffleId = Model.Raffle.Id, token = Model.PresenterToken })"
+                  onsubmit="return confirm('Undo the last draw? The winning ticket becomes eligible again.')">
+                @Html.AntiForgeryToken()
+                <button type="submit" id="undoBtn" class="btn btn-outline-warning" @(Model.CanUndoLastDraw ? "" : "disabled")>↩ Undo last draw</button>
+            </form>
         </div>
 
         <!-- Winner reveal -->
@@ -214,6 +211,13 @@
         return document.querySelector('input[name="__RequestVerificationToken"]')?.value ?? '';
     }
 
+    function showUndoForm() {
+        const form = document.getElementById('undoForm');
+        const btn = document.getElementById('undoBtn');
+        if (form) form.classList.remove('d-none');
+        if (btn) btn.disabled = false;
+    }
+
     if (drawBtn) {
         drawBtn.addEventListener('click', async () => {
             if (isDrawing) return;
@@ -246,6 +250,7 @@
 
                 revealWinner(data);
                 prependDrawingItem(data);
+                showUndoForm();
 
                 const remaining = parseInt(eligibleEl.textContent) - 1;
                 eligibleEl.textContent = remaining;
