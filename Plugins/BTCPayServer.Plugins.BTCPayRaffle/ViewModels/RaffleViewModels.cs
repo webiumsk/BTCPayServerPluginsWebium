@@ -125,9 +125,39 @@ public class ReceiptViewModel
     public List<RaffleTicket> Tickets { get; set; } = new();
     public string InvoiceId { get; set; } = "";
     public string VerifyUrl { get; set; } = "";
+    public string WalletUrl { get; set; } = "";
     public string QrCodeDataUrl { get; set; } = "";
     public List<int> WinningNumbers { get; set; } = new();
     public Dictionary<Guid, string> TicketQrCodes { get; set; } = new();
+}
+
+public class BuyerWalletViewModel
+{
+    public Raffle Raffle { get; set; } = null!;
+    public List<RaffleTicket> Tickets { get; set; } = new();
+    public string StateUrl { get; set; } = "";
+    public string DisplayName { get; set; } = "";
+    public List<int> WinningNumbers { get; set; } = new();
+    public List<int> MyWinningNumbers { get; set; } = new();
+    public int PurchaseCount { get; set; }
+    public BuyerWalletPendingDrawResponse? PendingDraw { get; set; }
+}
+
+public class BuyerWalletPendingDrawResponse
+{
+    public int DrawOrder { get; set; }
+    public DateTimeOffset RevealAt { get; set; }
+}
+
+public class BuyerWalletStateResponse
+{
+    public string Status { get; set; } = "";
+    public List<int> TicketNumbers { get; set; } = new();
+    public List<int> WinningNumbers { get; set; } = new();
+    public List<int> MyWinningNumbers { get; set; } = new();
+    public int DrawingsCount { get; set; }
+    public int PurchaseCount { get; set; }
+    public BuyerWalletPendingDrawResponse? PendingDraw { get; set; }
 }
 
 public class TicketVerifyViewModel

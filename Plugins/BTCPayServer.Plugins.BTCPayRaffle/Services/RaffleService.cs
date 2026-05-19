@@ -353,6 +353,67 @@ public class RaffleService
         return (raffle, tickets);
     }
 
+    public async Task<List<RaffleTicket>> GetTicketsByBuyerAsync(Guid raffleId, string normalizedEmail)
+    {
+        await using var ctx = _db.CreateContext();
+        return await ctx.RaffleTickets
+            .Where(t => t.RaffleId == raffleId
+                && t.BuyerEmail != null
+                && t.BuyerEmail == normalizedEmail)
+            .OrderBy(t => t.TicketNumber)
+            .ToListAsync();
+    }
+
+    public async Task<BuyerWalletState?> GetBuyerWalletStateAsync(Guid raffleId, string normalizedEmail)
+    {
+        await using var ctx = _db.CreateContext();
+        var raffle = await ctx.Raffles
+            .Include(r => r.Drawings).ThenInclude(d => d.WinningTicket)
+            .FirstOrDefaultAsync(r => r.Id == raffleId);
+        if (raffle is null) return null;
+
+        var tickets = await ctx.RaffleTickets
+            .Where(t => t.RaffleId == raffleId
+                && t.BuyerEmail != null
+                && t.BuyerEmail == normalizedEmail)
+            .ToListAsync();
+
+        var now = DateTimeOffset.UtcNow;
+        var myNumbers = tickets.Select(t => t.TicketNumber).OrderBy(n => n).ToList();
+        var orderedDrawings = raffle.Drawings.OrderBy(d => d.DrawOrder).ToList();
+        var revealedDrawings = orderedDrawings
+            .Where(d => RaffleDrawReveal.IsRevealed(d.DrawnAt, now))
+            .ToList();
+        var pendingDrawing = orderedDrawings
+            .LastOrDefault(d => !RaffleDrawReveal.IsRevealed(d.DrawnAt, now));
+
+        var winningNumbers = revealedDrawings
+            .Select(d => d.WinningTicket.TicketNumber)
+            .ToList();
+        var myWinning = myNumbers.Intersect(winningNumbers).OrderBy(n => n).ToList();
+
+        BuyerWalletPendingDraw? pendingDraw = null;
+        if (pendingDrawing is not null)
+        {
+            pendingDraw = new BuyerWalletPendingDraw
+            {
+                DrawOrder = pendingDrawing.DrawOrder,
+                RevealAt = RaffleDrawReveal.RevealAt(pendingDrawing.DrawnAt)
+            };
+        }
+
+        return new BuyerWalletState
+        {
+            Status = raffle.Status.ToString(),
+            TicketNumbers = myNumbers,
+            WinningNumbers = winningNumbers,
+            MyWinningNumbers = myWinning,
+            DrawingsCount = raffle.Drawings.Count,
+            PurchaseCount = tickets.Select(t => t.InvoiceId).Distinct().Count(),
+            PendingDraw = pendingDraw
+        };
+    }
+
     private static List<RaffleTicket> CreateTicketEntities(
         Raffle raffle,
         int count,
@@ -373,8 +434,8 @@ public class RaffleService
             TicketNumber = nextNumber + i,
             InvoiceId = invoiceId,
             IsManual = isManual,
-            BuyerEmail = buyerEmail,
-            BuyerName = buyerName
+            BuyerEmail = RaffleBuyerEmail.Normalize(buyerEmail),
+            BuyerName = string.IsNullOrWhiteSpace(buyerName) ? null : buyerName.Trim()
         }).ToList();
     }
 

@@ -64,6 +64,16 @@ Buyers open `/raffle/{raffleId}`, choose ticket count, and pay via the store’s
 
 After payment, buyers get a receipt page and per-ticket verification URLs.
 
+## Buyer wallet (all tickets per email)
+
+Multiple purchases with the **same email** on one raffle are combined on a single page:
+
+- **`GET /raffle/{raffleId}/my?token=…`** — grid of all your ticket numbers; winning numbers highlight during and after the draw.
+- Token is included in the confirmation email (keep the link private).
+- Polls **`GET /raffle/{raffleId}/my/state?token=…`** every few seconds while sales are closed or the draw is running.
+
+Satflux or other frontends can link buyers to this BTCPay URL; no separate wallet host is required.
+
 ## Privacy & display (`RaffleBuyerDisplay`)
 
 Ticket and draw responses **mask buyer email** (e.g. `a***@example.com`) in:

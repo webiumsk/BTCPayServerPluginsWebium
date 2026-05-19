@@ -9,7 +9,7 @@
   <PropertyGroup>
     <Product>BTCPay Raffle</Product>
     <Description>Raffle / tombola plugin for BTCPay Server. Organise Lightning-powered ticket sales, perform live prize draws with animated slot-machine UI, and distribute verifiable digital tickets to buyers.</Description>
-    <Version>1.2.0.2</Version>
+    <Version>1.3.0.1</Version>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
   </PropertyGroup>
 

@@ -30,6 +30,8 @@ public class BTCPayRafflePlugin : BaseBTCPayServerPlugin
         // ── Services ─────────────────────────────────────────────────────────
         services.AddSingleton<RaffleService>();
         services.AddSingleton<RafflePresenterTokenService>();
+        services.AddSingleton<RaffleBuyerWalletTokenService>();
+        services.AddSingleton<RaffleTicketEmailService>();
         services.AddHostedService<RaffleInvoiceWatcher>();
 
         // ── UI extensions (injected into BTCPay layout slots) ─────────────────

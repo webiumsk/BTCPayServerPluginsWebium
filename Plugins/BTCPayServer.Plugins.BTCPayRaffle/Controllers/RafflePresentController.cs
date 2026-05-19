@@ -100,6 +100,26 @@ public class RafflePresentController : Controller
         }
     }
 
+    [HttpPost("{raffleId}/present/undo-draw")]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> UndoLastDraw(Guid raffleId, [FromQuery] string token)
+    {
+        var raffle = await _raffle.GetRaffleAsync(raffleId);
+        if (raffle is null) return NotFound();
+        if (!TryValidateToken(token, raffle, out var bad)) return bad;
+
+        try
+        {
+            await _raffle.UndoLastDrawingAsync(raffleId);
+        }
+        catch (InvalidOperationException)
+        {
+            // Redirect — page reflects current state (undo not allowed).
+        }
+
+        return RedirectToAction(nameof(Present), new { raffleId, token });
+    }
+
     private bool TryValidateToken(string? token, Raffle raffle, out IActionResult error)
     {
         if (_tokens.TryValidate(token, raffle.Id, raffle.StoreId, out _))

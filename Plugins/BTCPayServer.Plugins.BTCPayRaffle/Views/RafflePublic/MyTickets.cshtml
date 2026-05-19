@@ -1,0 +1,425 @@
+@using BTCPayServer.Plugins.BTCPayRaffle.Data.Entities
+@model BTCPayServer.Plugins.BTCPayRaffle.ViewModels.BuyerWalletViewModel
+@{
+    ViewData["Title"] = "My Tickets — " + Model.Raffle.Name;
+    Layout = "_LayoutSimple";
+    var r = Model.Raffle;
+    var myWinSet = Model.MyWinningNumbers.ToHashSet();
+    var initialDrawingsCount = r.Drawings.Count;
+    var pendingDraw = Model.PendingDraw;
+}
+
+<style>
+.wallet-page { max-width:720px; margin:0 auto; padding:1rem; }
+.wallet-header {
+    background:linear-gradient(135deg,#1a1a2e,#0f3460); color:#fff;
+    border-radius:16px; padding:1.75rem; text-align:center; margin-bottom:1.5rem;
+}
+.wallet-stats { display:flex; justify-content:center; gap:2rem; flex-wrap:wrap; margin-top:1rem; }
+.wallet-stat-value { font-size:1.5rem; font-weight:800; color:#ffd700; }
+.wallet-stat-label { font-size:.75rem; opacity:.7; text-transform:uppercase; }
+.ticket-grid {
+    display:grid; grid-template-columns:repeat(auto-fill, minmax(72px, 1fr)); gap:.5rem;
+    margin:1.25rem 0;
+}
+.ticket-chip {
+    aspect-ratio:1; display:flex; align-items:center; justify-content:center;
+    border-radius:10px; font-weight:800; font-family:monospace; font-size:1.1rem;
+    background:var(--btcpay-bg-secondary); border:2px solid var(--btcpay-body-border-medium);
+    color:var(--btcpay-body-text); transition:transform .2s, box-shadow .2s, border-color .2s;
+}
+.ticket-chip-winner {
+    border-color:#ffd700; background:linear-gradient(135deg,#fff8e0,#ffe566);
+    color:#1a1a2e; box-shadow:0 4px 16px rgba(255,215,0,.35);
+    animation:winGlow 1.5s ease-in-out infinite;
+}
+.ticket-chip-pulse { animation:winPulse .7s ease-out 3; }
+@@keyframes winPulse {
+    0% { transform:scale(1); box-shadow:0 0 0 0 rgba(255,215,0,.6); }
+    50% { transform:scale(1.15); box-shadow:0 0 0 12px rgba(255,215,0,0); }
+    100% { transform:scale(1); }
+}
+@@keyframes winGlow {
+    0%, 100% { box-shadow:0 4px 16px rgba(255,215,0,.35); }
+    50% { box-shadow:0 4px 24px rgba(255,215,0,.65); }
+}
+.draw-banner {
+    text-align:center; padding:.75rem; border-radius:10px; margin-bottom:1rem;
+    background:var(--btcpay-bg-secondary); border:1px solid var(--btcpay-body-border-medium);
+}
+.draw-banner.live { border-color:var(--btcpay-primary); }
+.draw-banner.drawing {
+    border-color:#ffd700;
+    animation:bannerPulse 2s ease-in-out infinite;
+}
+@@keyframes bannerPulse {
+    0%, 100% { background:var(--btcpay-bg-secondary); }
+    50% { background:rgba(255,215,0,.12); }
+}
+.win-banner {
+    background:linear-gradient(135deg,#14532d,#166534); color:#fff;
+    border-radius:12px; padding:1rem; text-align:center; margin-bottom:1rem;
+}
+.draw-slot-wrap { margin-top:.5rem; }
+.draw-slot-num {
+    display:inline-block; font-size:2rem; font-weight:800; font-family:monospace;
+    color:#ffd700; min-width:4ch; transition:transform .08s;
+}
+.draw-slot-num.spinning { animation:slotShake .12s linear infinite; }
+@@keyframes slotShake {
+    0%, 100% { transform:translateY(0); }
+    50% { transform:translateY(-2px); }
+}
+</style>
+
+<div class="wallet-page">
+
+    <div class="wallet-header">
+        <div style="font-size:2.5rem">🎟️</div>
+        <h2 class="mb-1">My Tickets</h2>
+        <p class="mb-0" style="opacity:.85">@r.Name</p>
+        @if (Model.DisplayName != "—")
+        {
+            <p class="mb-0 small" style="opacity:.7">@Model.DisplayName</p>
+        }
+        <div class="wallet-stats">
+            <div>
+                <div class="wallet-stat-value">@Model.Tickets.Count</div>
+                <div class="wallet-stat-label">your tickets</div>
+            </div>
+            <div>
+                <div class="wallet-stat-value">@Model.PurchaseCount</div>
+                <div class="wallet-stat-label">purchases</div>
+            </div>
+            <div id="winsStatWrap" style="display:@(Model.MyWinningNumbers.Any() ? "block" : "none")">
+                <div class="wallet-stat-value" id="winsStatValue">@Model.MyWinningNumbers.Count</div>
+                <div class="wallet-stat-label">wins</div>
+            </div>
+        </div>
+    </div>
+
+    <div id="drawBanner" class="draw-banner live @(r.Status == RaffleStatus.Drawing || pendingDraw is not null ? "drawing" : "")">
+        <span id="drawBannerText">
+            @if (pendingDraw is not null)
+            { <text>Draw #@pendingDraw.DrawOrder in progress…</text> }
+            else if (r.Status == RaffleStatus.Drawing)
+            { <text>Draw in progress — this page updates automatically</text> }
+            else if (r.Status == RaffleStatus.Completed)
+            { <text>Draw complete</text> }
+            else if (r.Status == RaffleStatus.Closed)
+            { <text>Sales closed — draw starting soon</text> }
+            else
+            { <text>Sales open — we will update when the draw starts</text> }
+        </span>
+        <div id="drawSlotWrap" class="draw-slot-wrap" style="display:@(pendingDraw is not null ? "block" : "none")">
+            <span id="drawSlotNum" class="draw-slot-num @(pendingDraw is not null ? "spinning" : "")">#?</span>
+        </div>
+    </div>
+
+    <div id="winBanner" class="win-banner" style="display:@(Model.MyWinningNumbers.Any() ? "block" : "none")">
+        <strong id="winBannerText">
+            @if (Model.MyWinningNumbers.Any())
+            {
+                @:Congratulations! Winning ticket(s): @string.Join(", ", Model.MyWinningNumbers.Select(n => $"#{n}"))
+            }
+        </strong>
+    </div>
+
+    <div class="ticket-grid" id="ticketGrid">
+        @foreach (var t in Model.Tickets)
+        {
+            var won = myWinSet.Contains(t.TicketNumber);
+            <div class="ticket-chip @(won ? "ticket-chip-winner" : "")" data-number="@t.TicketNumber" id="chip-@t.TicketNumber">
+                #@t.TicketNumber
+            </div>
+        }
+    </div>
+
+    @if (Model.WinningNumbers.Any() && !Model.MyWinningNumbers.Any())
+    {
+        <p class="text-secondary text-center small" id="otherWinners">
+            Drawn so far: @string.Join(", ", Model.WinningNumbers.Select(n => $"#{n}"))
+        </p>
+    }
+    else
+    {
+        <p class="text-secondary text-center small" id="otherWinners" style="display:none"></p>
+    }
+
+    <p class="text-secondary text-center small mt-3">
+        Bookmark this page. Use the same email for every purchase to keep all tickets here.
+    </p>
+</div>
+
+<canvas id="confettiCanvas"
+        style="position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:9999"></canvas>
+
+@section PageFootContent {
+<script>
+(function () {
+    const stateUrl = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.StateUrl));
+    const initialMyWins = new Set(@Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.MyWinningNumbers)));
+    const initialTicketNumbers = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.Tickets.Select(t => t.TicketNumber)));
+    const initialPending = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(
+        pendingDraw is null ? null : new { drawOrder = pendingDraw.DrawOrder, revealAt = pendingDraw.RevealAt }));
+    let knownMyWins = new Set(initialMyWins);
+    let knownDrawingsCount = @initialDrawingsCount;
+    let slotInterval = null;
+    let pendingRevealAt = null;
+
+    const grid = document.getElementById('ticketGrid');
+    const winBanner = document.getElementById('winBanner');
+    const winBannerText = document.getElementById('winBannerText');
+    const otherWinners = document.getElementById('otherWinners');
+    const drawBanner = document.getElementById('drawBanner');
+    const drawBannerText = document.getElementById('drawBannerText');
+    const drawSlotWrap = document.getElementById('drawSlotWrap');
+    const drawSlotNum = document.getElementById('drawSlotNum');
+    const winsStatWrap = document.getElementById('winsStatWrap');
+    const winsStatValue = document.getElementById('winsStatValue');
+
+    const canvas = document.getElementById('confettiCanvas');
+    const ctx2d = canvas.getContext('2d');
+    let confettiAF = null;
+    let confetti = [];
+    let confettiStopTimer = null;
+
+    function arr(data, camel, pascal) {
+        const v = data[camel] ?? data[pascal];
+        return Array.isArray(v) ? v : [];
+    }
+    function str(data, camel, pascal) {
+        return data[camel] ?? data[pascal] ?? '';
+    }
+    function pendingDrawOf(data) {
+        return data.pendingDraw ?? data.PendingDraw ?? null;
+    }
+
+    function maxTicketHint(ticketNumbers) {
+        const nums = ticketNumbers.length ? ticketNumbers : initialTicketNumbers;
+        return nums.length ? Math.max(100, ...nums) : 100;
+    }
+
+    function stopPendingSlot() {
+        if (slotInterval) { clearInterval(slotInterval); slotInterval = null; }
+        pendingRevealAt = null;
+        if (drawSlotWrap) drawSlotWrap.style.display = 'none';
+        if (drawSlotNum) drawSlotNum.classList.remove('spinning');
+    }
+
+    function startPendingSlot(pending, ticketNumbers) {
+        const revealAt = pending.revealAt ?? pending.RevealAt;
+        const order = pending.drawOrder ?? pending.DrawOrder;
+        pendingRevealAt = new Date(revealAt).getTime();
+        drawBanner.classList.add('drawing');
+        drawBannerText.textContent = `Draw #${order} in progress…`;
+        if (drawSlotWrap) drawSlotWrap.style.display = 'block';
+        if (drawSlotNum) drawSlotNum.classList.add('spinning');
+        const cap = maxTicketHint(ticketNumbers);
+        if (slotInterval) clearInterval(slotInterval);
+        slotInterval = setInterval(() => {
+            if (drawSlotNum) drawSlotNum.textContent = '#' + (Math.floor(Math.random() * cap) + 1);
+        }, 90);
+    }
+
+    function resizeCanvas() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    const COLORS = ['#f0c040','#ff4444','#44bb44','#4488ff','#ff88ff','#ffaa00','#00cccc'];
+
+    function startConfetti() {
+        if (confettiStopTimer) clearTimeout(confettiStopTimer);
+        confetti = Array.from({ length: 200 }, () => ({
+            x: Math.random() * canvas.width,
+            y: Math.random() * -canvas.height,
+            w: 8 + Math.random() * 12,
+            h: 4 + Math.random() * 6,
+            color: COLORS[Math.floor(Math.random() * COLORS.length)],
+            rot: Math.random() * Math.PI * 2,
+            rs: (Math.random() - .5) * .2,
+            vx: (Math.random() - .5) * 4,
+            vy: 2 + Math.random() * 5,
+            o: 1
+        }));
+        if (!confettiAF) animateConfetti();
+        confettiStopTimer = setTimeout(stopConfetti, 5500);
+    }
+
+    function animateConfetti() {
+        ctx2d.clearRect(0, 0, canvas.width, canvas.height);
+        confetti.forEach(p => {
+            p.x += p.vx; p.y += p.vy; p.rot += p.rs;
+            if (p.y > canvas.height) { p.y = -20; p.x = Math.random() * canvas.width; }
+            ctx2d.save();
+            ctx2d.translate(p.x, p.y);
+            ctx2d.rotate(p.rot);
+            ctx2d.globalAlpha = p.o;
+            ctx2d.fillStyle = p.color;
+            ctx2d.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+            ctx2d.restore();
+        });
+        confettiAF = requestAnimationFrame(animateConfetti);
+    }
+
+    function stopConfetti() {
+        if (confettiAF) { cancelAnimationFrame(confettiAF); confettiAF = null; }
+        const fade = setInterval(() => {
+            ctx2d.clearRect(0, 0, canvas.width, canvas.height);
+            confetti.forEach(p => {
+                p.o -= .04;
+                if (p.o > 0) {
+                    ctx2d.save();
+                    ctx2d.translate(p.x += p.vx, p.y += p.vy);
+                    ctx2d.rotate(p.rot += p.rs);
+                    ctx2d.globalAlpha = p.o;
+                    ctx2d.fillStyle = p.color;
+                    ctx2d.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+                    ctx2d.restore();
+                }
+            });
+            if (confetti.every(p => p.o <= 0)) {
+                clearInterval(fade);
+                ctx2d.clearRect(0, 0, canvas.width, canvas.height);
+            }
+        }, 50);
+    }
+
+    function applyState(data) {
+        const status = str(data, 'status', 'Status');
+        const myWinsList = arr(data, 'myWinningNumbers', 'MyWinningNumbers');
+        const allWins = arr(data, 'winningNumbers', 'WinningNumbers');
+        const ticketNumbers = arr(data, 'ticketNumbers', 'TicketNumbers');
+        const drawingsCount = data.drawingsCount ?? data.DrawingsCount ?? 0;
+        const pending = pendingDrawOf(data);
+        const myWins = new Set(myWinsList);
+
+        if (pending) {
+            startPendingSlot(pending, ticketNumbers);
+            knownDrawingsCount = drawingsCount;
+            return;
+        }
+        stopPendingSlot();
+
+        ticketNumbers.forEach(n => {
+            let chip = document.getElementById('chip-' + n);
+            if (!chip) {
+                chip = document.createElement('div');
+                chip.className = 'ticket-chip';
+                chip.id = 'chip-' + n;
+                chip.dataset.number = n;
+                chip.textContent = '#' + n;
+                grid.appendChild(chip);
+            }
+            chip.classList.toggle('ticket-chip-winner', myWins.has(n));
+        });
+
+        let hadNewWin = false;
+        myWins.forEach(n => {
+            if (!knownMyWins.has(n)) {
+                hadNewWin = true;
+                const chip = document.getElementById('chip-' + n);
+                if (chip) {
+                    chip.classList.add('ticket-chip-pulse');
+                    setTimeout(() => chip.classList.remove('ticket-chip-pulse'), 2100);
+                }
+            }
+        });
+        if (hadNewWin) startConfetti();
+        knownMyWins = myWins;
+
+        if (winsStatWrap && winsStatValue) {
+            if (myWins.size) {
+                winsStatWrap.style.display = 'block';
+                winsStatValue.textContent = myWins.size;
+            } else {
+                winsStatWrap.style.display = 'none';
+            }
+        }
+
+        if (myWins.size) {
+            winBanner.style.display = 'block';
+            winBannerText.textContent = 'Congratulations! Winning ticket(s): ' +
+                [...myWins].sort((a, b) => a - b).map(n => '#' + n).join(', ');
+        } else {
+            winBanner.style.display = 'none';
+        }
+
+        if (allWins.length && !myWins.size) {
+            otherWinners.style.display = 'block';
+            otherWinners.textContent = 'Drawn so far: ' + allWins.map(n => '#' + n).join(', ');
+        } else if (allWins.length) {
+            const others = allWins.filter(n => !myWins.has(n));
+            otherWinners.style.display = others.length ? 'block' : 'none';
+            otherWinners.textContent = others.length
+                ? 'Other prizes drawn: ' + others.map(n => '#' + n).join(', ')
+                : '';
+        } else {
+            otherWinners.style.display = 'none';
+        }
+
+        drawBanner.classList.toggle('drawing', status === 'Drawing');
+        if (drawingsCount > knownDrawingsCount && allWins.length) {
+            const last = allWins[allWins.length - 1];
+            const won = myWins.has(last);
+            drawBannerText.textContent = won
+                ? `Draw #${drawingsCount}: ticket #${last} — you won!`
+                : `Draw #${drawingsCount}: ticket #${last} drawn`;
+        } else if (status === 'Drawing') {
+            drawBannerText.textContent = 'Draw in progress — watching for your numbers…';
+        } else if (status === 'Completed') {
+            drawBannerText.textContent = 'Draw complete';
+        } else if (status === 'Closed') {
+            drawBannerText.textContent = 'Sales closed — draw starting soon';
+        } else if (status === 'Open') {
+            drawBannerText.textContent = 'Sales open — we will update when the draw starts';
+        }
+        knownDrawingsCount = drawingsCount;
+    }
+
+    function pollIntervalMs(status, hasPending) {
+        if (hasPending) {
+            if (pendingRevealAt) {
+                const ms = pendingRevealAt - Date.now();
+                if (ms <= 0) return 300;
+                if (ms < 3000) return 500;
+            }
+            return 1000;
+        }
+        if (status === 'Drawing') return 2000;
+        if (status === 'Closed' || status === 'Completed') return 3000;
+        return 5000;
+    }
+
+    let pollTimer = null;
+    async function poll() {
+        try {
+            const res = await fetch(stateUrl, {
+                headers: { 'Accept': 'application/json' },
+                cache: 'no-store',
+                credentials: 'same-origin'
+            });
+            if (res.status === 404) return;
+            if (!res.ok) {
+                pollTimer = setTimeout(poll, 5000);
+                return;
+            }
+            const data = await res.json();
+            applyState(data);
+            const status = str(data, 'status', 'Status');
+            const hasPending = !!pendingDrawOf(data);
+            if (pollTimer) clearTimeout(pollTimer);
+            pollTimer = setTimeout(poll, pollIntervalMs(status, hasPending));
+        } catch (_) {
+            pollTimer = setTimeout(poll, 5000);
+        }
+    }
+
+    if (initialPending) startPendingSlot(initialPending, initialTicketNumbers);
+    poll();
+})();
+</script>
+}

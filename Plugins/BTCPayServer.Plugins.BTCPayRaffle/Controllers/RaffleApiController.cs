@@ -20,11 +20,16 @@ public class RaffleApiController : ControllerBase
 {
     private readonly RaffleService _raffle;
     private readonly RafflePresenterTokenService _presenterTokens;
+    private readonly RaffleTicketEmailService _ticketEmail;
 
-    public RaffleApiController(RaffleService raffle, RafflePresenterTokenService presenterTokens)
+    public RaffleApiController(
+        RaffleService raffle,
+        RafflePresenterTokenService presenterTokens,
+        RaffleTicketEmailService ticketEmail)
     {
         _raffle = raffle;
         _presenterTokens = presenterTokens;
+        _ticketEmail = ticketEmail;
     }
 
     [HttpGet]
@@ -173,6 +178,14 @@ public class RaffleApiController : ControllerBase
         {
             var tickets = await _raffle.AddManualTicketsAsync(
                 raffleId, req.Count, req.BuyerEmail, req.BuyerName);
+            var raffle = await _raffle.GetRaffleAsync(raffleId);
+            if (raffle is not null)
+            {
+                var baseUrl = $"{Request.Scheme}://{Request.Host}";
+                await _ticketEmail.SendTicketsEmailAsync(
+                    raffleId, raffle.Name, req.BuyerEmail, req.BuyerName, tickets, baseUrl,
+                    manualAllocation: true);
+            }
             return Ok(tickets.Select(MapTicket));
         }
         catch (InvalidOperationException ex) { return BadRequest(ex.Message); }

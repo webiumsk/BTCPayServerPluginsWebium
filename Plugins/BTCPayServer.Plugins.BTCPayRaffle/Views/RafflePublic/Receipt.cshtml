@@ -40,6 +40,16 @@
 
 <div class="receipt-page">
 
+
+    @if (!string.IsNullOrEmpty(Model.WalletUrl))
+    {
+        <div class="alert alert-primary text-center mb-3">
+            <strong>All your tickets on this raffle</strong>
+            <p class="small mb-2 mt-1">Bought more than once? One page lists every ticket for your email.</p>
+            <a href="@Model.WalletUrl" class="btn btn-primary btn-sm">View all my tickets</a>
+        </div>
+    }
+
     <div class="receipt-header">
         <div style="font-size:3rem">🎟️</div>
         <h2>Your Tickets</h2>

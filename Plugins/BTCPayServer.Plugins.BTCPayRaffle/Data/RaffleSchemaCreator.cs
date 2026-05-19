@@ -47,6 +47,8 @@ CREATE TABLE IF NOT EXISTS ""{schema}"".""RaffleTickets"" (
 );
 CREATE INDEX IF NOT EXISTS ""IX_RaffleTickets_InvoiceId""
     ON ""{schema}"".""RaffleTickets"" (""InvoiceId"");
+CREATE INDEX IF NOT EXISTS ""IX_RaffleTickets_RaffleId_BuyerEmail""
+    ON ""{schema}"".""RaffleTickets"" (""RaffleId"", ""BuyerEmail"");
 
 CREATE TABLE IF NOT EXISTS ""{schema}"".""RaffleDrawings"" (
     ""Id""              uuid        NOT NULL PRIMARY KEY,
