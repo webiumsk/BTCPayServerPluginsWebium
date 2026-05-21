@@ -160,15 +160,19 @@ function formatTotal(count) {
     return total.toFixed(2) + ' ' + currency;
 }
 function upd() {
+    if (!inp) return;
     const amount = formatTotal(parseInt(inp.value, 10) || 1);
     const tpl = L.total || 'Total: {0}';
     if (totalLine) {
         totalLine.innerHTML = tpl.replace('{0}', '<strong style="color:var(--btcpay-primary)">' + amount + '</strong>');
     }
 }
-if (inp) inp.addEventListener('input', upd);
-if (dec) dec.addEventListener('click', () => { if(parseInt(inp.value,10)>1){inp.value--;upd();} });
-if (inc) inc.addEventListener('click', () => { inp.value=(parseInt(inp.value,10)||1)+1; upd(); });
+if (inp) {
+    inp.addEventListener('input', upd);
+    upd();
+}
+if (dec && inp) dec.addEventListener('click', () => { if (parseInt(inp.value, 10) > 1) { inp.value--; upd(); } });
+if (inc && inp) inc.addEventListener('click', () => { inp.value = (parseInt(inp.value, 10) || 1) + 1; upd(); });
 if (emailInp) {
     emailInp.addEventListener('input', updateBuyBtn);
     emailInp.addEventListener('change', updateBuyBtn);
@@ -178,7 +182,6 @@ if (buyForm) {
         if (buyBtn?.disabled || !isEmailValid(emailInp?.value)) e.preventDefault();
     });
 }
-upd();
 updateBuyBtn();
 </script>
 }

@@ -91,5 +91,7 @@
   "receipt.buy_more": "Comprar más boletos",
   "receipt.buy_more_sub": "La venta sigue abierta — consiga más boletos para esta rifa.",
 
-  "present.unavailable": "La presentación está disponible cuando cierra la venta."
+  "present.unavailable": "La presentación está disponible cuando cierra la venta.",
+
+  "email.event_bundle_intro": "¡Su entrada al evento incluye boleto(s) de rifa!"
 }

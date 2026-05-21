@@ -4,9 +4,7 @@
     ViewData["Title"] = T["receipt.title"] + " — " + Model.Raffle.Name;
     Layout = "_LayoutSimple";
     var r = Model.Raffle;
-    var paidDisplay = RafflePricing.NormalizeCurrency(r.TicketCurrency) == RafflePricing.SatsCurrency
-        ? $"{r.TicketPriceSats * Model.Tickets.Count:N0} sats"
-        : $"{r.TicketPrice * Model.Tickets.Count:N2} {r.TicketCurrency}";
+    var paidDisplay = RafflePricing.FormatAmount(r.TicketPrice * Model.Tickets.Count, r.TicketCurrency);
 }
 
 <style>

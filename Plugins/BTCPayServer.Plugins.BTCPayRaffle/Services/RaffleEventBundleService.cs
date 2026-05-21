@@ -13,15 +13,18 @@ public sealed class RaffleEventBundleService : IRaffleEventBundleService
 
     private readonly RaffleService _raffle;
     private readonly RaffleTicketEmailService _ticketEmail;
+    private readonly RaffleStringLocalizer _localizer;
     private readonly ILogger<RaffleEventBundleService> _logger;
 
     public RaffleEventBundleService(
         RaffleService raffle,
         RaffleTicketEmailService ticketEmail,
+        RaffleStringLocalizer localizer,
         ILogger<RaffleEventBundleService> logger)
     {
         _raffle = raffle;
         _ticketEmail = ticketEmail;
+        _localizer = localizer;
         _logger = logger;
     }
 
@@ -49,11 +52,18 @@ public sealed class RaffleEventBundleService : IRaffleEventBundleService
         if (count < 1)
             return RaffleEventBundleResult.Skipped();
 
+        if (string.IsNullOrWhiteSpace(eventOrderId))
+            return RaffleEventBundleResult.Fail("Event order id is required for raffle bundle");
+
+        var (valid, validationError) = await ValidateBundledRaffleAsync(storeId, raffleId);
+        if (!valid)
+            return RaffleEventBundleResult.Fail(validationError ?? "Raffle validation failed");
+
         var normalizedEmail = RaffleBuyerEmail.Normalize(buyerEmail);
         if (string.IsNullOrEmpty(normalizedEmail))
             return RaffleEventBundleResult.Fail("Buyer email is required for raffle bundle");
 
-        var invoiceId = RaffleTicketIds.EventBundle(eventOrderId, normalizedEmail);
+        var invoiceId = RaffleTicketIds.EventBundle(eventOrderId.Trim(), normalizedEmail);
         var allocated = 0;
         var isNew = false;
 
@@ -88,7 +98,7 @@ public sealed class RaffleEventBundleService : IRaffleEventBundleService
                             baseUrl,
                             receiptUrl: null,
                             manualAllocation: true,
-                            introOverride: "Your event ticket includes raffle ticket(s)!");
+                            introOverride: _localizer["email.event_bundle_intro"]);
                     }
                 }
             }
@@ -97,10 +107,11 @@ public sealed class RaffleEventBundleService : IRaffleEventBundleService
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex,
+            _logger.LogError(ex,
                 "Event raffle bundle failed (store={StoreId}, raffle={RaffleId}, order={OrderId})",
                 storeId, raffleId, eventOrderId);
-            return RaffleEventBundleResult.Fail(ex.Message);
+            return RaffleEventBundleResult.Fail(
+                "An internal error occurred while processing the raffle event");
         }
     }
 }

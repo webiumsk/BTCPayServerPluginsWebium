@@ -1,5 +1,6 @@
 #nullable enable
 using System;
+using System.Globalization;
 using BTCPayServer.Plugins.BTCPayRaffle.Data.Entities;
 
 namespace BTCPayServer.Plugins.BTCPayRaffle.Services;
@@ -38,7 +39,24 @@ public static class RafflePricing
             : null;
 
     public static string FormatTicketPrice(Raffle raffle) =>
-        NormalizeCurrency(raffle.TicketCurrency) == SatsCurrency
-            ? $"{raffle.TicketPriceSats:N0} sats"
-            : $"{raffle.TicketPrice:N2} {raffle.TicketCurrency}";
+        FormatAmount(raffle.TicketPrice, raffle.TicketCurrency);
+
+    public static int AmountDecimalPlaces(string currency) =>
+        NormalizeCurrency(currency) switch
+        {
+            SatsCurrency => 0,
+            "BTC" => 8,
+            _ => 2
+        };
+
+    public static string FormatAmount(decimal amount, string currency)
+    {
+        var norm = NormalizeCurrency(currency);
+        if (norm == SatsCurrency)
+            return $"{decimal.Truncate(amount).ToString("N0", CultureInfo.InvariantCulture)} sats";
+
+        var places = AmountDecimalPlaces(norm);
+        var formatted = amount.ToString($"N{places}", CultureInfo.InvariantCulture);
+        return $"{formatted} {norm}";
+    }
 }

@@ -86,10 +86,11 @@ public sealed class RaffleStringLocalizer
         }
 
         if (ctx.Items.TryGetValue(UiCultureItemKey, out var storeLangObj)
-            && storeLangObj is string storeLang
-            && NormalizeLanguageCode(storeLang) is not null)
+            && storeLangObj is string storeLang)
         {
-            return CultureInfo.GetCultureInfo(storeLang);
+            var normalizedStoreLang = NormalizeLanguageCode(storeLang);
+            if (normalizedStoreLang is not null)
+                return CultureInfo.GetCultureInfo(normalizedStoreLang);
         }
 
         if (ctx.Request.Headers.TryGetValue("Accept-Language", out var acceptLanguage))

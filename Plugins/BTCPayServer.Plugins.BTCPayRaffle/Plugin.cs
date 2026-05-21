@@ -29,6 +29,7 @@ public class BTCPayRafflePlugin : BaseBTCPayServerPlugin
         services.AddStartupTask<PluginMigrationRunner>();
 
         // ── Services ─────────────────────────────────────────────────────────
+        services.AddSingleton<RaffleDescriptionHtml>();
         services.AddSingleton<RaffleService>();
         services.AddSingleton<RafflePresenterTokenService>();
         services.AddSingleton<RaffleBuyerWalletTokenService>();

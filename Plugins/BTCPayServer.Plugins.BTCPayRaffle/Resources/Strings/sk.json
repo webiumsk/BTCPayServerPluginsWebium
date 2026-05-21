@@ -91,5 +91,7 @@
   "receipt.buy_more": "Kúpiť ďalšie lístky",
   "receipt.buy_more_sub": "Predaj stále prebieha — pridajte si ďalšie lístky.",
 
-  "present.unavailable": "Prezentácia je dostupná po uzavretí predaja."
+  "present.unavailable": "Prezentácia je dostupná po uzavretí predaja.",
+
+  "email.event_bundle_intro": "Vstupenka na podujatie zahŕňa aj žrebovacie lístky!"
 }

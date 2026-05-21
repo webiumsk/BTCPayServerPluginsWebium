@@ -91,5 +91,7 @@
   "receipt.buy_more": "Buy more tickets",
   "receipt.buy_more_sub": "Sales are still open — get more tickets for this raffle.",
 
-  "present.unavailable": "Presenter is available after ticket sales close."
+  "present.unavailable": "Presenter is available after ticket sales close.",
+
+  "email.event_bundle_intro": "Your event ticket includes raffle ticket(s)!"
 }
