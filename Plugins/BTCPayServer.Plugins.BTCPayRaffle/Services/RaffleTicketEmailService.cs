@@ -36,7 +36,8 @@ public class RaffleTicketEmailService
         IReadOnlyList<RaffleTicket> tickets,
         string baseUrl,
         string? receiptUrl = null,
-        bool manualAllocation = false)
+        bool manualAllocation = false,
+        string? introOverride = null)
     {
         if (tickets.Count == 0 || string.IsNullOrWhiteSpace(buyerEmail))
             return;
@@ -56,9 +57,9 @@ public class RaffleTicketEmailService
             var walletUrl = RafflePublicUrlHelper.BuildPath(origin, walletPath);
             var ticketNumbers = string.Join(", ", tickets.Select(t => $"#{t.TicketNumber}"));
             var subject = $"Your tickets — {raffleName}";
-            var intro = manualAllocation
+            var intro = introOverride ?? (manualAllocation
                 ? "Your ticket(s) have been allocated!"
-                : "Your ticket purchase was confirmed!";
+                : "Your ticket purchase was confirmed!");
             var body = BuildEmailHtml(raffleName, intro, tickets, walletUrl, receiptUrl, origin);
 
             sender.SendEmail(

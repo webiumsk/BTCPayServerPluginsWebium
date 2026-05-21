@@ -248,6 +248,53 @@ public class RaffleService
         return tickets;
     }
 
+    /// <summary>
+    /// Bundle tickets included with an event admission (stable <paramref name="invoiceId"/> for idempotency).
+    /// </summary>
+    public async Task<(List<RaffleTicket> Tickets, bool IsNew)> AddBundleTicketsAsync(
+        Guid raffleId,
+        int count,
+        string invoiceId,
+        string? buyerEmail,
+        string? buyerName)
+    {
+        if (count < 1 || count > 100)
+            throw new ArgumentException("Count must be between 1 and 100");
+
+        await using var ctx = _db.CreateContext();
+        var existing = await ctx.RaffleTickets
+            .Where(t => t.InvoiceId == invoiceId)
+            .OrderBy(t => t.TicketNumber)
+            .ToListAsync();
+        if (existing.Count > 0)
+            return (existing, false);
+
+        var raffle = await ctx.Raffles
+            .Include(r => r.Tickets)
+            .Include(r => r.Drawings)
+            .FirstOrDefaultAsync(r => r.Id == raffleId)
+            ?? throw new InvalidOperationException("Raffle not found");
+
+        if (raffle.Status is not (RaffleStatus.Open or RaffleStatus.Closed))
+            throw new InvalidOperationException(
+                "Bundle tickets can only be added while sales are open or after sales are closed (before drawing)");
+
+        if (raffle.Drawings.Count > 0)
+            throw new InvalidOperationException("Cannot add bundle tickets after drawing has started");
+
+        EnsureCapacity(raffle, count);
+
+        var tickets = CreateTicketEntities(raffle, count, invoiceId, buyerEmail, buyerName, isManual: true);
+        ctx.RaffleTickets.AddRange(tickets);
+        await ctx.SaveChangesAsync();
+
+        _logger.LogInformation(
+            "Added {Count} event-bundle ticket(s) {First}-{Last} (raffle={RaffleId}, invoice={InvoiceId})",
+            count, tickets[0].TicketNumber, tickets[^1].TicketNumber, raffleId, invoiceId);
+
+        return (tickets, true);
+    }
+
     public async Task<(RaffleDrawing Drawing, RaffleTicket Winner)> DrawNextPrizeAsync(Guid raffleId)
     {
         await using var ctx = _db.CreateContext();
@@ -402,6 +449,10 @@ public class RaffleService
             };
         }
 
+        int? lastWinning = revealedDrawings.Count > 0
+            ? revealedDrawings[^1].WinningTicket.TicketNumber
+            : null;
+
         return new BuyerWalletState
         {
             Status = raffle.Status.ToString(),
@@ -410,6 +461,7 @@ public class RaffleService
             MyWinningNumbers = myWinning,
             DrawingsCount = raffle.Drawings.Count,
             PurchaseCount = tickets.Select(t => t.InvoiceId).Distinct().Count(),
+            LastWinningTicketNumber = lastWinning,
             PendingDraw = pendingDraw
         };
     }

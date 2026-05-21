@@ -129,6 +129,8 @@ public class ReceiptViewModel
     public string QrCodeDataUrl { get; set; } = "";
     public List<int> WinningNumbers { get; set; } = new();
     public Dictionary<Guid, string> TicketQrCodes { get; set; } = new();
+    public string BuyMoreUrl { get; set; } = "";
+    public bool CanBuyMore { get; set; }
 }
 
 public class BuyerWalletViewModel
@@ -140,7 +142,9 @@ public class BuyerWalletViewModel
     public List<int> WinningNumbers { get; set; } = new();
     public List<int> MyWinningNumbers { get; set; } = new();
     public int PurchaseCount { get; set; }
+    public int? LastWinningTicketNumber { get; set; }
     public BuyerWalletPendingDrawResponse? PendingDraw { get; set; }
+    public string BuyMoreUrl { get; set; } = "";
 }
 
 public class BuyerWalletPendingDrawResponse
@@ -157,6 +161,7 @@ public class BuyerWalletStateResponse
     public List<int> MyWinningNumbers { get; set; } = new();
     public int DrawingsCount { get; set; }
     public int PurchaseCount { get; set; }
+    public int? LastWinningTicketNumber { get; set; }
     public BuyerWalletPendingDrawResponse? PendingDraw { get; set; }
 }
 
@@ -165,6 +170,7 @@ public class TicketVerifyViewModel
     public RaffleTicket Ticket { get; set; } = null!;
     public Raffle Raffle { get; set; } = null!;
     public bool IsWinner { get; set; }
+    public bool IsWinnerRevealed { get; set; }
     public int? DrawOrder { get; set; }
     public int TotalDrawings { get; set; }
 }

@@ -1,0 +1,57 @@
+<style>
+/* High-contrast controls for dark BTCPay themes */
+.raffle-counter { display:flex; align-items:stretch; width:fit-content; }
+.raffle-counter-btn {
+    width:46px; min-height:46px; border:1px solid var(--btcpay-primary, #f7931a);
+    background:var(--btcpay-bg-tile, #2d2d2d); color:var(--btcpay-body-text, #f5f5f5);
+    font-size:1.4rem; font-weight:800; line-height:1;
+    cursor:pointer; transition:background .15s, color .15s, border-color .15s;
+    user-select:none;
+}
+.raffle-counter-btn:first-of-type { border-radius:10px 0 0 10px; }
+.raffle-counter-btn:last-of-type { border-radius:0 10px 10px 0; }
+.raffle-counter-btn:hover:not(:disabled) {
+    background:var(--btcpay-primary, #f7931a); color:#1a1a1a; border-color:var(--btcpay-primary, #f7931a);
+}
+.raffle-counter-input {
+    width:76px; min-height:46px; border:1px solid var(--btcpay-primary, #f7931a);
+    border-left:none; border-right:none; text-align:center;
+    font-size:1.35rem; font-weight:800;
+    background:var(--btcpay-bg-tile, #2d2d2d); color:var(--btcpay-body-text, #f5f5f5);
+    outline:none;
+}
+.raffle-counter-input:focus {
+    box-shadow:0 0 0 3px color-mix(in srgb, var(--btcpay-primary, #f7931a) 35%, transparent);
+}
+.raffle-counter-input::-webkit-outer-spin-button,
+.raffle-counter-input::-webkit-inner-spin-button { -webkit-appearance:none; margin:0; }
+.raffle-counter-input[type=number] { -moz-appearance:textfield; }
+
+.raffle-field {
+    background:var(--btcpay-bg-tile, #2d2d2d);
+    color:var(--btcpay-body-text, #f5f5f5);
+    border:1px solid var(--btcpay-body-border-medium, #555);
+}
+.raffle-field:focus {
+    border-color:var(--btcpay-primary, #f7931a);
+    box-shadow:0 0 0 2px color-mix(in srgb, var(--btcpay-primary, #f7931a) 30%, transparent);
+    color:var(--btcpay-body-text, #f5f5f5);
+}
+.raffle-field::placeholder { color:var(--btcpay-body-text-muted, #9ca3af); opacity:1; }
+
+.raffle-price-box {
+    background:var(--btcpay-bg-secondary, #1e1e1e);
+    border:none; border-radius:12px; padding:1rem 1.5rem; font-size:1.15rem;
+    text-align:center; color:var(--btcpay-body-text, #f5f5f5);
+    min-height:46px; display:flex; align-items:center; justify-content:center;
+}
+.raffle-btn-primary {
+    width:100%; background:linear-gradient(135deg,#f7931a,#e07800); color:#1a1a1a;
+    border:none; border-radius:12px; padding:1rem; font-size:1.15rem; font-weight:800;
+    cursor:pointer; box-shadow:0 6px 20px rgba(247,147,26,.35); transition:all .2s;
+}
+.raffle-btn-primary:hover:not(:disabled) {
+    background:linear-gradient(135deg,#ffaa00,#f07800); transform:translateY(-2px);
+}
+.raffle-btn-primary:disabled { opacity:.5; cursor:not-allowed; transform:none; box-shadow:none; }
+</style>

@@ -24,6 +24,7 @@
 </div>
 
 @section PageHeadContent {
+<partial name="_SummernoteHead" />
 <script>
 const cur = document.getElementById('ticketCurrency');
 const price = document.getElementById('ticketPrice');
@@ -44,4 +45,8 @@ cur?.addEventListener('change', refresh);
 price?.addEventListener('input', refresh);
 refresh();
 </script>
+}
+
+@section PageFootContent {
+<partial name="_SummernoteFoot" />
 }

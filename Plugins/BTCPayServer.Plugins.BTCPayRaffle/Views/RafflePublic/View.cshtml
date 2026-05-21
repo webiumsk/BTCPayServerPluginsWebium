@@ -1,9 +1,11 @@
 @using BTCPayServer.Plugins.BTCPayRaffle.Data.Entities
+@using BTCPayServer.Plugins.BTCPayRaffle.Services
 @model BTCPayServer.Plugins.BTCPayRaffle.ViewModels.RafflePublicViewModel
 @{
     ViewData["Title"] = Model.Raffle.Name;
     Layout = "_LayoutSimple";
     var r = Model.Raffle;
+    var buyI18n = System.Text.Json.JsonSerializer.Serialize(T.ScriptPack("buy"));
 }
 
 <style>
@@ -13,39 +15,17 @@
     border-radius:20px; padding:2rem; text-align:center; margin-bottom:2rem;
 }
 .raffle-hero h1 { font-size:2rem; font-weight:800; color:var(--btcpay-body-text); }
+.raffle-description { color:rgba(255,255,255,.75); margin-top:.5rem; text-align:left; max-width:100%; overflow:hidden; }
+.raffle-description img { max-width:100%; height:auto; border-radius:8px; }
+.raffle-description p:last-child { margin-bottom:0; }
 .raffle-stats { display:flex; justify-content:center; gap:2.5rem; margin-top:1.5rem; }
 .stat-value { font-size:2rem; font-weight:900; color:var(--btcpay-primary); }
 .stat-label { font-size:.8rem; color:var(--btcpay-body-text-muted); text-transform:uppercase; letter-spacing:.05em; }
 .buy-card { background:var(--btcpay-bg-tile,#fff); border:1px solid var(--btcpay-body-border-medium); border-radius:16px; padding:2rem; margin-bottom:2rem; }
-.ticket-counter { display:flex; align-items:center; width:fit-content; }
-.counter-btn {
-    width:44px; height:44px; border:2px solid var(--btcpay-body-border-medium);
-    background:var(--btcpay-body-bg); font-size:1.3rem; font-weight:700;
-    cursor:pointer; border-radius:8px 0 0 8px; transition:background .15s; user-select:none;
-}
-.counter-btn:last-of-type { border-radius:0 8px 8px 0; }
-.counter-input {
-    width:72px; height:44px; border:2px solid var(--btcpay-body-border-medium);
-    border-left:none; border-right:none; text-align:center;
-    font-size:1.3rem; font-weight:700; background:var(--btcpay-body-bg);
-    color:var(--btcpay-body-text); outline:none;
-}
-.counter-input::-webkit-outer-spin-button,.counter-input::-webkit-inner-spin-button{-webkit-appearance:none}
-.counter-input[type=number]{-moz-appearance:textfield}
-.price-summary {
-    background:var(--btcpay-bg-secondary); border:1px solid var(--btcpay-body-border-medium);
-    border-radius:12px; padding:1rem 1.5rem; font-size:1.15rem; margin-bottom:1.5rem; text-align:center;
-    color:var(--btcpay-body-text);
-}
-.price-summary strong { color:var(--btcpay-primary); }
-.btn-buy {
-    width:100%; background:linear-gradient(135deg,#f7931a,#e07800); color:#fff;
-    border:none; border-radius:12px; padding:1rem; font-size:1.15rem; font-weight:800;
-    cursor:pointer; box-shadow:0 6px 20px rgba(247,147,26,.35); transition:all .2s;
-}
-.btn-buy:hover:not(:disabled) { background:linear-gradient(135deg,#ffaa00,#f07800); transform:translateY(-2px); }
-.btn-buy:disabled { opacity:.45; cursor:not-allowed; box-shadow:none; transform:none; }
+.buy-card .buy-title { text-align:center; }
+.buy-ticket-row .raffle-counter { margin-top:.25rem; }
 </style>
+<partial name="_RaffleControlStyles" />
 
 <div style="max-width:680px;margin:0 auto;padding:1rem">
 
@@ -53,22 +33,22 @@
         <h1>🎟️ @r.Name</h1>
         @if (r.Description is { Length: > 0 })
         {
-            <p style="color:rgba(255,255,255,.75);margin-top:.5rem">@r.Description</p>
+            <div class="raffle-description">@Html.Raw(r.Description)</div>
         }
         <div class="raffle-stats">
             <div>
                 <div class="stat-value" style="font-size:1.25rem">@Model.TicketPriceDisplay</div>
-                <div class="stat-label">per ticket</div>
+                <div class="stat-label">@T["buy.per_ticket"]</div>
             </div>
             <div>
                 <div class="stat-value">@Model.TicketsSold</div>
-                <div class="stat-label">tickets sold</div>
+                <div class="stat-label">@T["buy.tickets_sold"]</div>
             </div>
             @if (r.MaxTickets.HasValue)
             {
                 <div>
                     <div class="stat-value">@(r.MaxTickets - Model.TicketsSold)</div>
-                    <div class="stat-label">remaining</div>
+                    <div class="stat-label">@T["buy.remaining"]</div>
                 </div>
             }
         </div>
@@ -77,42 +57,47 @@
     @if (r.Status == RaffleStatus.Open)
     {
         <div class="buy-card">
-            <h3 class="mb-4">Buy Tickets</h3>
+            <h3 class="mb-4 buy-title">@T["buy.title"]</h3>
             <form asp-controller="RafflePublic" asp-action="Buy"
                   asp-route-raffleId="@r.Id" method="post" asp-antiforgery="true">
                 <div asp-validation-summary="All" class="text-danger mb-3"></div>
 
-                <div class="mb-4">
-                    <label class="form-label fw-semibold" asp-for="BuyForm.TicketCount"></label>
-                    <div class="ticket-counter">
-                        <button type="button" class="counter-btn" id="dec">−</button>
-                        <input asp-for="BuyForm.TicketCount" id="ticketCount" min="1"
-                               max="@(r.MaxTickets.HasValue ? (r.MaxTickets - Model.TicketsSold) : 100)"
-                               class="counter-input" />
-                        <button type="button" class="counter-btn" id="inc">+</button>
+                <div class="row g-3 align-items-end buy-ticket-row mb-4">
+                    <div class="col-12 col-md-6">
+                        <label class="form-label fw-semibold mb-1" for="ticketCount">@T["buy.ticket_count"]</label>
+                        <div class="raffle-counter">
+                            <button type="button" class="raffle-counter-btn" id="dec" aria-label="-">−</button>
+                            <input asp-for="BuyForm.TicketCount" id="ticketCount" min="1"
+                                   max="@(r.MaxTickets.HasValue ? (r.MaxTickets - Model.TicketsSold) : 100)"
+                                   class="raffle-counter-input" />
+                            <button type="button" class="raffle-counter-btn" id="inc" aria-label="+">+</button>
+                        </div>
+                        <span asp-validation-for="BuyForm.TicketCount" class="text-danger small"></span>
                     </div>
-                    <span asp-validation-for="BuyForm.TicketCount" class="text-danger small"></span>
-                </div>
-
-                <div class="price-summary" id="priceSummary">
-                    Total: <strong id="totalPrice"></strong>
+                    <div class="col-12 col-md-6">
+                        <div class="raffle-price-box" id="priceSummary"><span id="totalLine"></span></div>
+                    </div>
                 </div>
 
                 <div class="mb-3">
-                    <label class="form-label fw-semibold" asp-for="BuyForm.BuyerEmail"></label>
+                    <label class="form-label fw-semibold" for="buyerEmail">@T["buy.email"]</label>
                     <span class="text-danger">*</span>
-                    <input asp-for="BuyForm.BuyerEmail" id="buyerEmail" class="form-control" placeholder="you@example.com" required autocomplete="email" />
+                    <input asp-for="BuyForm.BuyerEmail" id="buyerEmail" class="form-control raffle-field"
+                           placeholder="@T["buy.email_placeholder"]" required autocomplete="email" />
                     <span asp-validation-for="BuyForm.BuyerEmail" class="text-danger small"></span>
-                    <div class="form-text">Required — your ticket numbers will be sent to this address.</div>
+                    <div class="form-text">@T["buy.email_hint"]</div>
                 </div>
                 <div class="mb-4">
-                    <label class="form-label" asp-for="BuyForm.BuyerName"></label>
-                    <small class="text-secondary">(optional)</small>
-                    <input asp-for="BuyForm.BuyerName" class="form-control" placeholder="Nickname" />
+                    <label class="form-label" for="buyerName">
+                        @T["buy.name"]
+                        <small class="text-secondary">(@T["buy.name_optional"])</small>
+                    </label>
+                    <input asp-for="BuyForm.BuyerName" id="buyerName" class="form-control raffle-field"
+                           placeholder="@T["buy.name_placeholder"]" />
                     <span asp-validation-for="BuyForm.BuyerName" class="text-danger small"></span>
-                    <div class="form-text">Shown on the ticket list and during the draw (e.g. a nickname). Email is never shown in full.</div>
+                    <div class="form-text">@T["buy.name_hint"]</div>
                 </div>
-                <button type="submit" class="btn-buy" id="buyBtn" disabled>⚡ Pay</button>
+                <button type="submit" class="raffle-btn-primary" id="buyBtn" disabled>⚡ @T["buy.pay"]</button>
             </form>
         </div>
     }
@@ -120,41 +105,41 @@
     {
         <div class="text-center py-4" style="background:var(--btcpay-bg-secondary);border:1px solid var(--btcpay-body-border-medium);border-radius:16px;margin-bottom:2rem">
             <div style="font-size:2.5rem">🔒</div>
-            <h4 class="mt-2">Ticket sales have ended</h4>
-            <p class="mb-0 text-secondary">The draw is in progress.</p>
+            <h4 class="mt-2">@T["buy.ticket_sales_ended"]</h4>
+            <p class="mb-0 text-secondary">@T["buy.draw_in_progress"]</p>
         </div>
     }
     else if (r.Status == RaffleStatus.Completed)
     {
         <div class="alert alert-success text-center py-4">
             <div style="font-size:2.5rem">🏆</div>
-            <h4>Raffle Complete</h4>
+            <h4>@T["buy.raffle_complete"]</h4>
             @foreach (var d in r.Drawings.OrderByDescending(d => d.DrawOrder))
             {
                 var total = r.Drawings.Count;
                 <div class="mt-2">
                     @(d.DrawOrder == total ? "🥇" : d.DrawOrder == total-1 ? "🥈" : d.DrawOrder == total-2 ? "🥉" : "🎖️")
-                    Ticket <strong>#@d.WinningTicket.TicketNumber</strong>
+                    @T.Format("buy.winner_ticket", d.WinningTicket.TicketNumber)
                     @if (d.WinningTicket.BuyerName is { Length: > 0 } n) { <span class="text-secondary"> — @n</span> }
                 </div>
             }
         </div>
     }
 
-    <!-- Share QR -->
     <div class="text-center mt-3 p-3" style="background:var(--btcpay-bg-secondary);border:1px solid var(--btcpay-body-border-medium);border-radius:12px">
-        <p class="text-secondary small mb-2">Share this raffle</p>
-        <img src="@Model.QrCodeDataUrl" class="rounded" style="max-width:160px" alt="QR code" />
+        <p class="text-secondary small mb-2">@T["buy.share_raffle"]</p>
+        <img src="@Model.QrCodeDataUrl" class="rounded" style="max-width:160px" alt="QR" />
     </div>
 
 </div>
 
 @section PageFootContent {
 <script>
+const L = @Html.Raw(buyI18n);
 const ppt = @r.TicketPrice.ToString(System.Globalization.CultureInfo.InvariantCulture);
 const currency = '@r.TicketCurrency';
 const inp = document.getElementById('ticketCount');
-const tot = document.getElementById('totalPrice');
+const totalLine = document.getElementById('totalLine');
 const dec = document.getElementById('dec');
 const inc = document.getElementById('inc');
 const emailInp = document.getElementById('buyerEmail');
@@ -174,10 +159,16 @@ function formatTotal(count) {
     if (currency === 'SATS') return Math.round(total).toLocaleString() + ' sats';
     return total.toFixed(2) + ' ' + currency;
 }
-function upd() { tot.textContent = formatTotal(parseInt(inp.value) || 1); }
-inp.addEventListener('input', upd);
-dec.addEventListener('click', () => { if(parseInt(inp.value)>1){inp.value--;upd();} });
-inc.addEventListener('click', () => { inp.value=(parseInt(inp.value)||1)+1; upd(); });
+function upd() {
+    const amount = formatTotal(parseInt(inp.value, 10) || 1);
+    const tpl = L.total || 'Total: {0}';
+    if (totalLine) {
+        totalLine.innerHTML = tpl.replace('{0}', '<strong style="color:var(--btcpay-primary)">' + amount + '</strong>');
+    }
+}
+if (inp) inp.addEventListener('input', upd);
+if (dec) dec.addEventListener('click', () => { if(parseInt(inp.value,10)>1){inp.value--;upd();} });
+if (inc) inc.addEventListener('click', () => { inp.value=(parseInt(inp.value,10)||1)+1; upd(); });
 if (emailInp) {
     emailInp.addEventListener('input', updateBuyBtn);
     emailInp.addEventListener('change', updateBuyBtn);

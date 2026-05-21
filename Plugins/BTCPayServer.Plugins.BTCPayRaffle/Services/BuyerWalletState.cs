@@ -11,5 +11,6 @@ public sealed class BuyerWalletState
     public List<int> MyWinningNumbers { get; set; } = new();
     public int DrawingsCount { get; set; }
     public int PurchaseCount { get; set; }
+    public int? LastWinningTicketNumber { get; set; }
     public BuyerWalletPendingDraw? PendingDraw { get; set; }
 }

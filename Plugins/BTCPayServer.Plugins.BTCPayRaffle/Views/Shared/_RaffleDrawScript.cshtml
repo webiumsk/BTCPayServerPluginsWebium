@@ -1,0 +1,204 @@
+@{
+    var i18n = T.ScriptPack("draw");
+    var i18nJson = System.Text.Json.JsonSerializer.Serialize(i18n);
+}
+<script>
+'use strict';
+(function(){
+    const L = @Html.Raw(i18nJson);
+    let isDrawing = false;
+    const drawBtn    = document.getElementById('drawBtn');
+    const slotReel   = document.getElementById('slotReel');
+    const currentNum = document.getElementById('currentNumber');
+    const prizeLabel = document.getElementById('prizeLabel');
+    const winPanel   = document.getElementById('winnerPanel');
+    const winNum     = document.getElementById('winnerNumber');
+    const winInfo    = document.getElementById('winnerInfo');
+    const winBadge   = document.getElementById('winnerPrizeBadge');
+    const drawList   = document.getElementById('drawingsList');
+    const eligibleEl = document.getElementById('eligibleCount');
+    const canvas     = document.getElementById('confettiCanvas');
+    if (!drawBtn || !canvas) return;
+    const ctx2d      = canvas.getContext('2d');
+    let   confettiAF = null;
+    let   confetti   = [];
+
+    function csrfToken() {
+        return document.querySelector('input[name="__RequestVerificationToken"]')?.value ?? '';
+    }
+
+    function showUndoForm() {
+        const form = document.getElementById('undoForm');
+        const btn = document.getElementById('undoBtn');
+        if (form) form.classList.remove('d-none');
+        if (btn) btn.disabled = false;
+    }
+
+    drawBtn.addEventListener('click', async () => {
+        if (isDrawing) return;
+        isDrawing = true;
+        drawBtn.disabled = true;
+        winPanel.style.display = 'none';
+        prizeLabel.textContent = L.drawing ?? 'Drawing…';
+        prizeLabel.className = 'prize-label drawing';
+
+        try {
+            const res = await fetch(drawBtn.dataset.drawUrl, {
+                method: 'POST',
+                headers: {
+                    'RequestVerificationToken': csrfToken(),
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            });
+            const data = await res.json();
+
+            if (!data.success) {
+                alert(data.error ?? (L.failed ?? 'Draw failed'));
+                prizeLabel.textContent = L.ready ?? 'Ready to draw';
+                prizeLabel.className = 'prize-label';
+                isDrawing = false;
+                drawBtn.disabled = false;
+                return;
+            }
+
+            await animateSlot(data.ticketNumber);
+            revealWinner(data);
+            prependDrawingItem(data);
+            showUndoForm();
+
+            const remaining = parseInt(eligibleEl.textContent, 10) - 1;
+            eligibleEl.textContent = remaining;
+            startConfetti();
+            setTimeout(stopConfetti, 5500);
+
+            if (remaining > 0) {
+                setTimeout(() => {
+                    isDrawing = false;
+                    drawBtn.disabled = false;
+                    currentNum.textContent = '?';
+                    winPanel.style.display = 'none';
+                    prizeLabel.textContent = L.ready_next ?? 'Ready for next draw';
+                    prizeLabel.className = 'prize-label';
+                }, 9000);
+            } else {
+                const span = drawBtn.querySelector('span');
+                if (span) span.textContent = '✅ ' + (L.all_drawn ?? 'All prizes drawn');
+            }
+        } catch (e) {
+            console.error(e);
+            alert(L.network_error ?? 'Network error');
+            isDrawing = false;
+            drawBtn.disabled = false;
+        }
+    });
+
+    async function animateSlot(finalNumber) {
+        const DURATION = 5600, FPS = 60;
+        const totalFrames = (DURATION / 1000) * FPS;
+        slotReel.classList.add('spinning');
+        return new Promise(resolve => {
+            let frame = 0;
+            function tick() {
+                frame++;
+                const progress = frame / totalFrames;
+                const changeEvery = Math.max(1, Math.round(progress * progress * 28));
+                if (frame % changeEvery === 0) {
+                    const fake = progress > .9
+                        ? Math.max(1, finalNumber + Math.round((Math.random()-.5) * (1-progress) * 30))
+                        : Math.floor(Math.random() * Math.max(100, finalNumber + 50)) + 1;
+                    currentNum.textContent = fake;
+                }
+                if (frame < totalFrames) requestAnimationFrame(tick);
+                else {
+                    currentNum.textContent = finalNumber;
+                    slotReel.classList.remove('spinning');
+                    slotReel.classList.add('stopped');
+                    setTimeout(() => { slotReel.classList.remove('stopped'); resolve(); }, 400);
+                }
+            }
+            requestAnimationFrame(tick);
+        });
+    }
+
+    function revealWinner(data) {
+        winNum.textContent = '#' + data.ticketNumber;
+        const parts = [];
+        if (data.winnerName && data.winnerName !== '—') parts.push(data.winnerName);
+        if (data.winnerEmail) parts.push(data.winnerEmail);
+        winInfo.textContent = parts.length ? parts.join(' · ') : (L.anonymous ?? 'Anonymous');
+        const order = data.drawOrder;
+        winBadge.textContent = (L.draw_number ?? 'Draw #{0}').replace('{0}', order);
+        winBadge.className = 'winner-prize-badge prize-' + Math.min(order, 3);
+        winPanel.style.display = 'flex';
+        winPanel.classList.add('reveal');
+        setTimeout(() => winPanel.classList.remove('reveal'), 700);
+        prizeLabel.textContent = '🎉 ' + (L.winner_drawn ?? 'Winner drawn!');
+        prizeLabel.className = 'prize-label revealed';
+    }
+
+    function prependDrawingItem(data) {
+        const noMsg = document.getElementById('noDrawingsMsg');
+        if (noMsg) noMsg.remove();
+        const item = document.createElement('div');
+        item.className = 'drawing-item new-item';
+        const ticketTpl = L.ticket_number ?? 'Ticket #{0}';
+        const drawTpl = L.draw_number ?? 'Draw #{0}';
+        item.innerHTML = `
+            <div class="drawing-medal">🎖️</div>
+            <div>${drawTpl.replace('{0}', data.drawOrder)}</div>
+            <div>${ticketTpl.replace('{0}', data.ticketNumber)}</div>
+            <div class="text-secondary small">${new Date(data.drawnAt).toLocaleTimeString()}</div>
+        `;
+        drawList.insertBefore(item, drawList.firstChild);
+        requestAnimationFrame(() => item.classList.remove('new-item'));
+    }
+
+    function resize() { canvas.width = innerWidth; canvas.height = innerHeight; }
+    window.addEventListener('resize', resize);
+    resize();
+
+    const COLORS = ['#f0c040','#ff4444','#44bb44','#4488ff','#ff88ff','#ffaa00','#00cccc'];
+
+    function startConfetti() {
+        confetti = Array.from({length: 200}, () => ({
+            x: Math.random() * canvas.width, y: Math.random() * -canvas.height,
+            w: 8 + Math.random()*12, h: 4 + Math.random()*6,
+            color: COLORS[Math.floor(Math.random()*COLORS.length)],
+            rot: Math.random() * Math.PI * 2,
+            rs: (Math.random()-.5)*.2,
+            vx: (Math.random()-.5)*4,
+            vy: 2 + Math.random()*5,
+            o: 1
+        }));
+        animateConfetti();
+    }
+
+    function animateConfetti() {
+        ctx2d.clearRect(0,0,canvas.width,canvas.height);
+        confetti.forEach(p => {
+            p.x+=p.vx; p.y+=p.vy; p.rot+=p.rs;
+            if (p.y > canvas.height) { p.y = -20; p.x = Math.random()*canvas.width; }
+            ctx2d.save(); ctx2d.translate(p.x,p.y); ctx2d.rotate(p.rot);
+            ctx2d.globalAlpha = p.o; ctx2d.fillStyle = p.color;
+            ctx2d.fillRect(-p.w/2,-p.h/2,p.w,p.h); ctx2d.restore();
+        });
+        confettiAF = requestAnimationFrame(animateConfetti);
+    }
+
+    function stopConfetti() {
+        if (confettiAF) { cancelAnimationFrame(confettiAF); confettiAF = null; }
+        const fade = setInterval(() => {
+            ctx2d.clearRect(0,0,canvas.width,canvas.height);
+            confetti.forEach(p => {
+                p.o -= .04;
+                if (p.o > 0) {
+                    ctx2d.save(); ctx2d.translate(p.x+=p.vx, p.y+=p.vy);
+                    ctx2d.rotate(p.rot+=p.rs); ctx2d.globalAlpha=p.o;
+                    ctx2d.fillStyle=p.color; ctx2d.fillRect(-p.w/2,-p.h/2,p.w,p.h); ctx2d.restore();
+                }
+            });
+            if (confetti.every(p=>p.o<=0)) { clearInterval(fade); ctx2d.clearRect(0,0,canvas.width,canvas.height); }
+        }, 50);
+    }
+})();
+</script>
