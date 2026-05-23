@@ -23,7 +23,7 @@ public class SimpleTicketSalesHostedService : EventHostedServiceBase, IPeriodicT
     private readonly EmailService _emailService;
     private readonly InvoiceRepository _invoiceRepository;
     private readonly SimpleTicketSalesDbContextFactory _dbContextFactory;
-    private readonly IRaffleEventBundleClient? _raffleBundle;
+    private readonly RaffleEventBundleClientProvider _raffleBundleProvider;
 
     public SimpleTicketSalesHostedService(EmailService emailService,
         EventAggregator eventAggregator,
@@ -34,7 +34,7 @@ public class SimpleTicketSalesHostedService : EventHostedServiceBase, IPeriodicT
         _emailService = emailService;
         _dbContextFactory = dbContextFactory;
         _invoiceRepository = invoiceRepository;
-        _raffleBundle = raffleBundleProvider.Client;
+        _raffleBundleProvider = raffleBundleProvider;
     }
 
     protected override void SubscribeToEvents()
@@ -195,9 +195,18 @@ public class SimpleTicketSalesHostedService : EventHostedServiceBase, IPeriodicT
                 catch { result.Write($"Failed to send email for Order Id: {order.Id}.", InvoiceEventData.EventSeverity.Error); }
             }
 
-            if (_raffleBundle != null)
+            var raffleBundle = _raffleBundleProvider.Client;
+            if (raffleBundle is null)
+            {
+                result.Write(
+                    "Raffle bundle skipped: BTCPay Raffle plugin is not loaded or is older than 1.3.1",
+                    InvoiceEventData.EventSeverity.Warning);
+            }
+            else
             {
                 var baseUrl = invoice.ServerUrl ?? "";
+                if (string.IsNullOrWhiteSpace(baseUrl))
+                    baseUrl = invoice.GetRequestBaseUrl()?.ToString() ?? "";
                 var ticketTypesById = ctx.TicketTypes
                     .Where(c => c.EventId == order.EventId)
                     .ToDictionary(t => t.Id);
@@ -228,12 +237,19 @@ public class SimpleTicketSalesHostedService : EventHostedServiceBase, IPeriodicT
                         BuyerName = g.Select(x => x!.BuyerName).FirstOrDefault(n => !string.IsNullOrWhiteSpace(n))
                     });
 
+                if (!allocations.Any())
+                {
+                    result.Write(
+                        "No raffle bundle on purchased ticket tier(s), or buyer email was missing.",
+                        InvoiceEventData.EventSeverity.Info);
+                }
+
                 foreach (var alloc in allocations)
                 {
                     try
                     {
                         var eventOrderId = $"{order.Id}:{alloc.RaffleId:N}";
-                        var bundleResult = await _raffleBundle.AllocateForEventOrderAsync(
+                        var bundleResult = await raffleBundle.AllocateForEventOrderAsync(
                             invoice.StoreId,
                             alloc.RaffleId,
                             alloc.Total,
@@ -257,8 +273,11 @@ public class SimpleTicketSalesHostedService : EventHostedServiceBase, IPeriodicT
                     }
                     catch (Exception ex)
                     {
+                        Logs.PayServer.LogWarning(ex,
+                            "Raffle bundle failed for order {OrderId}, email masked",
+                            order.Id);
                         result.Write(
-                            $"Raffle bundle failed for {alloc.Email}: {ex.Message}",
+                            "Raffle bundle failed for this order. Check server logs for details.",
                             InvoiceEventData.EventSeverity.Error);
                     }
                 }

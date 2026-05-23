@@ -11,23 +11,20 @@ public sealed class RaffleEventBundleClientProvider
 {
     private readonly IServiceProvider _serviceProvider;
     private IRaffleEventBundleClient? _client;
-    private bool _resolved;
 
     public RaffleEventBundleClientProvider(IServiceProvider serviceProvider)
     {
         _serviceProvider = serviceProvider;
     }
 
-    /// <summary>Resolved on first use so BTCPay Raffle can load after Satoshi Tickets.</summary>
+    /// <summary>Resolved lazily so BTCPay Raffle can load after Satoshi Tickets.</summary>
     public IRaffleEventBundleClient? Client
     {
         get
         {
-            if (!_resolved)
-            {
-                _client = RaffleEventBundleClientResolver.TryResolve(_serviceProvider);
-                _resolved = true;
-            }
+            if (_client is not null)
+                return _client;
+            _client = RaffleEventBundleClientResolver.TryResolve(_serviceProvider);
             return _client;
         }
     }
