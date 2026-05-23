@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Linq;
+using System.Globalization;
 using System.Text;
 using System.Threading.Tasks;
 using BTCPayServer.Plugins.SatoshiTickets.Data;
@@ -65,7 +66,18 @@ public class TicketService(SimpleTicketSalesDbContextFactory dbContextFactory, I
             {
                 var proportion = totalFiatAmount > 0 ? ticket.Amount / totalFiatAmount : 0m;
                 var cryptoForTicket = Math.Round(totalCryptoPaid * proportion, 8);
-                csvData.AppendLine($"{order.PurchaseDate:MM/dd/yy HH:mm},{ticket.TxnNumber},{ticket.FirstName},{ticket.LastName},{ticket.Email},{ticket.TicketTypeName},{ticket.Amount},{order.Currency},{cryptoCurrency},{cryptoForTicket},{ticket.UsedAt.HasValue}");
+                csvData.AppendLine(string.Join(",",
+                    CsvExportHelper.EscapeCsv(order.PurchaseDate?.ToString("MM/dd/yy HH:mm", CultureInfo.InvariantCulture)),
+                    CsvExportHelper.EscapeCsv(ticket.TxnNumber),
+                    CsvExportHelper.EscapeCsv(ticket.FirstName),
+                    CsvExportHelper.EscapeCsv(ticket.LastName),
+                    CsvExportHelper.EscapeCsv(ticket.Email),
+                    CsvExportHelper.EscapeCsv(ticket.TicketTypeName),
+                    ticket.Amount.ToString(CultureInfo.InvariantCulture),
+                    CsvExportHelper.EscapeCsv(order.Currency),
+                    CsvExportHelper.EscapeCsv(cryptoCurrency),
+                    cryptoForTicket.ToString(CultureInfo.InvariantCulture),
+                    ticket.UsedAt.HasValue.ToString(CultureInfo.InvariantCulture)));
             }
         }
         return (Encoding.UTF8.GetBytes(csvData.ToString()), fileName);

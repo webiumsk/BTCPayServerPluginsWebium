@@ -427,7 +427,10 @@ public class UITicketSalesController(UriResolver uriResolver,
             return NotFound();
 
         await using var ctx = dbContextFactory.CreateContext();
-        var ticket = ctx.Tickets.FirstOrDefault(c => (c.TicketNumber == ticketNumber || c.TxnNumber == ticketNumber) && c.EventId == eventId);
+        var ticket = ctx.Tickets.FirstOrDefault(c =>
+            (c.TicketNumber == ticketNumber || c.TxnNumber == ticketNumber)
+            && c.EventId == eventId
+            && c.StoreId == CurrentStore.Id);
         if (ticket == null)
         {
             TempData[WellKnownTempData.ErrorMessage] = "Ticket not found";
@@ -465,11 +468,15 @@ public class UITicketSalesController(UriResolver uriResolver,
         if (ticketEvent == null || order == null || !order.Tickets.Any())
             return NotFound();
 
+        var ticket = order.Tickets.FirstOrDefault(a => a.Id == ticketId);
+        if (ticket == null)
+            return NotFound();
+
         return View(new SendTicketReminderViewModel
         {
             TicketId = ticketId,
             EventId = eventId,
-            Email = order.Tickets.First(a => a.Id == ticketId)?.Email,
+            Email = ticket.Email,
             OrderId = orderId,
         });
     }
@@ -502,7 +509,7 @@ public class UITicketSalesController(UriResolver uriResolver,
         }
         try
         {
-            var emailResponse = await emailService.SendTicketRegistrationEmail(CurrentStore.Id, order.Tickets.First(), ticketEvent);
+            var emailResponse = await emailService.SendTicketRegistrationEmail(CurrentStore.Id, ticket, ticketEvent);
             if (emailResponse.IsSuccessful)
                 order.EmailSent = true;
 

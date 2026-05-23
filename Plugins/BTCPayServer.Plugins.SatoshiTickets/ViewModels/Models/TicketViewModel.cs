@@ -10,7 +10,7 @@ public class TicketViewModel : BaseSimpleTicketPublicViewModel
     public DateTimeOffset StartDate { get; set; }
     public DateTimeOffset? EndDate { get; set; }
     public DateTimeOffset PurchaseDate { get; set; }
-    public List<TicketListViewModel> Tickets { get; set; }
+    public List<TicketListViewModel> Tickets { get; set; } = new();
 }
 
 public class TicketListViewModel

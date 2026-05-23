@@ -31,6 +31,9 @@ public class GreenfieldSatoshiTicketsEventsController(StoreRepository storeRepo,
     [HttpGet("events")]
     public async Task<IActionResult> GetEvents(string storeId, [FromQuery] bool expired = false)
     {
+        if (GreenfieldStoreGuard.RequireStore(HttpContext, this, storeId) is { } storeError)
+            return storeError;
+
         await using var ctx = dbContextFactory.CreateContext();
 
         var eventsQuery = ctx.Events.Where(c => c.StoreId == storeId);
@@ -57,6 +60,9 @@ public class GreenfieldSatoshiTicketsEventsController(StoreRepository storeRepo,
     [HttpGet("events/{eventId}")]
     public async Task<IActionResult> GetEvent(string storeId, string eventId)
     {
+        if (GreenfieldStoreGuard.RequireStore(HttpContext, this, storeId) is { } storeError)
+            return storeError;
+
         await using var ctx = dbContextFactory.CreateContext();
 
         var entity = ctx.Events.FirstOrDefault(c => c.Id == eventId && c.StoreId == storeId);
@@ -81,10 +87,13 @@ public class GreenfieldSatoshiTicketsEventsController(StoreRepository storeRepo,
         if (string.IsNullOrWhiteSpace(request.Title))
             ModelState.AddModelError(nameof(request.Title), "Title is required");
 
-        if (request.StartDate <= DateTime.UtcNow)
+        if (!request.StartDate.HasValue)
+            ModelState.AddModelError(nameof(request.StartDate), "Start date is required");
+
+        if (request.StartDate.HasValue && request.StartDate.Value <= DateTime.UtcNow)
             ModelState.AddModelError(nameof(request.StartDate), "Event date cannot be in the past");
 
-        if (request.EndDate.HasValue && request.EndDate.Value < request.StartDate)
+        if (request.StartDate.HasValue && request.EndDate.HasValue && request.EndDate.Value < request.StartDate.Value)
             ModelState.AddModelError(nameof(request.EndDate), "Event end date cannot be before start date");
 
         EventType parsedEventType = default;
@@ -93,6 +102,9 @@ public class GreenfieldSatoshiTicketsEventsController(StoreRepository storeRepo,
 
         if (!ModelState.IsValid)
             return this.CreateValidationError(ModelState);
+
+        if (GreenfieldStoreGuard.RequireStore(HttpContext, this, storeId) is { } storeError)
+            return storeError;
 
         var currency = request.Currency;
         if (string.IsNullOrWhiteSpace(currency))
@@ -106,7 +118,7 @@ public class GreenfieldSatoshiTicketsEventsController(StoreRepository storeRepo,
             Title = request.Title,
             Description = request.Description,
             Location = request.Location,
-            StartDate = request.StartDate,
+            StartDate = request.StartDate!.Value,
             EndDate = request.EndDate,
             Currency = currency.Trim().ToUpperInvariant(),
             RedirectUrl = request.RedirectUrl,
@@ -132,6 +144,10 @@ public class GreenfieldSatoshiTicketsEventsController(StoreRepository storeRepo,
             ModelState.AddModelError(nameof(request), "Request body is required");
             return this.CreateValidationError(ModelState);
         }
+
+        if (GreenfieldStoreGuard.RequireStore(HttpContext, this, storeId) is { } storeError)
+            return storeError;
+
         await using var ctx = dbContextFactory.CreateContext();
         var entity = ctx.Events.FirstOrDefault(c => c.Id == eventId && c.StoreId == storeId);
         if (entity == null)
@@ -140,10 +156,13 @@ public class GreenfieldSatoshiTicketsEventsController(StoreRepository storeRepo,
         if (string.IsNullOrWhiteSpace(request.Title))
             ModelState.AddModelError(nameof(request.Title), "Title is required");
 
-        if (request.StartDate <= DateTime.UtcNow)
+        if (!request.StartDate.HasValue)
+            ModelState.AddModelError(nameof(request.StartDate), "Start date is required");
+
+        if (request.StartDate.HasValue && request.StartDate.Value <= DateTime.UtcNow)
             ModelState.AddModelError(nameof(request.StartDate), "Event date cannot be in the past");
 
-        if (request.EndDate.HasValue && request.EndDate.Value < request.StartDate)
+        if (request.StartDate.HasValue && request.EndDate.HasValue && request.EndDate.Value < request.StartDate.Value)
             ModelState.AddModelError(nameof(request.EndDate), "Event end date cannot be before start date");
 
         if (!string.IsNullOrEmpty(request.EventType) && !Enum.TryParse<EventType>(request.EventType, true, out _))
@@ -155,12 +174,11 @@ public class GreenfieldSatoshiTicketsEventsController(StoreRepository storeRepo,
         entity.Title = request.Title;
         entity.Description = request.Description;
         entity.Location = request.Location;
-        entity.StartDate = request.StartDate;
+        entity.StartDate = request.StartDate!.Value;
         entity.EndDate = request.EndDate;
         entity.RedirectUrl = request.RedirectUrl;
         entity.EmailSubject = request.EmailSubject;
         entity.EmailBody = request.EmailBody;
-        entity.HasMaximumCapacity = false;
 
         if (!string.IsNullOrEmpty(request.Currency))
             entity.Currency = request.Currency.Trim().ToUpperInvariant();
@@ -179,6 +197,9 @@ public class GreenfieldSatoshiTicketsEventsController(StoreRepository storeRepo,
     [HttpDelete("events/{eventId}")]
     public async Task<IActionResult> DeleteEvent(string storeId, string eventId)
     {
+        if (GreenfieldStoreGuard.RequireStore(HttpContext, this, storeId) is { } storeError)
+            return storeError;
+
         await using var ctx = dbContextFactory.CreateContext();
         var entity = ctx.Events.FirstOrDefault(c => c.Id == eventId && c.StoreId == storeId);
         if (entity == null)
@@ -205,6 +226,9 @@ public class GreenfieldSatoshiTicketsEventsController(StoreRepository storeRepo,
     [HttpPut("events/{eventId}/toggle")]
     public async Task<IActionResult> ToggleEventStatus(string storeId, string eventId)
     {
+        if (GreenfieldStoreGuard.RequireStore(HttpContext, this, storeId) is { } storeError)
+            return storeError;
+
         await using var ctx = dbContextFactory.CreateContext();
         var entity = ctx.Events.FirstOrDefault(c => c.Id == eventId && c.StoreId == storeId);
         if (entity == null)
@@ -235,6 +259,10 @@ public class GreenfieldSatoshiTicketsEventsController(StoreRepository storeRepo,
             ModelState.AddModelError(nameof(file), "No file was uploaded");
             return this.CreateValidationError(ModelState);
         }
+
+        if (GreenfieldStoreGuard.RequireStore(HttpContext, this, storeId) is { } storeError)
+            return storeError;
+
         await using var ctx = dbContextFactory.CreateContext();
         var entity = ctx.Events.FirstOrDefault(c => c.Id == eventId && c.StoreId == storeId);
         if (entity == null)
@@ -255,6 +283,9 @@ public class GreenfieldSatoshiTicketsEventsController(StoreRepository storeRepo,
     [HttpDelete("events/{eventId}/logo")]
     public async Task<IActionResult> DeleteEventLogo(string storeId, string eventId)
     {
+        if (GreenfieldStoreGuard.RequireStore(HttpContext, this, storeId) is { } storeError)
+            return storeError;
+
         await using var ctx = dbContextFactory.CreateContext();
 
         var entity = ctx.Events.FirstOrDefault(c => c.Id == eventId && c.StoreId == storeId);

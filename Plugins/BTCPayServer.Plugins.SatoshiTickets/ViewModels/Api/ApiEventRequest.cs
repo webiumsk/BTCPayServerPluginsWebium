@@ -12,7 +12,7 @@ public class ApiEventRequest
     public string EventType { get; set; }
     public string Location { get; set; }
     [Required]
-    public DateTime StartDate { get; set; }
+    public DateTime? StartDate { get; set; }
     public DateTime? EndDate { get; set; }
     public string Currency { get; set; }
     public string RedirectUrl { get; set; }

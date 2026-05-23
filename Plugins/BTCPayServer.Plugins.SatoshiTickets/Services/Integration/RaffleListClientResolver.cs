@@ -55,34 +55,41 @@ internal static class RaffleListClientResolver
         if (method is null)
             return Array.Empty<RaffleOption>();
 
-        var taskObj = method.Invoke(service, [storeId]);
-        if (taskObj is not Task task)
-            return Array.Empty<RaffleOption>();
-
-        await task.ConfigureAwait(false);
-        var result = taskObj.GetType().GetProperty("Result")?.GetValue(taskObj);
-        if (result is not System.Collections.IEnumerable raffles)
-            return Array.Empty<RaffleOption>();
-
-        var options = new List<RaffleOption>();
-        foreach (var raffle in raffles)
+        try
         {
-            if (raffle is null)
-                continue;
+            var taskObj = method.Invoke(service, [storeId]);
+            if (taskObj is not Task task)
+                return Array.Empty<RaffleOption>();
 
-            var type = raffle.GetType();
-            var status = type.GetProperty("Status")?.GetValue(raffle);
-            if (!IsOpenStatus(status))
-                continue;
+            await task.ConfigureAwait(false);
+            var result = taskObj.GetType().GetProperty("Result")?.GetValue(taskObj);
+            if (result is not System.Collections.IEnumerable raffles)
+                return Array.Empty<RaffleOption>();
 
-            if (type.GetProperty("Id")?.GetValue(raffle) is not Guid id)
-                continue;
+            var options = new List<RaffleOption>();
+            foreach (var raffle in raffles)
+            {
+                if (raffle is null)
+                    continue;
 
-            var name = type.GetProperty("Name")?.GetValue(raffle) as string ?? id.ToString();
-            options.Add(new RaffleOption(id, name));
+                var type = raffle.GetType();
+                var status = type.GetProperty("Status")?.GetValue(raffle);
+                if (!IsOpenStatus(status))
+                    continue;
+
+                if (type.GetProperty("Id")?.GetValue(raffle) is not Guid id)
+                    continue;
+
+                var name = type.GetProperty("Name")?.GetValue(raffle) as string ?? id.ToString();
+                options.Add(new RaffleOption(id, name));
+            }
+
+            return options.OrderBy(o => o.Name).ToList();
         }
-
-        return options.OrderBy(o => o.Name).ToList();
+        catch (Exception)
+        {
+            return Array.Empty<RaffleOption>();
+        }
     }
 
     private static object? TryGetRaffleService(IServiceProvider serviceProvider)

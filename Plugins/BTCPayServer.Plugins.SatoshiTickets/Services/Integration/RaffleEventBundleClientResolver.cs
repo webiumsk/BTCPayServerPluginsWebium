@@ -58,6 +58,11 @@ internal static class RaffleEventBundleClientResolver
         if (resultType is null)
             return null;
 
+        var implType = implementation.GetType();
+        if (implType.GetMethod("ValidateBundledRaffleAsync", BindingFlags.Public | BindingFlags.Instance) is null
+            || implType.GetMethod("AllocateForEventOrderAsync", BindingFlags.Public | BindingFlags.Instance) is null)
+            return null;
+
         return new ReflectionRaffleEventBundleClient(implementation, serviceType, resultType);
     }
 }
@@ -65,8 +70,8 @@ internal static class RaffleEventBundleClientResolver
 internal sealed class ReflectionRaffleEventBundleClient : IRaffleEventBundleClient
 {
     private readonly object _target;
-    private readonly MethodInfo _validateMethod;
-    private readonly MethodInfo _allocateMethod;
+    private readonly MethodInfo? _validateMethod;
+    private readonly MethodInfo? _allocateMethod;
     private readonly Type _resultType;
 
     public ReflectionRaffleEventBundleClient(object target, Type serviceType, Type resultType)
@@ -79,19 +84,29 @@ internal sealed class ReflectionRaffleEventBundleClient : IRaffleEventBundleClie
             BindingFlags.Public | BindingFlags.Instance,
             null,
             [typeof(string), typeof(Guid)],
-            null)!;
+            null);
         _allocateMethod = implType.GetMethod(
             "AllocateForEventOrderAsync",
             BindingFlags.Public | BindingFlags.Instance,
             null,
             [typeof(string), typeof(Guid), typeof(int), typeof(string), typeof(string), typeof(string), typeof(string)],
-            null)!;
+            null);
     }
 
     public async Task<(bool Ok, string? Error)> ValidateBundledRaffleAsync(string storeId, Guid raffleId)
     {
-        var result = await InvokeAsync(_validateMethod, [storeId, raffleId]).ConfigureAwait(false);
-        return ReadValueTupleBoolString(result);
+        if (_validateMethod is null)
+            return (false, "Raffle bundle validation is unavailable");
+
+        try
+        {
+            var result = await InvokeAsync(_validateMethod, [storeId, raffleId]).ConfigureAwait(false);
+            return ReadValueTupleBoolString(result);
+        }
+        catch (Exception)
+        {
+            return (false, "Raffle bundle validation is unavailable");
+        }
     }
 
     public async Task<RaffleBundleAllocationResult> AllocateForEventOrderAsync(
@@ -103,15 +118,33 @@ internal sealed class ReflectionRaffleEventBundleClient : IRaffleEventBundleClie
         string eventOrderId,
         string baseUrl)
     {
-        var result = await InvokeAsync(_allocateMethod,
-            [storeId, raffleId, count, buyerEmail, buyerName, eventOrderId, baseUrl]).ConfigureAwait(false);
-        return MapResult(result);
+        if (_allocateMethod is null)
+            return new RaffleBundleAllocationResult { Success = false, Error = "Raffle bundle allocation is unavailable" };
+
+        try
+        {
+            var result = await InvokeAsync(_allocateMethod,
+                [storeId, raffleId, count, buyerEmail, buyerName, eventOrderId, baseUrl]).ConfigureAwait(false);
+            return MapResult(result);
+        }
+        catch (Exception)
+        {
+            return new RaffleBundleAllocationResult { Success = false, Error = "Raffle bundle allocation is unavailable" };
+        }
     }
 
     private async Task<object?> InvokeAsync(MethodInfo method, object?[] args)
     {
-        var taskObj = method.Invoke(_target, args)
-            ?? throw new InvalidOperationException("Raffle bundle service returned null");
+        object? taskObj;
+        try
+        {
+            taskObj = method.Invoke(_target, args);
+        }
+        catch (TargetInvocationException ex) when (ex.InnerException is not null)
+        {
+            throw ex.InnerException;
+        }
+
         if (taskObj is not Task task)
             throw new InvalidOperationException("Raffle bundle service did not return a Task");
 
@@ -144,12 +177,19 @@ internal sealed class ReflectionRaffleEventBundleClient : IRaffleEventBundleClie
             return new RaffleBundleAllocationResult { Success = false, Error = "Empty raffle bundle response" };
 
         var type = result.GetType();
+        var successProp = type.GetProperty("Success");
+        var isNewProp = type.GetProperty("IsNew");
+        var ticketsProp = type.GetProperty("TicketsAllocated");
+        var errorProp = type.GetProperty("Error");
+        if (successProp is null || isNewProp is null || ticketsProp is null || errorProp is null)
+            return new RaffleBundleAllocationResult { Success = false, Error = "Invalid raffle bundle response" };
+
         return new RaffleBundleAllocationResult
         {
-            Success = (bool)type.GetProperty("Success")!.GetValue(result)!,
-            IsNew = (bool)type.GetProperty("IsNew")!.GetValue(result)!,
-            TicketsAllocated = (int)type.GetProperty("TicketsAllocated")!.GetValue(result)!,
-            Error = (string?)type.GetProperty("Error")!.GetValue(result)
+            Success = successProp.GetValue(result) is bool success && success,
+            IsNew = isNewProp.GetValue(result) is bool isNew && isNew,
+            TicketsAllocated = ticketsProp.GetValue(result) is int count ? count : 0,
+            Error = errorProp.GetValue(result) as string
         };
     }
 }

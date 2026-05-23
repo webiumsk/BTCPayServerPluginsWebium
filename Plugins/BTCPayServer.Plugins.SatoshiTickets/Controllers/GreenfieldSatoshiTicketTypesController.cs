@@ -31,6 +31,9 @@ public class GreenfieldSatoshiTicketTypesController(
     [HttpGet("events/{eventId}/ticket-types")]
     public async Task<IActionResult> GetTicketTypes(string storeId, string eventId, [FromQuery] string sortBy = "Name", [FromQuery] string sortDir = "asc")
     {
+        if (GreenfieldStoreGuard.RequireStore(HttpContext, this, storeId) is { } storeError)
+            return storeError;
+
         await using var ctx = dbContextFactory.CreateContext();
 
         var ticketEvent = ctx.Events.Any(c => c.StoreId == storeId && c.Id == eventId);
@@ -52,6 +55,9 @@ public class GreenfieldSatoshiTicketTypesController(
     [HttpGet("events/{eventId}/ticket-types/{ticketTypeId}")]
     public async Task<IActionResult> GetTicketType(string storeId, string eventId, string ticketTypeId)
     {
+        if (GreenfieldStoreGuard.RequireStore(HttpContext, this, storeId) is { } storeError)
+            return storeError;
+
         await using var ctx = dbContextFactory.CreateContext();
         var ticketEvent = ctx.Events.Any(c => c.StoreId == storeId && c.Id == eventId);
         if (!ticketEvent)
@@ -72,6 +78,9 @@ public class GreenfieldSatoshiTicketTypesController(
             ModelState.AddModelError(nameof(request), "Request body is required");
             return this.CreateValidationError(ModelState);
         }
+
+        if (GreenfieldStoreGuard.RequireStore(HttpContext, this, storeId) is { } storeError)
+            return storeError;
 
         await using var ctx = dbContextFactory.CreateContext();
         var ticketEvent = ctx.Events.FirstOrDefault(c => c.Id == eventId && c.StoreId == storeId);
@@ -139,6 +148,9 @@ public class GreenfieldSatoshiTicketTypesController(
             ModelState.AddModelError(nameof(request), "Request body is required");
             return this.CreateValidationError(ModelState);
         }
+
+        if (GreenfieldStoreGuard.RequireStore(HttpContext, this, storeId) is { } storeError)
+            return storeError;
 
         await using var ctx = dbContextFactory.CreateContext();
         var ticketEvent = ctx.Events.FirstOrDefault(c => c.Id == eventId && c.StoreId == storeId);
@@ -211,6 +223,9 @@ public class GreenfieldSatoshiTicketTypesController(
     [HttpDelete("events/{eventId}/ticket-types/{ticketTypeId}")]
     public async Task<IActionResult> DeleteTicketType(string storeId, string eventId, string ticketTypeId)
     {
+        if (GreenfieldStoreGuard.RequireStore(HttpContext, this, storeId) is { } storeError)
+            return storeError;
+
         await using var ctx = dbContextFactory.CreateContext();
 
         var ticketEvent = ctx.Events.FirstOrDefault(c => c.StoreId == storeId && c.Id == eventId);
@@ -236,6 +251,9 @@ public class GreenfieldSatoshiTicketTypesController(
     [HttpPut("events/{eventId}/ticket-types/{ticketTypeId}/toggle")]
     public async Task<IActionResult> ToggleTicketTypeStatus(string storeId, string eventId, string ticketTypeId)
     {
+        if (GreenfieldStoreGuard.RequireStore(HttpContext, this, storeId) is { } storeError)
+            return storeError;
+
         await using var ctx = dbContextFactory.CreateContext();
 
         var ticketEvent = ctx.Events.FirstOrDefault(c => c.StoreId == storeId && c.Id == eventId);

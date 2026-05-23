@@ -18,6 +18,7 @@ using Microsoft.AspNetCore.Cors;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using NBitcoin;
 using NBitcoin.DataEncoders;
 using Newtonsoft.Json.Linq;
@@ -34,12 +35,16 @@ public class GreenfieldSatoshiTicketsController(
     EmailSenderFactory emailSenderFactory,
     InvoiceRepository invoiceRepository,
     UIInvoiceController invoiceController,
-    LinkGenerator linkGenerator) : ControllerBase
+    LinkGenerator linkGenerator,
+    ILogger<GreenfieldSatoshiTicketsController> logger) : ControllerBase
 {
 
     [HttpGet("tickets")]
     public async Task<IActionResult> GetTickets(string storeId, string eventId, [FromQuery] string searchText = null)
     {
+        if (GreenfieldStoreGuard.RequireStore(HttpContext, this, storeId) is { } storeError)
+            return storeError;
+
         await using var ctx = dbContextFactory.CreateContext();
         var eventExists = ctx.Events.Any(c => c.Id == eventId && c.StoreId == storeId);
         if (!eventExists)
@@ -84,6 +89,9 @@ public class GreenfieldSatoshiTicketsController(
     [HttpGet("orders")]
     public async Task<IActionResult> GetOrders(string storeId, string eventId, [FromQuery] string searchText = null)
     {
+        if (GreenfieldStoreGuard.RequireStore(HttpContext, this, storeId) is { } storeError)
+            return storeError;
+
         await using var ctx = dbContextFactory.CreateContext();
         var ticketExist = ctx.Events.Any(c => c.Id == eventId && c.StoreId == storeId);
         if (!ticketExist)
@@ -134,42 +142,21 @@ public class GreenfieldSatoshiTicketsController(
         if (ticketEvent.EndDate.HasValue && ticketEvent.EndDate.Value.Date < now.Date)
             return this.CreateAPIError(422, "event-expired", "The event has ended");
 
-        if (ticketEvent.HasMaximumCapacity && ticketEvent.MaximumEventCapacity.HasValue)
-        {
-            var totalTicketsSold = ctx.Orders.AsNoTracking()
-                .Where(c => c.StoreId == storeId && c.EventId == eventId && c.PaymentStatus == TransactionStatus.Settled.ToString())
-                .SelectMany(c => c.Tickets).Count();
-            if (totalTicketsSold >= ticketEvent.MaximumEventCapacity.Value)
-                return this.CreateAPIError(422, "event-capacity-reached", "The event has reached maximum capacity");
-        }
+        if (ticketEvent.EndDate.HasValue && ticketEvent.EndDate.Value.Date < now.Date)
+            return this.CreateAPIError(422, "event-expired", "The event has ended");
 
         var ticketTypes = ctx.TicketTypes.Where(t => t.EventId == eventId).ToDictionary(t => t.Id);
+        var totalTicketsSold = ctx.Orders.AsNoTracking()
+            .Where(c => c.StoreId == storeId && c.EventId == eventId && c.PaymentStatus == TransactionStatus.Settled.ToString())
+            .SelectMany(c => c.Tickets).Count();
 
-        foreach (var item in request.Tickets)
-        {
-            if (item.Recipients == null || item.Recipients.Length != item.Quantity)
-                return this.CreateAPIError(422, "recipients-count-mismatch",
-                    $"Recipients count must equal quantity ({item.Quantity}) for ticket type {item.TicketTypeId}");
+        if (GreenfieldPurchaseTicketValidator.Validate(this, ticketTypes, request.Tickets, ticketEvent, totalTicketsSold)
+            is { } validationError)
+            return validationError;
 
-            if (!ticketTypes.TryGetValue(item.TicketTypeId, out var ticketType))
-                return this.CreateAPIError(404, "ticket-type-not-found",
-                    $"Ticket type {item.TicketTypeId} was not found");
-
-            if (ticketType.TicketTypeState == Data.EntityState.Disabled)
-                return this.CreateAPIError(422, "ticket-type-not-active",
-                    $"Ticket type {ticketType.Name} is not active");
-
-            var available = ticketType.Quantity - ticketType.QuantitySold;
-            if (ticketType.Quantity > 0 && available < item.Quantity)
-                return this.CreateAPIError(422, "insufficient-quantity",
-                    $"Insufficient quantity for ticket type {ticketType.Name}. Available: {available}, requested: {item.Quantity}");
-
-            foreach (var recipient in item.Recipients)
-            {
-                if (string.IsNullOrWhiteSpace(recipient?.Email))
-                    return this.CreateAPIError(422, "invalid-email", "Email is required for each recipient");
-            }
-        }
+        var ticketsSum = request.Tickets.Sum(item => ticketTypes[item.TicketTypeId].Price * item.Quantity);
+        if (request.OrderTotal.HasValue && request.OrderTotal.Value > 0 && request.OrderTotal.Value > ticketsSum)
+            return this.CreateAPIError(422, "validation-error", "OrderTotal cannot exceed the sum of ticket prices");
 
         var txnId = Encoders.Base58.EncodeData(RandomUtils.GetBytes(10));
         var orderNow = DateTimeOffset.UtcNow;
@@ -181,7 +168,7 @@ public class GreenfieldSatoshiTicketsController(
             Currency = ticketEvent.Currency,
             PaymentStatus = TransactionStatus.New.ToString(),
             CreatedAt = orderNow,
-            TotalAmount = 0
+            TotalAmount = request.OrderTotal is > 0 ? request.OrderTotal.Value : ticketsSum
         };
         ctx.Orders.Add(order);
         await ctx.SaveChangesAsync();
@@ -217,16 +204,6 @@ public class GreenfieldSatoshiTicketsController(
             }
         }
         order.Tickets = tickets;
-        var ticketsSum = tickets.Sum(t => t.Amount);
-        order.TotalAmount = ticketsSum;
-
-        if (request.OrderTotal.HasValue && request.OrderTotal.Value > 0)
-        {
-            order.TotalAmount = request.OrderTotal.Value;
-            if (request.OrderTotal.Value > ticketsSum)
-                return this.CreateAPIError(422, "validation-error", "OrderTotal cannot exceed the sum of ticket prices");
-        }
-
         ctx.Orders.Update(order);
         await ctx.SaveChangesAsync();
 
@@ -256,6 +233,9 @@ public class GreenfieldSatoshiTicketsController(
         if (request?.Tickets == null || request.Tickets.Length == 0)
             return this.CreateAPIError(422, "validation-error", "At least one ticket item is required");
 
+        if (GreenfieldStoreGuard.RequireStore(HttpContext, this, storeId) is { } storeError)
+            return storeError;
+
         await using var ctx = dbContextFactory.CreateContext();
         var ticketEvent = ctx.Events.FirstOrDefault(c => c.Id == eventId && c.StoreId == storeId);
         if (ticketEvent == null)
@@ -269,42 +249,14 @@ public class GreenfieldSatoshiTicketsController(
         if (ticketEvent.EndDate.HasValue && ticketEvent.EndDate.Value.Date < now.Date)
             return this.CreateAPIError(422, "event-expired", "The event has ended");
 
-        if (ticketEvent.HasMaximumCapacity && ticketEvent.MaximumEventCapacity.HasValue)
-        {
-            var totalTicketsSold = ctx.Orders.AsNoTracking()
-                .Where(c => c.StoreId == storeId && c.EventId == eventId && c.PaymentStatus == TransactionStatus.Settled.ToString())
-                .SelectMany(c => c.Tickets).Count();
-            if (totalTicketsSold >= ticketEvent.MaximumEventCapacity.Value)
-                return this.CreateAPIError(422, "event-capacity-reached", "The event has reached maximum capacity");
-        }
-
         var ticketTypes = ctx.TicketTypes.Where(t => t.EventId == eventId).ToDictionary(t => t.Id);
+        var totalTicketsSold = ctx.Orders.AsNoTracking()
+            .Where(c => c.StoreId == storeId && c.EventId == eventId && c.PaymentStatus == TransactionStatus.Settled.ToString())
+            .SelectMany(c => c.Tickets).Count();
 
-        foreach (var item in request.Tickets)
-        {
-            if (item.Recipients == null || item.Recipients.Length != item.Quantity)
-                return this.CreateAPIError(422, "recipients-count-mismatch",
-                    $"Recipients count must equal quantity ({item.Quantity}) for ticket type {item.TicketTypeId}");
-
-            if (!ticketTypes.TryGetValue(item.TicketTypeId, out var ticketType))
-                return this.CreateAPIError(404, "ticket-type-not-found",
-                    $"Ticket type {item.TicketTypeId} was not found");
-
-            if (ticketType.TicketTypeState == Data.EntityState.Disabled)
-                return this.CreateAPIError(422, "ticket-type-not-active",
-                    $"Ticket type {ticketType.Name} is not active");
-
-            var available = ticketType.Quantity - ticketType.QuantitySold;
-            if (ticketType.Quantity > 0 && available < item.Quantity)
-                return this.CreateAPIError(422, "insufficient-quantity",
-                    $"Insufficient quantity for ticket type {ticketType.Name}. Available: {available}, requested: {item.Quantity}");
-
-            foreach (var recipient in item.Recipients)
-            {
-                if (string.IsNullOrWhiteSpace(recipient?.Email))
-                    return this.CreateAPIError(422, "invalid-email", "Email is required for each recipient");
-            }
-        }
+        if (GreenfieldPurchaseTicketValidator.Validate(this, ticketTypes, request.Tickets, ticketEvent, totalTicketsSold)
+            is { } validationError)
+            return validationError;
 
         var txnId = Encoders.Base58.EncodeData(RandomUtils.GetBytes(10));
         var orderNow = DateTimeOffset.UtcNow;
@@ -450,6 +402,9 @@ public class GreenfieldSatoshiTicketsController(
     [HttpPost("orders/{orderId}/tickets/{ticketId}/send-reminder")]
     public async Task<IActionResult> SendReminder(string storeId, string eventId, string orderId, string ticketId)
     {
+        if (GreenfieldStoreGuard.RequireStore(HttpContext, this, storeId) is { } storeError)
+            return storeError;
+
         await using var ctx = dbContextFactory.CreateContext();
 
         var ticketEvent = ctx.Events.FirstOrDefault(c => c.Id == eventId && c.StoreId == storeId);
@@ -489,7 +444,10 @@ public class GreenfieldSatoshiTicketsController(
         }
         catch (Exception ex)
         {
-            return this.CreateAPIError(500, "email-send-failed", $"An error occurred when sending ticket details: {ex.Message}");
+            logger.LogError(ex, "Failed to send ticket reminder (store={StoreId}, event={EventId}, order={OrderId})",
+                storeId, eventId, orderId);
+            return this.CreateAPIError(500, "email-send-failed",
+                "An internal error occurred while sending ticket details");
         }
         return Ok(new { success = true, message = "Ticket details have been sent to the recipient via email" });
     }

@@ -98,7 +98,7 @@
                 <div class="form-group w-250px mb-0">
                     <label asp-for="StartDate" class="form-label" data-required></label>
                     <div class="input-group flex-nowrap">
-                        <input type="datetime-local" asp-for="StartDate" value="@(Model.StartDate.ToString("u", CultureInfo.InvariantCulture))" class="form-control flatdtpicker" placeholder="No Event date has been set" required />
+                        <input type="datetime-local" asp-for="StartDate" value="@(Model.StartDate.ToString("yyyy-MM-ddTHH:mm", CultureInfo.InvariantCulture))" class="form-control flatdtpicker" placeholder="No Event date has been set" required />
                         <button class="btn btn-secondary input-group-clear px-3" type="button" title="Clear">
                             <vc:icon symbol="close" />
                         </button>
@@ -108,7 +108,7 @@
                 <div class="form-group">
                     <label asp-for="EndDate" class="form-label"></label>
                     <div class="input-group flex-nowrap">
-                        <input type="datetime-local" asp-for="EndDate" value="@(Model.EndDate?.ToString("u", CultureInfo.InvariantCulture))" class="form-control flatdtpicker" placeholder="No Event date has been set" />
+                        <input type="datetime-local" asp-for="EndDate" value="@(Model.EndDate?.ToString("yyyy-MM-ddTHH:mm", CultureInfo.InvariantCulture))" class="form-control flatdtpicker" placeholder="No Event date has been set" />
                         <button class="btn btn-secondary input-group-clear px-3" type="button" title="Clear">
                             <vc:icon symbol="close" />
                         </button>
@@ -206,20 +206,27 @@
         document.addEventListener("DOMContentLoaded", function () {
             const toggle = document.getElementById("maxCapacityToggle");
             const inputDiv = document.getElementById("maxCapacityInput");
-            function updateVisibility() {
-                inputDiv.style.display = toggle.checked ? "block" : "none";
+            if (toggle && inputDiv) {
+                function updateVisibility() {
+                    inputDiv.style.display = toggle.checked ? "block" : "none";
+                }
+                updateVisibility();
+                toggle.addEventListener("change", updateVisibility);
             }
-            updateVisibility();
-            toggle.addEventListener("change", updateVisibility);
 
             const reminderToggle = document.getElementById("reminderToggle");
             const reminderDaysDiv = document.getElementById("reminderDaysInput");
-            function updateReminderVisibility() {
-                reminderDaysDiv.style.display = reminderToggle.checked ? "block" : "none";
+            if (reminderToggle && reminderDaysDiv) {
+                function updateReminderVisibility() {
+                    reminderDaysDiv.style.display = reminderToggle.checked ? "block" : "none";
+                }
+                updateReminderVisibility();
+                reminderToggle.addEventListener("change", updateReminderVisibility);
             }
-            updateReminderVisibility();
-            reminderToggle.addEventListener("change", updateReminderVisibility);
 
+            const textarea = document.getElementById('EmailBody');
+            const popup = document.getElementById('autocompletePopup');
+            if (!textarea || !popup) return;
             const variables = [
                 'Name',
                 'Email',
@@ -229,8 +236,6 @@
                 'EventDate',
                 'Currency'
             ];
-            const textarea = document.getElementById('EmailBody');
-            const popup = document.getElementById('autocompletePopup');
             textarea.parentElement.style.position = 'relative';
             let cursorPosition = 0;
 

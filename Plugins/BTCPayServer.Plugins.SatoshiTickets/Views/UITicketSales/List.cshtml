@@ -6,7 +6,7 @@
 @{
     Layout = "_Layout";
     ViewData.SetLayoutModel(new LayoutModel(nameof(SatoshiTicketNavPages.SatoshiTicketIndex), "Satoshi Tickets Events") { ActiveCategory = nameof(SatoshiTicketNavPages) });
-    var storeEmailSettingsConfigured = (bool)ViewData["StoreEmailSettingsConfigured"];
+    var storeEmailSettingsConfigured = (ViewData["StoreEmailSettingsConfigured"] as bool?) ?? false;
 }
 
 <div class="sticky-header">
@@ -83,7 +83,7 @@
                         <td>@ticketEvent.EventDate.ToString("M/d/yy, hh:mm tt")</td>
                         <td>
                             <a href="@ticketEvent.EventPurchaseLink" target="_blank">Event Link</a>
-                            <button class="copy-button btn p-0" onclick="copyToClipboard(this, '@ticketEvent.EventPurchaseLink')" data-bs-toggle="tooltip" data-bs-placement="top" title="Copy">
+                            <button type="button" class="copy-button btn p-0" data-purchase-link="@ticketEvent.EventPurchaseLink" onclick="copyToClipboard(this)" data-bs-toggle="tooltip" data-bs-placement="top" title="Copy">
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                     <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
                                     <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
@@ -135,7 +135,9 @@ else
 
 @section PageFootContent {
     <script>
-            function copyToClipboard(button, text) {
+            function copyToClipboard(button) {
+                const text = button.dataset.purchaseLink;
+                if (!text) return;
                 navigator.clipboard.writeText(text).then(() => {
                     let tooltip = bootstrap.Tooltip.getInstance(button);
                     if (tooltip) {

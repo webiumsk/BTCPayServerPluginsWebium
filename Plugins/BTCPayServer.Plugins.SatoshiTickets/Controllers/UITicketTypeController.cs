@@ -135,11 +135,12 @@ public class UITicketTypeController(
         }
         var entity = TicketTypeViewModelToEntity(vm, eventId);
         TicketTypeBundleHelper.ApplyBundleFields(entity, vm.BundledRaffleTicketsPerAdmission, vm.BundledRaffleId);
-        var currentDefault = ctx.TicketTypes.FirstOrDefault(c => c.EventId == entity.EventId && c.IsDefault);
-        if (currentDefault is not null && entity.IsDefault)
-            currentDefault.IsDefault = false;
-        else
-            entity.IsDefault = true;
+        entity.IsDefault = vm.IsDefault;
+        if (entity.IsDefault)
+        {
+            foreach (var other in ctx.TicketTypes.Where(c => c.EventId == eventId && c.IsDefault))
+                other.IsDefault = false;
+        }
 
         ctx.TicketTypes.Add(entity);
         await ctx.SaveChangesAsync();
@@ -171,6 +172,13 @@ public class UITicketTypeController(
         vm.StoreId = CurrentStore.Id;
         vm.TicketTypeId = ticketTypeId;
         vm.TicketHasMaximumCapacity = ticketEvent.HasMaximumCapacity;
+        if (vm.Quantity < entity.QuantitySold)
+        {
+            TempData[WellKnownTempData.ErrorMessage] =
+                $"Quantity cannot be less than tickets already sold ({entity.QuantitySold}).";
+            await PopulateRaffleOptionsAsync(vm);
+            return View("ViewTicketType", vm);
+        }
         if (!ValidateTicketType(ctx, ticketEvent, vm, ticketTypeId, out var errorMessage))
         {
             TempData[WellKnownTempData.ErrorMessage] = errorMessage;
@@ -189,12 +197,12 @@ public class UITicketTypeController(
         entity.Price = vm.Price;
         entity.Quantity = vm.Quantity;
         entity.Description = vm.Description;
-        entity.IsDefault = vm.IsDefault;
         TicketTypeBundleHelper.ApplyBundleFields(entity, vm.BundledRaffleTicketsPerAdmission, vm.BundledRaffleId);
-        if (!entity.IsDefault)
+        entity.IsDefault = vm.IsDefault;
+        if (entity.IsDefault)
         {
-            var anyDefault = ctx.TicketTypes.Any(t => t.EventId == eventId && t.Id != ticketTypeId && t.IsDefault);
-            if (!anyDefault) entity.IsDefault = true;
+            foreach (var other in ctx.TicketTypes.Where(t => t.EventId == eventId && t.Id != ticketTypeId && t.IsDefault))
+                other.IsDefault = false;
         }
         await ctx.SaveChangesAsync();
         TempData[WellKnownTempData.SuccessMessage] = "Ticket type updated successfully";
@@ -348,7 +356,7 @@ public class UITicketTypeController(
             Price = model.Price,
             EventId = eventId,
             Quantity = model.Quantity,
-            QuantitySold = model.QuantitySold,
+            QuantitySold = 0,
             TicketTypeState = EntityState.Active,
             Description = model.Description,
             IsDefault = model.IsDefault

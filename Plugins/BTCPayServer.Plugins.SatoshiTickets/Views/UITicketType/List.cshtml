@@ -61,7 +61,7 @@
             <tbody id="UsersList">
                 @foreach (var ticketType in Model.TicketTypes)
                 {
-                    <tr id="event_@ticketType.EventId" class="user-overview-row mass-action-row">
+                    <tr id="tickettype_@ticketType.TicketTypeId" class="user-overview-row mass-action-row">
                         <td>
                             <div class="d-inline-flex align-items-center gap-3">
                                 <a asp-action="ViewTicketType"

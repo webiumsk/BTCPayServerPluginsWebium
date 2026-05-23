@@ -125,7 +125,9 @@ public class UITicketSalesPublicController(UriResolver uriResolver,
         if (!ValidateEvent(ctx, storeId, eventId))
             return NotFound();
 
-        var availableTicketTypes = ctx.TicketTypes.Where(t => t.EventId == eventId).ToDictionary(t => t.Id, t => t.Quantity - t.QuantitySold);
+        var availableTicketTypes = ctx.TicketTypes
+            .Where(t => t.EventId == eventId && t.TicketTypeState == Data.EntityState.Active)
+            .ToDictionary(t => t.Id, t => t.Quantity - t.QuantitySold);
         foreach (var ticket in model.Tickets.Where(t => t.Quantity > 0))
         {
             if (!availableTicketTypes.TryGetValue(ticket.TicketTypeId, out var left) || left < ticket.Quantity)
@@ -208,7 +210,9 @@ public class UITicketSalesPublicController(UriResolver uriResolver,
 
         await using var ctx = dbContextFactory.CreateContext();
         var ticketEvent = ctx.Events.FirstOrDefault(c => c.StoreId == storeId && c.Id == eventId);
-        var ticketTypes = ctx.TicketTypes.Where(c => c.EventId == eventId).ToDictionary(t => t.Id);
+        var ticketTypes = ctx.TicketTypes
+            .Where(c => c.EventId == eventId && c.TicketTypeState == Data.EntityState.Active)
+            .ToDictionary(t => t.Id);
         if (!ValidateEvent(ctx, storeId, eventId))
             return NotFound();
 
@@ -223,6 +227,14 @@ public class UITicketSalesPublicController(UriResolver uriResolver,
         orderViewModel.ContactInfo = model.ContactInfo;
         orderViewModel.IsStepTwoComplete = true; // Move to Payment step
         HttpContext.Session.SetObject(sessionKey, orderViewModel);
+
+        var expectedTickets = orderViewModel.Tickets.Sum(t => t.Quantity);
+        if (model.ContactInfo.Count != expectedTickets)
+        {
+            TempData[WellKnownTempData.ErrorMessage] = "Contact information does not match the number of tickets selected";
+            return RedirectToAction(nameof(EventContactDetails), new { storeId, eventId, txnId = model.TxnId });
+        }
+
         var now = DateTimeOffset.UtcNow;
         var tickets = new List<Ticket>();
         var order = new Order
@@ -241,12 +253,6 @@ public class UITicketSalesPublicController(UriResolver uriResolver,
         var deliveryOption = Request.Form["ticketDeliveryOption"].ToString();
         var sendIndividually = deliveryOption == "individual";
         var contactIndex = 0;
-        var expectedTickets = orderViewModel.Tickets.Sum(t => t.Quantity);
-        if (model.ContactInfo.Count != expectedTickets)
-        {
-            TempData[WellKnownTempData.ErrorMessage] = "Contact information does not match the number of tickets selected";
-            return RedirectToAction(nameof(EventContactDetails), new { storeId, eventId, txnId = model.TxnId });
-        }
         foreach (var ticketRequest in orderViewModel.Tickets)
         {
             var ticketType = ticketTypes[ticketRequest.TicketTypeId];
@@ -310,7 +316,7 @@ public class UITicketSalesPublicController(UriResolver uriResolver,
             Location = ticketEvent.Location,
             StartDate = ticketEvent.StartDate,
             EndDate = ticketEvent.EndDate,
-            PurchaseDate = order.PurchaseDate.Value,
+            PurchaseDate = order.PurchaseDate ?? order.CreatedAt,
             Tickets = tickets.Select(t => new TicketListViewModel
             {
                 FirstName = t.FirstName,

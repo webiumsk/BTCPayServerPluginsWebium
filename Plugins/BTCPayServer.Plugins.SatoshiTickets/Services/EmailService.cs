@@ -1,4 +1,5 @@
-﻿using System;
+﻿#nullable enable
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
@@ -17,6 +18,7 @@ public class EmailService
 {
     private readonly EmailSenderFactory _emailSender;
     private readonly Logging.Logs _logs;
+
     public EmailService(EmailSenderFactory emailSender, Logging.Logs logs)
     {
         _logs = logs;
@@ -29,10 +31,39 @@ public class EmailService
         return (await emailSender.GetEmailSettings() ?? new EmailSettings()).IsComplete();
     }
 
+    private static string MaskEmail(string? address)
+    {
+        if (string.IsNullOrWhiteSpace(address))
+            return "(none)";
+
+        var at = address.IndexOf('@');
+        if (at <= 0)
+            return "****";
+
+        return $"****{address[at..]}";
+    }
+
+    private static string ApplyTemplate(string? template, Event ticketEvent, Ticket ticket)
+    {
+        var emailBody = template ?? string.Empty;
+        emailBody = emailBody
+            .Replace("{{Title}}", ticketEvent.Title ?? string.Empty)
+            .Replace("{{Location}}", ticketEvent.Location ?? string.Empty)
+            .Replace("{{Name}}", $"{ticket.FirstName} {ticket.LastName}".Trim())
+            .Replace("{{Email}}", ticket.Email ?? string.Empty)
+            .Replace("{{Description}}", ticketEvent.Description ?? string.Empty)
+            .Replace("{{EventDate}}", ticketEvent.StartDate.ToString("MMMM dd, yyyy"))
+            .Replace("{{Currency}}", ticketEvent.Currency ?? string.Empty);
+
+        return @$" {emailBody}
+
+Click the link to view your tickets: {ticket.QRCodeLink}";
+    }
+
     private async Task<EmailDispatchResult> SendBulkEmail(string storeId, IEnumerable<EmailRecipient> recipients)
     {
         var settings = await (await _emailSender.GetEmailSender(storeId)).GetEmailSettings();
-        if (!settings.IsComplete())
+        if (settings is null || !settings.IsComplete())
             return new EmailDispatchResult { IsSuccessful = false };
 
         var recipientList = recipients.ToList();
@@ -55,7 +86,7 @@ public class EmailService
             catch (Exception ex)
             {
                 failedRecipients.Add(recipient.Address.ToString());
-                _logs.PayServer.LogError(ex, $"Error sending email to: {recipient.Address}");
+                _logs.PayServer.LogError(ex, "Error sending email to: {MaskedEmail}", MaskEmail(recipient.Address.ToString()));
             }
             finally
             {
@@ -71,12 +102,12 @@ public class EmailService
     private async Task<EmailDispatchResult> SendBulkEmail2(string storeId, IEnumerable<EmailRecipient> recipients)
     {
         var settings = await (await _emailSender.GetEmailSender(storeId)).GetEmailSettings();
-        if (!settings.IsComplete())
+        if (settings is null || !settings.IsComplete())
             return new EmailDispatchResult { IsSuccessful = false };
 
         var failedRecipients = new List<string>();
         var isSuccess = true;
-        SmtpClient client = null;
+        SmtpClient? client = null;
         try
         {
             client = await settings.CreateSmtpClient();
@@ -95,7 +126,7 @@ public class EmailService
                 {
                     isSuccess = false;
                     failedRecipients.Add(recipient.Address.ToString());
-                    _logs.PayServer.LogError(ex, $"Error sending email to: {recipient.Address}");
+                    _logs.PayServer.LogError(ex, "Error sending email to: {MaskedEmail}", MaskEmail(recipient.Address.ToString()));
                 }
             }
         }
@@ -125,26 +156,15 @@ public class EmailService
 
     public async Task<EmailDispatchResult> SendTicketRegistrationEmail(string storeId, Ticket ticket, Event ticketEvent)
     {
-        var recipients = new List<EmailRecipient>();
-        string emailBody = ticketEvent.EmailBody
-                            .Replace("{{Title}}", ticketEvent.Title)
-                            .Replace("{{Location}}", ticketEvent.Location)
-                            .Replace("{{Name}}", $"{ticket.FirstName} {ticket.LastName}")
-                            .Replace("{{Email}}", ticket.Email)
-                            .Replace("{{Description}}", ticketEvent.Description)
-                            .Replace("{{EventDate}}", ticketEvent.StartDate.ToString("MMMM dd, yyyy"))
-                            .Replace("{{Currency}}", ticketEvent.Currency);
-
-        emailBody = @$" {emailBody}
-
-Click the link to view your tickets: {ticket.QRCodeLink}";
-
-        recipients.Add(new EmailRecipient
+        var recipients = new List<EmailRecipient>
         {
-            Address = InternetAddress.Parse(ticket.Email),
-            Subject = ticketEvent.EmailSubject,
-            MessageText = emailBody
-        });
+            new()
+            {
+                Address = InternetAddress.Parse(ticket.Email),
+                Subject = ticketEvent.EmailSubject,
+                MessageText = ApplyTemplate(ticketEvent.EmailBody, ticketEvent, ticket)
+            }
+        };
         return await SendBulkEmail(storeId, recipients);
     }
 
@@ -153,31 +173,19 @@ Click the link to view your tickets: {ticket.QRCodeLink}";
         var recipients = new List<EmailRecipient>();
         foreach (var ticket in tickets)
         {
-            string emailBody = ticketEvent.EmailBody
-                .Replace("{{Title}}", ticketEvent.Title)
-                .Replace("{{Location}}", ticketEvent.Location)
-                .Replace("{{Name}}", $"{ticket.FirstName} {ticket.LastName}")
-                .Replace("{{Email}}", ticket.Email)
-                .Replace("{{Description}}", ticketEvent.Description)
-                .Replace("{{EventDate}}", ticketEvent.StartDate.ToString("MMMM dd, yyyy"))
-                .Replace("{{Currency}}", ticketEvent.Currency);
-
-            emailBody = @$"{emailBody}
-
-Click the link to view your tickets: {ticket.QRCodeLink}";
-
             try
             {
                 recipients.Add(new EmailRecipient
                 {
                     Address = InternetAddress.Parse(ticket.Email),
                     Subject = ticketEvent.EmailSubject,
-                    MessageText = emailBody
+                    MessageText = ApplyTemplate(ticketEvent.EmailBody, ticketEvent, ticket)
                 });
             }
             catch (Exception ex)
             {
-                _logs.PayServer.LogWarning(ex, $"Invalid email for ticket {ticket.Id}: {ticket.Email}");
+                _logs.PayServer.LogWarning(ex, "Invalid email for ticket {TicketId}: {MaskedEmail}",
+                    ticket.Id, MaskEmail(ticket.Email));
             }
         }
         await SendBulkEmail(storeId, recipients);
@@ -190,27 +198,19 @@ Click the link to view your tickets: {ticket.QRCodeLink}";
         var bodyTemplate = !string.IsNullOrWhiteSpace(reminderBody) ? reminderBody : ticketEvent.EmailBody;
         foreach (var ticket in uniqueTickets)
         {
-            string emailBody = bodyTemplate
-                .Replace("{{Title}}", ticketEvent.Title)
-                .Replace("{{Location}}", ticketEvent.Location)
-                .Replace("{{Name}}", $"{ticket.FirstName} {ticket.LastName}")
-                .Replace("{{Email}}", ticket.Email)
-                .Replace("{{Description}}", ticketEvent.Description)
-                .Replace("{{EventDate}}", ticketEvent.StartDate.ToString("MMMM dd, yyyy"))
-                .Replace("{{Currency}}", ticketEvent.Currency);
-
             try
             {
                 recipients.Add(new EmailRecipient
                 {
                     Address = InternetAddress.Parse(ticket.Email),
                     Subject = subject,
-                    MessageText = emailBody
+                    MessageText = ApplyTemplate(bodyTemplate, ticketEvent, ticket)
                 });
             }
             catch (Exception ex)
             {
-                _logs.PayServer.LogWarning(ex, $"Invalid email for ticket {ticket.Id}: {ticket.Email}");
+                _logs.PayServer.LogWarning(ex, "Invalid email for ticket {TicketId}: {MaskedEmail}",
+                    ticket.Id, MaskEmail(ticket.Email));
                 return false;
             }
         }
@@ -229,7 +229,7 @@ Click the link to view your tickets: {ticket.QRCodeLink}";
             throw new FileNotFoundException($"Resource '{resourceName}' not found in assembly.");
         }
         using var stream = assembly.GetManifestResourceStream(fullResourceName);
-        using var reader = new StreamReader(stream);
+        using var reader = new StreamReader(stream!);
         return reader.ReadToEnd();
     }
 
