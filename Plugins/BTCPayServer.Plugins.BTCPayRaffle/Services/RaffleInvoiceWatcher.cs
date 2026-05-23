@@ -78,7 +78,8 @@ public class RaffleInvoiceWatcher : EventHostedServiceBase
                     meta.BuyerName,
                     tickets,
                     meta.BaseUrl,
-                    receiptUrl);
+                    receiptUrl,
+                    storeId: invoice.StoreId);
             }
         }
         catch (System.Exception ex)

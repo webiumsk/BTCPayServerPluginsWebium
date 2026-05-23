@@ -24,6 +24,7 @@ public class Plugin : BaseBTCPayServerPlugin
         services.AddSingleton<EmailService>();
         services.AddSingleton<TicketService>();
         services.AddSingleton<RaffleEventBundleClientProvider>();
+        services.AddSingleton<SatoshiTicketsRaffleBundleService>();
         services.AddSingleton<RaffleListClientProvider>();
         services.AddSingleton<SimpleTicketSalesDbContextFactory>();
         services.AddSingleton<SimpleTicketSalesHostedService>();

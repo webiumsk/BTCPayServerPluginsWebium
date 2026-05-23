@@ -4,6 +4,7 @@ using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace BTCPayServer.Plugins.SatoshiTickets.Services.Integration;
 
@@ -24,8 +25,10 @@ public sealed class RaffleEventBundleClientProvider
         {
             if (_client is not null)
                 return _client;
-            _client = RaffleEventBundleClientResolver.TryResolve(_serviceProvider);
-            return _client;
+            var resolved = RaffleEventBundleClientResolver.TryResolve(_serviceProvider);
+            if (resolved is not null)
+                _client = resolved;
+            return resolved;
         }
     }
 }
@@ -60,7 +63,11 @@ internal static class RaffleEventBundleClientResolver
             || implType.GetMethod("AllocateForEventOrderAsync", BindingFlags.Public | BindingFlags.Instance) is null)
             return null;
 
-        return new ReflectionRaffleEventBundleClient(implementation, serviceType, resultType);
+        return new ReflectionRaffleEventBundleClient(
+            implementation,
+            serviceType,
+            resultType,
+            serviceProvider.GetService<ILoggerFactory>()?.CreateLogger(typeof(RaffleEventBundleClientResolver)));
     }
 }
 
@@ -70,11 +77,17 @@ internal sealed class ReflectionRaffleEventBundleClient : IRaffleEventBundleClie
     private readonly MethodInfo? _validateMethod;
     private readonly MethodInfo? _allocateMethod;
     private readonly Type _resultType;
+    private readonly ILogger? _logger;
 
-    public ReflectionRaffleEventBundleClient(object target, Type serviceType, Type resultType)
+    public ReflectionRaffleEventBundleClient(
+        object target,
+        Type serviceType,
+        Type resultType,
+        ILogger? logger)
     {
         _target = target;
         _resultType = resultType;
+        _logger = logger;
         var implType = target.GetType();
         _validateMethod = implType.GetMethod(
             "ValidateBundledRaffleAsync",
@@ -100,8 +113,9 @@ internal sealed class ReflectionRaffleEventBundleClient : IRaffleEventBundleClie
             var result = await InvokeAsync(_validateMethod, [storeId, raffleId]).ConfigureAwait(false);
             return ReadValueTupleBoolString(result);
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            _logger?.LogWarning(ex, "Raffle bundle validation failed via reflection");
             return (false, "Raffle bundle validation is unavailable");
         }
     }
@@ -124,9 +138,14 @@ internal sealed class ReflectionRaffleEventBundleClient : IRaffleEventBundleClie
                 [storeId, raffleId, count, buyerEmail, buyerName, eventOrderId, baseUrl]).ConfigureAwait(false);
             return MapResult(result);
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            return new RaffleBundleAllocationResult { Success = false, Error = "Raffle bundle allocation is unavailable" };
+            _logger?.LogWarning(ex, "Raffle bundle allocation failed via reflection");
+            return new RaffleBundleAllocationResult
+            {
+                Success = false,
+                Error = ex.Message
+            };
         }
     }
 

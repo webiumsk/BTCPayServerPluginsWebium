@@ -184,7 +184,7 @@ public class RaffleApiController : ControllerBase
                 var baseUrl = $"{Request.Scheme}://{Request.Host}";
                 await _ticketEmail.SendTicketsEmailAsync(
                     raffleId, raffle.Name, req.BuyerEmail, req.BuyerName, tickets, baseUrl,
-                    manualAllocation: true);
+                    manualAllocation: true, storeId: storeId);
             }
             return Ok(tickets.Select(MapTicket));
         }

@@ -36,6 +36,7 @@ public class GreenfieldSatoshiTicketsController(
     InvoiceRepository invoiceRepository,
     UIInvoiceController invoiceController,
     LinkGenerator linkGenerator,
+    SatoshiTicketsRaffleBundleService raffleBundleService,
     ILogger<GreenfieldSatoshiTicketsController> logger) : ControllerBase
 {
 
@@ -343,6 +344,9 @@ public class GreenfieldSatoshiTicketsController(
             {
             }
         }
+
+        var baseUrl = $"{Request.Scheme}://{Request.Host}";
+        await raffleBundleService.AllocateForOrderAsync(storeId, order, ctx, baseUrl);
 
         return Ok(new CreateTicketsOfflineResponse
         {

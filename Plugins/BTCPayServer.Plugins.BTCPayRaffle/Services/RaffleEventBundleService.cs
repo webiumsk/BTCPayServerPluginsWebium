@@ -1,6 +1,5 @@
 #nullable enable
 using System;
-using System.Linq;
 using System.Threading.Tasks;
 using BTCPayServer.Plugins.BTCPayRaffle.Data.Entities;
 using Microsoft.Extensions.Logging;
@@ -95,34 +94,32 @@ public sealed class RaffleEventBundleService : IRaffleEventBundleService
             if (isNew && allocated > 0)
             {
                 var raffle = await _raffle.GetRaffleAsync(raffleId);
-                if (raffle is not null && !string.IsNullOrWhiteSpace(baseUrl))
+                if (raffle is null)
                 {
-                    var allTickets = await _raffle.GetTicketsByBuyerAsync(raffleId, normalizedEmail);
-                    var bundleTickets = allTickets
-                        .Where(t => t.InvoiceId == invoiceId)
-                        .OrderBy(t => t.TicketNumber)
-                        .ToList();
-                    if (bundleTickets.Count > 0)
-                    {
-                        await _ticketEmail.SendTicketsEmailAsync(
-                            raffleId,
-                            raffle.Name,
-                            normalizedEmail,
-                            buyerName,
-                            bundleTickets,
-                            baseUrl,
-                            receiptUrl: null,
-                            manualAllocation: true,
-                            introOverride: _localizer["email.event_bundle_intro"]);
-                    }
+                    _logger.LogWarning(
+                        "Allocated {Count} bundle ticket(s) but skipped email (raffle not found, order={OrderId})",
+                        allocated, eventOrderId);
                 }
-            }
-
-            if (isNew && allocated > 0 && string.IsNullOrWhiteSpace(baseUrl))
-            {
-                _logger.LogWarning(
-                    "Allocated {Count} bundle ticket(s) but skipped email (missing base URL, order={OrderId})",
-                    allocated, eventOrderId);
+                else if (string.IsNullOrWhiteSpace(baseUrl))
+                {
+                    _logger.LogWarning(
+                        "Allocated {Count} bundle ticket(s) but skipped email (missing base URL, order={OrderId})",
+                        allocated, eventOrderId);
+                }
+                else
+                {
+                    await _ticketEmail.SendTicketsEmailAsync(
+                        raffleId,
+                        raffle.Name,
+                        normalizedEmail,
+                        buyerName,
+                        tickets,
+                        baseUrl,
+                        receiptUrl: null,
+                        manualAllocation: true,
+                        introOverride: _localizer["email.event_bundle_intro"],
+                        storeId: storeId);
+                }
             }
 
             return RaffleEventBundleResult.Ok(allocated, isNew);
