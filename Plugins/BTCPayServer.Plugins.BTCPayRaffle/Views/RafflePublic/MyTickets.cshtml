@@ -1,12 +1,13 @@
 @using BTCPayServer.Plugins.BTCPayRaffle.Data.Entities
 @model BTCPayServer.Plugins.BTCPayRaffle.ViewModels.BuyerWalletViewModel
 @{
-    ViewData["Title"] = "My Tickets — " + Model.Raffle.Name;
+    ViewData["Title"] = T["wallet.title"] + " — " + Model.Raffle.Name;
     Layout = "_LayoutSimple";
     var r = Model.Raffle;
     var myWinSet = Model.MyWinningNumbers.ToHashSet();
     var initialDrawingsCount = r.Drawings.Count;
     var pendingDraw = Model.PendingDraw;
+    var walletI18n = System.Text.Json.JsonSerializer.Serialize(T.ScriptPack("wallet"));
 }
 
 <style>
@@ -48,6 +49,19 @@
     background:var(--btcpay-bg-secondary); border:1px solid var(--btcpay-body-border-medium);
 }
 .draw-banner.live { border-color:var(--btcpay-primary); }
+.wallet-buy-more { margin-top:.65rem; }
+.wallet-buy-more-link {
+    display:inline-flex; align-items:center; gap:.4rem;
+    font-weight:700; font-size:.95rem;
+    color:var(--btcpay-primary, #f7931a); text-decoration:none;
+}
+.wallet-buy-more-link:hover,
+.wallet-buy-more-link:focus {
+    color:#ffaa00; text-decoration:underline;
+}
+.wallet-buy-more-icon {
+    font-size:1rem; line-height:1; opacity:.9;
+}
 .draw-banner.drawing {
     border-color:#ffd700;
     animation:bannerPulse 2s ease-in-out infinite;
@@ -70,13 +84,25 @@
     0%, 100% { transform:translateY(0); }
     50% { transform:translateY(-2px); }
 }
+.last-drawn-block {
+    text-align:center; margin-bottom:1rem; padding:.75rem;
+    border-radius:12px; background:var(--btcpay-bg-secondary);
+    border:1px solid var(--btcpay-body-border-medium);
+}
+.last-drawn-label {
+    font-size:.75rem; text-transform:uppercase; letter-spacing:.06em;
+    color:var(--btcpay-body-text-muted); margin-bottom:.25rem;
+}
+.last-drawn-num {
+    font-size:2.5rem; font-weight:900; font-family:monospace; color:#ffd700;
+}
 </style>
 
 <div class="wallet-page">
 
     <div class="wallet-header">
         <div style="font-size:2.5rem">🎟️</div>
-        <h2 class="mb-1">My Tickets</h2>
+        <h2 class="mb-1">@T["wallet.your_tickets"]</h2>
         <p class="mb-0" style="opacity:.85">@r.Name</p>
         @if (Model.DisplayName != "—")
         {
@@ -85,32 +111,45 @@
         <div class="wallet-stats">
             <div>
                 <div class="wallet-stat-value">@Model.Tickets.Count</div>
-                <div class="wallet-stat-label">your tickets</div>
+                <div class="wallet-stat-label">@T["wallet.tickets_count"]</div>
             </div>
             <div>
                 <div class="wallet-stat-value">@Model.PurchaseCount</div>
-                <div class="wallet-stat-label">purchases</div>
+                <div class="wallet-stat-label">@T["wallet.purchases"]</div>
             </div>
             <div id="winsStatWrap" style="display:@(Model.MyWinningNumbers.Any() ? "block" : "none")">
                 <div class="wallet-stat-value" id="winsStatValue">@Model.MyWinningNumbers.Count</div>
-                <div class="wallet-stat-label">wins</div>
+                <div class="wallet-stat-label">@T["wallet.wins"]</div>
             </div>
         </div>
+    </div>
+
+    <div id="lastDrawnBlock" class="last-drawn-block" style="display:@(Model.LastWinningTicketNumber.HasValue ? "block" : "none")">
+        <div class="last-drawn-label">@T["wallet.last_drawn_label"]</div>
+        <div id="lastDrawnNum" class="last-drawn-num">#@Model.LastWinningTicketNumber</div>
     </div>
 
     <div id="drawBanner" class="draw-banner live @(r.Status == RaffleStatus.Drawing || pendingDraw is not null ? "drawing" : "")">
         <span id="drawBannerText">
             @if (pendingDraw is not null)
-            { <text>Draw #@pendingDraw.DrawOrder in progress…</text> }
+            { @T.Format("wallet.draw_in_progress_order", pendingDraw.DrawOrder) }
             else if (r.Status == RaffleStatus.Drawing)
-            { <text>Draw in progress — this page updates automatically</text> }
+            { @T["wallet.draw_watching"] }
             else if (r.Status == RaffleStatus.Completed)
-            { <text>Draw complete</text> }
+            { @T["wallet.draw_complete"] }
             else if (r.Status == RaffleStatus.Closed)
-            { <text>Sales closed — draw starting soon</text> }
+            { @T["wallet.sales_closed_soon"] }
             else
-            { <text>Sales open — we will update when the draw starts</text> }
+            { @T["wallet.sales_open"] }
         </span>
+        <div id="buyMoreWrap" class="wallet-buy-more" style="display:@(r.Status == RaffleStatus.Open && pendingDraw is null && !string.IsNullOrEmpty(Model.BuyMoreUrl) ? "block" : "none")">
+            <a id="buyMoreLink" href="@Model.BuyMoreUrl" class="wallet-buy-more-link"
+               target="_blank" rel="noopener noreferrer"
+               title="@T["wallet.buy_more_new_tab"]" aria-label="@T["wallet.buy_more_new_tab"]">
+                🎟️ @T["wallet.buy_more"]
+                <span class="wallet-buy-more-icon" aria-hidden="true">↗</span>
+            </a>
+        </div>
         <div id="drawSlotWrap" class="draw-slot-wrap" style="display:@(pendingDraw is not null ? "block" : "none")">
             <span id="drawSlotNum" class="draw-slot-num @(pendingDraw is not null ? "spinning" : "")">#?</span>
         </div>
@@ -120,7 +159,7 @@
         <strong id="winBannerText">
             @if (Model.MyWinningNumbers.Any())
             {
-                @:Congratulations! Winning ticket(s): @string.Join(", ", Model.MyWinningNumbers.Select(n => $"#{n}"))
+                @T.Format("wallet.congrats_wins", string.Join(", ", Model.MyWinningNumbers.Select(n => $"#{n}")))
             }
         </strong>
     </div>
@@ -138,7 +177,7 @@
     @if (Model.WinningNumbers.Any() && !Model.MyWinningNumbers.Any())
     {
         <p class="text-secondary text-center small" id="otherWinners">
-            Drawn so far: @string.Join(", ", Model.WinningNumbers.Select(n => $"#{n}"))
+            @T.Format("wallet.drawn_so_far", string.Join(", ", Model.WinningNumbers.Select(n => $"#{n}")))
         </p>
     }
     else
@@ -147,7 +186,7 @@
     }
 
     <p class="text-secondary text-center small mt-3">
-        Bookmark this page. Use the same email for every purchase to keep all tickets here.
+        @T["wallet.bookmark_hint"]
     </p>
 </div>
 
@@ -157,7 +196,9 @@
 @section PageFootContent {
 <script>
 (function () {
+    const L = @Html.Raw(walletI18n);
     const stateUrl = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.StateUrl));
+    const buyMoreUrl = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.BuyMoreUrl));
     const initialMyWins = new Set(@Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.MyWinningNumbers)));
     const initialTicketNumbers = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.Tickets.Select(t => t.TicketNumber)));
     const initialPending = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(
@@ -173,8 +214,11 @@
     const otherWinners = document.getElementById('otherWinners');
     const drawBanner = document.getElementById('drawBanner');
     const drawBannerText = document.getElementById('drawBannerText');
+    const buyMoreWrap = document.getElementById('buyMoreWrap');
     const drawSlotWrap = document.getElementById('drawSlotWrap');
     const drawSlotNum = document.getElementById('drawSlotNum');
+    const lastDrawnBlock = document.getElementById('lastDrawnBlock');
+    const lastDrawnNum = document.getElementById('lastDrawnNum');
     const winsStatWrap = document.getElementById('winsStatWrap');
     const winsStatValue = document.getElementById('winsStatValue');
 
@@ -195,6 +239,11 @@
         return data.pendingDraw ?? data.PendingDraw ?? null;
     }
 
+    function updateBuyMoreLink(status, hasPending) {
+        if (!buyMoreWrap || !buyMoreUrl) return;
+        buyMoreWrap.style.display = (status === 'Open' && !hasPending) ? 'block' : 'none';
+    }
+
     function maxTicketHint(ticketNumbers) {
         const nums = ticketNumbers.length ? ticketNumbers : initialTicketNumbers;
         return nums.length ? Math.max(100, ...nums) : 100;
@@ -212,7 +261,7 @@
         const order = pending.drawOrder ?? pending.DrawOrder;
         pendingRevealAt = new Date(revealAt).getTime();
         drawBanner.classList.add('drawing');
-        drawBannerText.textContent = `Draw #${order} in progress…`;
+        drawBannerText.textContent = (L.draw_in_progress_order ?? 'Draw #{0} in progress…').replace('{0}', order);
         if (drawSlotWrap) drawSlotWrap.style.display = 'block';
         if (drawSlotNum) drawSlotNum.classList.add('spinning');
         const cap = maxTicketHint(ticketNumbers);
@@ -288,21 +337,41 @@
         }, 50);
     }
 
+    function fmt(key, ...args) {
+        let s = L[key] ?? key;
+        args.forEach((a, i) => { s = s.replace('{' + i + '}', a); });
+        return s;
+    }
+
+    function updateLastDrawn(num) {
+        if (!lastDrawnBlock || !lastDrawnNum) return;
+        if (num == null || num === undefined) {
+            lastDrawnBlock.style.display = 'none';
+            return;
+        }
+        lastDrawnBlock.style.display = 'block';
+        lastDrawnNum.textContent = '#' + num;
+    }
+
     function applyState(data) {
         const status = str(data, 'status', 'Status');
         const myWinsList = arr(data, 'myWinningNumbers', 'MyWinningNumbers');
         const allWins = arr(data, 'winningNumbers', 'WinningNumbers');
         const ticketNumbers = arr(data, 'ticketNumbers', 'TicketNumbers');
         const drawingsCount = data.drawingsCount ?? data.DrawingsCount ?? 0;
+        const lastWin = data.lastWinningTicketNumber ?? data.LastWinningTicketNumber ?? null;
         const pending = pendingDrawOf(data);
         const myWins = new Set(myWinsList);
 
         if (pending) {
+            updateLastDrawn(lastWin);
+            updateBuyMoreLink(status, true);
             startPendingSlot(pending, ticketNumbers);
             knownDrawingsCount = drawingsCount;
             return;
         }
         stopPendingSlot();
+        updateLastDrawn(lastWin ?? (allWins.length ? allWins[allWins.length - 1] : null));
 
         ticketNumbers.forEach(n => {
             let chip = document.getElementById('chip-' + n);
@@ -342,20 +411,20 @@
 
         if (myWins.size) {
             winBanner.style.display = 'block';
-            winBannerText.textContent = 'Congratulations! Winning ticket(s): ' +
-                [...myWins].sort((a, b) => a - b).map(n => '#' + n).join(', ');
+            winBannerText.textContent = fmt('congrats_wins',
+                [...myWins].sort((a, b) => a - b).map(n => '#' + n).join(', '));
         } else {
             winBanner.style.display = 'none';
         }
 
         if (allWins.length && !myWins.size) {
             otherWinners.style.display = 'block';
-            otherWinners.textContent = 'Drawn so far: ' + allWins.map(n => '#' + n).join(', ');
+            otherWinners.textContent = fmt('drawn_so_far', allWins.map(n => '#' + n).join(', '));
         } else if (allWins.length) {
             const others = allWins.filter(n => !myWins.has(n));
             otherWinners.style.display = others.length ? 'block' : 'none';
             otherWinners.textContent = others.length
-                ? 'Other prizes drawn: ' + others.map(n => '#' + n).join(', ')
+                ? fmt('other_prizes', others.map(n => '#' + n).join(', '))
                 : '';
         } else {
             otherWinners.style.display = 'none';
@@ -366,17 +435,18 @@
             const last = allWins[allWins.length - 1];
             const won = myWins.has(last);
             drawBannerText.textContent = won
-                ? `Draw #${drawingsCount}: ticket #${last} — you won!`
-                : `Draw #${drawingsCount}: ticket #${last} drawn`;
+                ? fmt('draw_won', drawingsCount, last)
+                : fmt('draw_result', drawingsCount, last);
         } else if (status === 'Drawing') {
-            drawBannerText.textContent = 'Draw in progress — watching for your numbers…';
+            drawBannerText.textContent = L.draw_watching ?? 'Draw in progress…';
         } else if (status === 'Completed') {
-            drawBannerText.textContent = 'Draw complete';
+            drawBannerText.textContent = L.draw_complete ?? 'Draw complete';
         } else if (status === 'Closed') {
-            drawBannerText.textContent = 'Sales closed — draw starting soon';
+            drawBannerText.textContent = L.sales_closed_soon ?? 'Sales closed';
         } else if (status === 'Open') {
-            drawBannerText.textContent = 'Sales open — we will update when the draw starts';
+            drawBannerText.textContent = L.sales_open ?? 'Sales open';
         }
+        updateBuyMoreLink(status, false);
         knownDrawingsCount = drawingsCount;
     }
 

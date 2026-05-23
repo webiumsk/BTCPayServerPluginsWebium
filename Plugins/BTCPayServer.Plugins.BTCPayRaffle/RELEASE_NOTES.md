@@ -1,5 +1,67 @@
 # BTCPay Raffle plugin — release notes
 
+## 1.3.2.0 (public buy page layout)
+
+### Public raffle page (`/raffle/{id}`)
+
+- **Buy tickets** heading centered.
+- Ticket counter controls use **1px** borders (was 2px).
+- **Total** price box without border; on md+ sits beside the ticket counter in one row.
+
+### Buyer wallet (`/raffle/{id}/my`)
+
+- While sales are **Open**, link **Buy more tickets** (↗) opens the public buy page in a **new tab** so users keep this overview open.
+
+### Upgrade
+
+1. Install **1.3.2.0** and restart BTCPay Server.
+
+---
+
+## 1.3.1.0 (event raffle bundle API)
+
+### Satoshi Tickets integration
+
+- `IRaffleEventBundleService` — validate open raffle + idempotent bundle allocation (`eventbundle:{orderId}:{email}`).
+- Required on BTCPay when using **Satoshi Tickets ≥ 1.3.6.1** with `bundledRaffleId` / `bundledRaffleTicketsPerAdmission` on events.
+
+### Receipt & presenter polish
+
+- Receipt: wallet + **buy more** CTAs in one row on md+ (2/3 + 1/3), thinner borders, high-contrast buy-more button (incl. hover).
+- Presenter: **Undo last draw** visible immediately after an AJAX draw (no full page reload).
+- Ticket verify (`/raffle/ticket/{id}`): readable status colors, reveal delay aligned with live draw.
+
+### Upgrade
+
+1. Install **1.3.1.0** and restart BTCPay Server.
+2. Ensure **Satoshi Tickets** fork with bundle migration is also installed.
+
+---
+
+## 1.3.0.2 (draw UI, wallet last number, i18n)
+
+### Draw & presenter
+
+- Shared draw layout (compact stats, smaller slot, inline draw + undo on desktop) for store **Draw** and public **Present** screens.
+- Presenter and admin draw UI strings localized.
+
+### Buyer wallet
+
+- **Last drawn number** shown above the status banner (server + live `/my/state` JSON field `lastWinningTicketNumber`).
+- Wallet page copy localized (en / sk / es) via embedded JSON resources.
+
+### Ticket verification
+
+- Distinct messages for **raffle in progress** (sales open) vs **draw in progress** (sales closed, draw not finished).
+- Localized verify page (en / sk / es).
+
+### Upgrade
+
+1. Install **1.3.0.2** and restart BTCPay Server.
+2. UI language: store **Checkout → Language** (`StoreBlob.DefaultLang`, e.g. `sk-SK`), then `?lang=`, then `Accept-Language` (BTCPay forces Invariant culture on requests).
+
+---
+
 ## 1.3.0.1 (wallet security & draw sync)
 
 ### Buyer wallet

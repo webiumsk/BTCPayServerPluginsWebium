@@ -1,0 +1,115 @@
+@using BTCPayServer.Plugins.BTCPayRaffle.Data.Entities
+@model BTCPayServer.Plugins.BTCPayRaffle.ViewModels.DrawViewModel
+@{
+    var presenter = Model as BTCPayServer.Plugins.BTCPayRaffle.ViewModels.PresenterDrawViewModel;
+    var drawUrl = presenter?.DrawActionUrl
+        ?? Url.Action("DrawNext", "UIRaffle", new { storeId = Model.StoreId, raffleId = Model.Raffle.Id })!;
+    var totalDrawn = Model.Drawings.Count;
+    string PrizeName(int drawOrder) => (totalDrawn - drawOrder + 1) switch
+    {
+        1 => T["draw.prize_first"],
+        2 => T["draw.prize_second"],
+        3 => T["draw.prize_third"],
+        var n => T.Format("draw.prize_n", n)
+    };
+}
+
+<div class="raffle-draw-page">
+
+    <div class="draw-header">
+        <h2>@Model.Raffle.Name</h2>
+        <div class="draw-stats">
+            <span>@T["draw.total_tickets"]: <strong>@Model.Raffle.Tickets.Count</strong></span>
+            <span>@T["draw.remaining"]: <strong id="eligibleCount">@Model.EligibleTicketsCount</strong></span>
+        </div>
+    </div>
+
+    <div class="draw-arena">
+        <div class="prize-label" id="prizeLabel">@T["draw.ready"]</div>
+
+        <div class="slot-machine">
+            <div class="slot-display">
+                <div class="slot-reel" id="slotReel">
+                    <div class="slot-number" id="currentNumber">?</div>
+                </div>
+            </div>
+            <div class="slot-shine"></div>
+        </div>
+
+        <div class="draw-controls-row">
+            <button id="drawBtn" class="btn-draw" data-draw-url="@drawUrl" @(Model.CanDrawMore ? "" : "disabled")>
+                @if (Model.CanDrawMore)
+                {
+                    <span>🎲 @T["draw.next_prize"]</span>
+                }
+                else
+                {
+                    <span>✅ @T["draw.all_drawn"]</span>
+                }
+            </button>
+
+            @if (presenter is not null)
+            {
+                <form id="undoForm" method="post" class="@(Model.CanUndoLastDraw ? "" : "d-none")"
+                      action="@Url.Action("UndoLastDraw", "RafflePresent", new { raffleId = Model.Raffle.Id, token = presenter.PresenterToken })"
+                      onsubmit="return confirm(@Html.Raw(System.Text.Json.JsonSerializer.Serialize(T["draw.undo_confirm"])))">
+                    @Html.AntiForgeryToken()
+                    <button type="submit" id="undoBtn" class="btn btn-outline-warning btn-sm" @(Model.CanUndoLastDraw ? "" : "disabled")>↩ @T["draw.undo"]</button>
+                </form>
+            }
+            else if (Model.CanUndoLastDraw)
+            {
+                <form method="post" asp-action="UndoLastDraw"
+                      asp-route-storeId="@Model.StoreId"
+                      asp-route-raffleId="@Model.Raffle.Id"
+                      asp-antiforgery="true"
+                      onsubmit="return confirm(@Html.Raw(System.Text.Json.JsonSerializer.Serialize(T["draw.undo_confirm"])))">
+                    <button type="submit" class="btn btn-outline-warning btn-sm">↩ @T["draw.undo"]</button>
+                </form>
+            }
+
+            @if (presenter is null && !Model.CanDrawMore && Model.Drawings.Any())
+            {
+                <form method="post" asp-action="Complete"
+                      asp-route-storeId="@Model.StoreId"
+                      asp-route-raffleId="@Model.Raffle.Id"
+                      asp-antiforgery="true">
+                    <button class="btn btn-dark btn-sm">@T["draw.complete"]</button>
+                </form>
+            }
+        </div>
+
+        <div class="winner-panel" id="winnerPanel" style="display:none">
+            <div class="winner-number" id="winnerNumber"></div>
+            <div class="winner-info" id="winnerInfo"></div>
+            <div class="winner-prize-badge" id="winnerPrizeBadge"></div>
+        </div>
+    </div>
+
+    <div class="drawings-history mt-3">
+        <h5 class="mb-2">@T["draw.results_title"]</h5>
+        <div class="drawings-list" id="drawingsList">
+            @if (!Model.Drawings.Any())
+            {
+                <p class="text-secondary text-center small" id="noDrawingsMsg">@T["draw.no_results"]</p>
+            }
+            @foreach (var d in Model.Drawings.OrderByDescending(d => d.DrawOrder))
+            {
+                <div class="drawing-item @(d.DrawOrder == totalDrawn ? "first-prize" : "")">
+                    <div class="drawing-medal">
+                        @if (d.DrawOrder == totalDrawn) { <text>🥇</text> }
+                        else if (d.DrawOrder == totalDrawn - 1) { <text>🥈</text> }
+                        else if (d.DrawOrder == totalDrawn - 2) { <text>🥉</text> }
+                        else { <text>🎖️</text> }
+                    </div>
+                    <div class="drawing-prize-name">@PrizeName(d.DrawOrder)</div>
+                    <div>@T.Format("draw.ticket_number", d.WinningTicket.TicketNumber)</div>
+                    <div class="text-secondary small">@d.DrawnAt.LocalDateTime.ToString("HH:mm:ss")</div>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@Html.AntiForgeryToken()
+<canvas id="confettiCanvas" style="position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:9999"></canvas>

@@ -1,0 +1,99 @@
+<style>
+.raffle-draw-page { max-width: 720px; margin: 0 auto; padding: 1rem; }
+.draw-header { text-align: center; margin-bottom: 1.25rem; }
+.draw-header h2 { margin-bottom: .35rem; }
+.draw-stats {
+    display: flex; justify-content: center; gap: 1.5rem; flex-wrap: wrap;
+    font-size: .95rem; color: var(--btcpay-body-text-muted);
+}
+.draw-stats strong { color: var(--btcpay-body-text); }
+
+.draw-arena {
+    display: flex; flex-direction: column; align-items: center; gap: 1rem;
+    background: var(--btcpay-bg-secondary);
+    border: 1px solid var(--btcpay-body-border-medium);
+    border-radius: 20px; padding: 1.75rem 1.25rem; position: relative;
+    box-shadow: 0 4px 16px rgba(0,0,0,.06);
+}
+.prize-label {
+    font-size: 1.1rem; font-weight: 600; color: var(--btcpay-body-text-muted);
+    transition: all .3s; text-align: center;
+}
+.prize-label.drawing { color: var(--btcpay-primary); animation: drawPulse .8s infinite; }
+.prize-label.revealed { color: var(--btcpay-success, #16a34a); font-size: 1.25rem; }
+@@keyframes drawPulse { 0%,100%{opacity:1}50%{opacity:.4} }
+
+.slot-machine { position: relative; width: 220px; }
+.slot-display {
+    background: var(--btcpay-bg-tile, #fff);
+    border: 3px solid var(--btcpay-primary); border-radius: 14px; padding: 1rem;
+    text-align: center; min-height: 120px; display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--btcpay-primary) 12%, transparent);
+}
+.slot-number {
+    font-size: 4rem; font-weight: 900; color: var(--btcpay-primary); font-family: monospace;
+    min-width: 140px; display: block; text-align: center;
+}
+.slot-reel.spinning .slot-number { animation: numSpin .09s linear infinite; }
+.slot-reel.stopped  .slot-number { animation: numStop .35s cubic-bezier(.23,1,.32,1) forwards; }
+@@keyframes numSpin { 0%{transform:translateY(-6px);opacity:.7}50%{transform:translateY(0);opacity:1}100%{transform:translateY(6px);opacity:.7} }
+@@keyframes numStop { 0%{transform:scale(1.2)}100%{transform:scale(1)} }
+.slot-shine {
+    position:absolute;top:0;left:0;right:0;height:50%;
+    background:linear-gradient(180deg,rgba(255,255,255,.08),transparent);
+    border-radius:14px 14px 0 0; pointer-events:none;
+}
+
+.draw-controls-row {
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: .75rem;
+    width: 100%; max-width: 520px;
+}
+.btn-draw {
+    background: linear-gradient(135deg,#f0c040,#e08000);
+    color: #1a1a2e; border: none; border-radius: 50px;
+    padding: .85rem 2rem; font-size: 1.05rem; font-weight: 800;
+    cursor: pointer; text-transform: uppercase;
+    box-shadow: 0 6px 20px rgba(240,192,64,.35); transition: all .2s;
+}
+.btn-draw:hover:not(:disabled) {
+    transform:translateY(-2px);
+    box-shadow: 0 10px 28px rgba(240,192,64,.5);
+}
+.btn-draw:disabled {
+    background:var(--btcpay-body-border-medium); color:var(--btcpay-body-text-muted);
+    cursor:not-allowed; box-shadow:none;
+}
+
+.winner-panel {
+    display:flex; flex-direction:column; align-items:center; gap:.35rem;
+    background:var(--btcpay-success-bg, #d1fae5);
+    border:2px solid var(--btcpay-success, #16a34a);
+    border-radius:14px; padding:1rem 1.75rem; text-align:center; width: 100%; max-width: 400px;
+}
+.winner-panel.reveal { animation: revealAnim .6s cubic-bezier(.34,1.56,.64,1); }
+@@keyframes revealAnim { 0%{transform:scale(.5);opacity:0}100%{transform:scale(1);opacity:1} }
+.winner-number { font-size:3rem; font-weight:900; color:var(--btcpay-success,#16a34a); font-family:monospace; }
+.winner-info   { font-size:1rem; color:var(--btcpay-body-text); }
+.winner-prize-badge { font-size:.9rem; font-weight:700; padding:.25rem .85rem; border-radius:20px; }
+.winner-prize-badge.prize-1 { background:linear-gradient(135deg,#ffd700,#ffa500); color:#1a1a2e; }
+.winner-prize-badge.prize-2 { background:linear-gradient(135deg,#c0c0c0,#a0a0a0); color:#1a1a2e; }
+.winner-prize-badge.prize-3 { background:linear-gradient(135deg,#cd7f32,#a05020); color:#fff; }
+
+.drawings-list { display:flex; flex-direction:column; gap:.5rem; }
+.drawing-item {
+    display:grid; grid-template-columns:2rem 1fr 1fr auto;
+    align-items:center; gap:.6rem;
+    background:var(--btcpay-bg-tile, #fff); border:1px solid var(--btcpay-body-border-medium);
+    border-radius:10px; padding:.6rem .85rem; transition:all .4s;
+}
+.drawing-item.first-prize { border-color:#f0c040; background:color-mix(in srgb,#ffd700 8%,var(--btcpay-bg-tile,#fff)); }
+.drawing-medal { font-size:1.2rem; text-align:center; }
+.drawing-item.new-item { transform:translateX(-16px); opacity:0; }
+@@media(min-width:640px){
+    .draw-controls-row { flex-wrap: nowrap; }
+}
+@@media(max-width:600px){
+    .drawing-item{ grid-template-columns:2rem 1fr 1fr; }
+    .slot-number{font-size:3.25rem;}
+}
+</style>

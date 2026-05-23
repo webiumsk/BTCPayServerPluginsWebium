@@ -1,59 +1,143 @@
+@using BTCPayServer.Plugins.BTCPayRaffle.Services
 @model BTCPayServer.Plugins.BTCPayRaffle.ViewModels.ReceiptViewModel
 @{
-    ViewData["Title"] = "Your Tickets — " + Model.Raffle.Name;
+    ViewData["Title"] = T["receipt.title"] + " — " + Model.Raffle.Name;
     Layout = "_LayoutSimple";
+    var r = Model.Raffle;
+    var paidDisplay = RafflePricing.FormatAmount(r.TicketPrice * Model.Tickets.Count, r.TicketCurrency);
 }
 
 <style>
 .receipt-page { max-width:680px; margin:0 auto; padding:1rem; }
 .receipt-header {
     background:linear-gradient(135deg,#1a1a2e,#0f3460); color:#fff;
-    border-radius:16px; padding:2rem; text-align:center; margin-bottom:2rem;
+    border-radius:16px; padding:2rem; text-align:center; margin-bottom:1.5rem;
+}
+.receipt-cta-row { margin-bottom:1.25rem; }
+.receipt-cta-row > [class*="col-"] { display:flex; }
+.receipt-wallet-card,
+.receipt-buy-more {
+    flex:1; width:100%; border-radius:14px; padding:1.25rem; text-align:center;
+}
+.receipt-wallet-card {
+    background:var(--btcpay-bg-secondary); border:1px solid var(--btcpay-primary, #f7931a);
+    color:var(--btcpay-body-text, #f5f5f5);
+}
+.receipt-wallet-card strong { color:var(--btcpay-body-text, #fff); }
+.receipt-wallet-card .btn-primary {
+    background:var(--btcpay-primary, #f7931a); border-color:var(--btcpay-primary, #f7931a); color:#1a1a1a; font-weight:700;
+}
+.receipt-buy-more {
+    background:linear-gradient(135deg,#14532d,#166534); border:1px solid #22c55e; color:#fff;
+}
+.receipt-buy-more .btn-buy-more {
+    background:#fff; border:1px solid #052e16; color:#052e16; font-weight:800;
+}
+.receipt-buy-more .btn-buy-more:hover,
+.receipt-buy-more .btn-buy-more:focus {
+    background:#ecfdf5; border-color:#14532d; color:#052e16;
+    box-shadow:0 2px 8px rgba(0,0,0,.15);
+}
+.receipt-buy-more .btn-buy-more:active {
+    background:#d1fae5; border-color:#052e16; color:#052e16;
 }
 .ticket {
     display:flex; min-height:98px; border-radius:12px; overflow:hidden;
-    box-shadow:0 4px 12px rgba(0,0,0,.1);
-    border:2px solid var(--btcpay-body-border-medium); margin-bottom:.75rem;
+    box-shadow:0 4px 12px rgba(0,0,0,.15);
+    border:2px solid var(--btcpay-body-border-medium, #555); margin-bottom:.75rem;
 }
-.ticket-winner { border-color:#ffd700; box-shadow:0 4px 20px rgba(255,215,0,.3); }
+.ticket-winner { border-color:#ffd700; box-shadow:0 4px 20px rgba(255,215,0,.35); }
 .ticket-stub {
     flex:1; background:linear-gradient(135deg,#1a1a2e,#0f3460); color:#fff;
-    padding:.75rem 1.25rem; display:flex; flex-direction:column; justify-content:center;
+    padding:.85rem 1.25rem; display:flex; flex-direction:column; justify-content:center;
 }
-.ticket-winner .ticket-stub { background:linear-gradient(135deg,#7c3f00,#c8a000); }
-.ticket-raffle { font-size:.7rem; opacity:.65; text-transform:uppercase; letter-spacing:.05em; }
+.ticket-winner .ticket-stub { background:linear-gradient(135deg,#b8860b,#ffd700); color:#1a1a1a; }
+.ticket-raffle { font-size:.7rem; opacity:.85; text-transform:uppercase; letter-spacing:.05em; }
 .ticket-number { font-size:2.4rem; font-weight:900; color:#ffd700; font-family:monospace; line-height:1; }
-.ticket-winner .ticket-number { color:#1a1a2e; }
+.ticket-winner .ticket-number { color:#1a1a1a; }
+.ticket-winner-badge {
+    font-size:.75rem; font-weight:800; color:#1a1a1a; background:#fff;
+    padding:.2rem .55rem; border-radius:6px; width:fit-content; margin-top:.35rem;
+    border:1px solid #1a1a1a;
+}
 .ticket-tear {
     width:18px;
-    background: repeating-linear-gradient(to bottom,var(--btcpay-body-border-medium) 0,var(--btcpay-body-border-medium) 4px,transparent 4px,transparent 8px);
-    border-left:2px dashed var(--btcpay-body-border-medium); border-right:2px dashed var(--btcpay-body-border-medium);
+    background: repeating-linear-gradient(to bottom,#666 0,#666 4px,transparent 4px,transparent 8px);
+    border-left:2px dashed var(--btcpay-body-border-medium, #888);
+    border-right:2px dashed var(--btcpay-body-border-medium, #888);
 }
 .ticket-side {
-    width:90px; background:var(--btcpay-body-bg-light);
+    width:90px; background:#f8f8f8;
     display:flex; align-items:center; justify-content:center; padding:4px;
 }
 .ticket-side img { border-radius:4px; display:block; }
-.verify-section { text-align:center; border:2px solid var(--btcpay-body-border-medium); border-radius:16px; padding:1.5rem; margin-top:1.5rem; }
-@@media print { nav,footer,.btn,.verify-section,.receipt-header~div { display:none!important; } }
+.receipt-summary {
+    background:var(--btcpay-bg-secondary); border:1px solid var(--btcpay-body-border-medium);
+    border-radius:12px; padding:.25rem 1rem; color:var(--btcpay-body-text, #f5f5f5);
+}
+.receipt-summary .row-line {
+    display:flex; justify-content:space-between; padding:.65rem 0;
+    border-bottom:1px solid var(--btcpay-body-border-medium);
+}
+.receipt-summary .row-line:last-child { border-bottom:none; }
+.receipt-win-box {
+    border-radius:12px; padding:1rem 1.25rem; margin-top:1rem; text-align:center;
+}
+.receipt-win-box.success {
+    background:#14532d; border:2px solid #22c55e; color:#ecfdf5;
+}
+.receipt-win-box.muted {
+    background:var(--btcpay-bg-secondary); border:1px solid var(--btcpay-body-border-medium);
+    color:var(--btcpay-body-text-muted);
+}
+.verify-section {
+    text-align:center; border:2px solid var(--btcpay-body-border-medium);
+    border-radius:16px; padding:1.5rem; margin-top:1.5rem;
+    color:var(--btcpay-body-text, #f5f5f5);
+}
+.verify-section .form-control {
+    background:var(--btcpay-bg-tile, #2d2d2d); color:var(--btcpay-body-text, #f5f5f5);
+    border-color:var(--btcpay-body-border-medium);
+}
+@@media print { nav,footer,.btn,.verify-section,.receipt-cta-row { display:none!important; } }
 </style>
 
 <div class="receipt-page">
 
-
-    @if (!string.IsNullOrEmpty(Model.WalletUrl))
+    @{
+        var showWallet = !string.IsNullOrEmpty(Model.WalletUrl);
+        var showBuyMore = Model.CanBuyMore && !string.IsNullOrEmpty(Model.BuyMoreUrl);
+    }
+    @if (showWallet || showBuyMore)
     {
-        <div class="alert alert-primary text-center mb-3">
-            <strong>All your tickets on this raffle</strong>
-            <p class="small mb-2 mt-1">Bought more than once? One page lists every ticket for your email.</p>
-            <a href="@Model.WalletUrl" class="btn btn-primary btn-sm">View all my tickets</a>
+        <div class="row g-3 receipt-cta-row">
+            @if (showWallet)
+            {
+                <div class="@(showBuyMore ? "col-12 col-md-8" : "col-12")">
+                    <div class="receipt-wallet-card">
+                        <strong>@T["receipt.wallet_title"]</strong>
+                        <p class="small mb-2 mt-2" style="opacity:.9">@T["receipt.wallet_sub"]</p>
+                        <a href="@Model.WalletUrl" class="btn btn-primary btn-sm">@T["receipt.wallet_link"]</a>
+                    </div>
+                </div>
+            }
+            @if (showBuyMore)
+            {
+                <div class="@(showWallet ? "col-12 col-md-4" : "col-12")">
+                    <div class="receipt-buy-more">
+                        <strong>@T["receipt.buy_more"]</strong>
+                        <p class="small mb-2 mt-1" style="opacity:.95">@T["receipt.buy_more_sub"]</p>
+                        <a href="@Model.BuyMoreUrl" class="btn btn-buy-more btn-sm">🎟️ @T["receipt.buy_more"]</a>
+                    </div>
+                </div>
+            }
         </div>
     }
 
     <div class="receipt-header">
         <div style="font-size:3rem">🎟️</div>
-        <h2>Your Tickets</h2>
-        <p style="color:rgba(255,255,255,.7)">@Model.Raffle.Name</p>
+        <h2 class="mb-1">@T["receipt.title"]</h2>
+        <p style="color:rgba(255,255,255,.8)">@r.Name</p>
     </div>
 
     @foreach (var ticket in Model.Tickets)
@@ -61,62 +145,60 @@
         var won = Model.WinningNumbers.Contains(ticket.TicketNumber);
         <div class="ticket @(won ? "ticket-winner" : "")">
             <div class="ticket-stub">
-                <div class="ticket-raffle">@Model.Raffle.Name</div>
+                <div class="ticket-raffle">@r.Name</div>
                 <div class="ticket-number">#@ticket.TicketNumber</div>
-                @if (won) { <div style="font-size:.75rem;font-weight:700;color:#1a1a2e;background:#ffd700;padding:.1rem .4rem;border-radius:4px;width:fit-content;margin-top:.2rem">🏆 WINNER</div> }
+                @if (won)
+                {
+                    <div class="ticket-winner-badge">🏆 @T["receipt.winner_badge"]</div>
+                }
             </div>
             <div class="ticket-tear"></div>
             <div class="ticket-side">
                 @if (Model.TicketQrCodes.TryGetValue(ticket.Id, out var qr))
                 {
-                    <img src="@qr" width="80" height="80" alt="Ticket QR" title="Scan to verify" />
+                    <img src="@qr" width="80" height="80" alt="QR" />
                 }
             </div>
         </div>
     }
 
-    <div class="mt-3 p-3" style="background:var(--btcpay-body-bg-light);border-radius:12px">
-        <div class="d-flex justify-content-between py-1 border-bottom">
-            <span>Tickets:</span> <strong>@Model.Tickets.Count</strong>
+    <div class="receipt-summary mt-3">
+        <div class="row-line">
+            <span>@T["receipt.tickets_label"]</span>
+            <strong>@Model.Tickets.Count</strong>
         </div>
-        <div class="d-flex justify-content-between py-1 border-bottom">
-            <span>Numbers:</span>
+        <div class="row-line">
+            <span>@T["receipt.numbers_label"]</span>
             <strong>@string.Join(", ", Model.Tickets.Select(t => $"#{t.TicketNumber}"))</strong>
         </div>
-        <div class="d-flex justify-content-between py-1">
-            <span>Paid:</span>
-            <strong>@(Model.Raffle.TicketPriceSats * Model.Tickets.Count) sats</strong>
+        <div class="row-line">
+            <span>@T["receipt.paid_label"]</span>
+            <strong>@paidDisplay</strong>
         </div>
     </div>
 
-    <!-- Winner announcement -->
     @if (Model.WinningNumbers.Any())
     {
         var myWin = Model.Tickets.Where(t => Model.WinningNumbers.Contains(t.TicketNumber)).Select(t => t.TicketNumber).ToList();
-        <div class="alert @(myWin.Any() ? "alert-success" : "alert-secondary") mt-3">
+        <div class="receipt-win-box @(myWin.Any() ? "success" : "muted")">
             @if (myWin.Any())
             {
-                <strong>🏆 Congratulations! Your winning ticket(s): @string.Join(", ", myWin.Select(n => $"#{n}"))</strong><br />
-                <small>Show this QR code to claim your prize.</small>
+                <strong>@T.Format("receipt.congrats", string.Join(", ", myWin.Select(n => $"#{n}")))</strong>
+                <div class="small mt-1">@T["receipt.claim_hint"]</div>
             }
             else
             {
-                <text>The winning numbers were: @string.Join(", ", Model.WinningNumbers.Select(n => $"#{n}"))</text>
+                @T.Format("receipt.other_winners", string.Join(", ", Model.WinningNumbers.Select(n => $"#{n}")))
             }
         </div>
     }
 
-    <!-- Proof of purchase QR -->
     <div class="verify-section">
-        <h5>Proof of Purchase</h5>
-        <p class="text-secondary small">
-            Save or screenshot this page. This URL proves you own these tickets.
-        </p>
-        <img src="@Model.QrCodeDataUrl" class="rounded" style="max-width:160px" alt="Receipt QR" />
-        <div class="mt-2">
-            <input class="form-control form-control-sm font-monospace" value="@Model.VerifyUrl" readonly />
-        </div>
-        <button onclick="window.print()" class="btn btn-sm btn-outline-secondary mt-2">🖨️ Print</button>
+        <h5 class="mb-2">@T["receipt.proof_title"]</h5>
+        <p class="text-secondary small">@T["receipt.proof_sub"]</p>
+        <img src="@Model.QrCodeDataUrl" class="rounded my-2" style="max-width:160px" alt="QR" />
+        <input class="form-control form-control-sm font-monospace" value="@Model.VerifyUrl" readonly />
+        <button type="button" onclick="window.print()" class="btn btn-sm btn-outline-secondary mt-2">🖨️ @T["receipt.print"]</button>
     </div>
 
 </div>

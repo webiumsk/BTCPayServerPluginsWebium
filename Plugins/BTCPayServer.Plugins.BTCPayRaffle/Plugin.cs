@@ -5,6 +5,7 @@ using BTCPayServer.Abstractions.Models;
 using BTCPayServer.Hosting;
 using BTCPayServer.Plugins.BTCPayRaffle.Data;
 using BTCPayServer.Plugins.BTCPayRaffle.Services;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace BTCPayServer.Plugins.BTCPayRaffle;
@@ -28,10 +29,15 @@ public class BTCPayRafflePlugin : BaseBTCPayServerPlugin
         services.AddStartupTask<PluginMigrationRunner>();
 
         // ── Services ─────────────────────────────────────────────────────────
+        services.AddSingleton<RaffleDescriptionHtml>();
         services.AddSingleton<RaffleService>();
         services.AddSingleton<RafflePresenterTokenService>();
         services.AddSingleton<RaffleBuyerWalletTokenService>();
         services.AddSingleton<RaffleTicketEmailService>();
+        services.AddSingleton<IRaffleEventBundleService, RaffleEventBundleService>();
+        services.AddHttpContextAccessor();
+        services.AddSingleton<RaffleStringLocalizer>();
+        services.AddScoped<RaffleUiCultureFilter>();
         services.AddHostedService<RaffleInvoiceWatcher>();
 
         // ── UI extensions (injected into BTCPay layout slots) ─────────────────

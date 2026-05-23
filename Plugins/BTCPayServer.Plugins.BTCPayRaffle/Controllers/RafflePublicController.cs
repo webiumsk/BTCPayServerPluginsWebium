@@ -13,6 +13,7 @@ using BTCPayServer.Plugins.BTCPayRaffle.ViewModels;
 using BTCPayServer.Services.Invoices;
 using BTCPayServer.Services.Stores;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Filters;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Newtonsoft.Json.Serialization;
@@ -20,6 +21,7 @@ using Newtonsoft.Json.Serialization;
 namespace BTCPayServer.Plugins.BTCPayRaffle.Controllers;
 
 [Route("raffle")]
+[ServiceFilter(typeof(RaffleUiCultureFilter))]
 public class RafflePublicController : Controller
 {
     private readonly RaffleService _raffle;
@@ -171,6 +173,10 @@ public class RafflePublicController : Controller
                 new { raffleId = raffle.Id }, Request.Scheme)!;
         }
 
+        var buyMoreUrl = raffle.Status == RaffleStatus.Open
+            ? Url.Action(nameof(View), "RafflePublic", new { raffleId = raffle.Id }, Request.Scheme)!
+            : "";
+
         return View(new ReceiptViewModel
         {
             Raffle = raffle,
@@ -180,7 +186,9 @@ public class RafflePublicController : Controller
             WalletUrl = walletUrl,
             QrCodeDataUrl = QrCodeService.GenerateQrBase64(verifyUrl),
             WinningNumbers = winningNumbers,
-            TicketQrCodes = ticketQrCodes
+            TicketQrCodes = ticketQrCodes,
+            CanBuyMore = raffle.Status == RaffleStatus.Open,
+            BuyMoreUrl = buyMoreUrl
         });
     }
 
@@ -213,16 +221,22 @@ public class RafflePublicController : Controller
             .Select(t => t.BuyerName)
             .LastOrDefault(n => !string.IsNullOrWhiteSpace(n));
 
+        var buyMoreUrl = raffle.Status == RaffleStatus.Open
+            ? Url.Action(nameof(View), "RafflePublic", new { raffleId }, Request.Scheme)!
+            : "";
+
         return View("~/Views/RafflePublic/MyTickets.cshtml", new BuyerWalletViewModel
         {
             Raffle = raffle,
             Tickets = tickets,
             StateUrl = Url.Action(nameof(MyTicketsState), "RafflePublic",
                 new { raffleId }, Request.Scheme)!,
+            BuyMoreUrl = buyMoreUrl,
             DisplayName = RaffleBuyerDisplay.DisplayBuyerName(displayName),
             WinningNumbers = walletState.WinningNumbers,
             MyWinningNumbers = walletState.MyWinningNumbers,
             PurchaseCount = walletState.PurchaseCount,
+            LastWinningTicketNumber = walletState.LastWinningTicketNumber,
             PendingDraw = walletState.PendingDraw is null ? null : new BuyerWalletPendingDrawResponse
             {
                 DrawOrder = walletState.PendingDraw.DrawOrder,
@@ -248,6 +262,7 @@ public class RafflePublicController : Controller
             MyWinningNumbers = state.MyWinningNumbers,
             DrawingsCount = state.DrawingsCount,
             PurchaseCount = state.PurchaseCount,
+            LastWinningTicketNumber = state.LastWinningTicketNumber,
             PendingDraw = state.PendingDraw is null ? null : new BuyerWalletPendingDrawResponse
             {
                 DrawOrder = state.PendingDraw.DrawOrder,
@@ -271,16 +286,17 @@ public class RafflePublicController : Controller
         var (ticket, raffle) = await _raffle.GetTicketWithDetailsAsync(ticketId);
         if (ticket is null || raffle is null) return NotFound();
 
-        var winningTicketIds = raffle.Drawings.Select(d => d.WinningTicketId).ToHashSet();
-        var isWinner = winningTicketIds.Contains(ticket.Id);
-        var drawOrder = raffle.Drawings.FirstOrDefault(d => d.WinningTicketId == ticket.Id)?.DrawOrder;
+        var winDrawing = raffle.Drawings.FirstOrDefault(d => d.WinningTicketId == ticket.Id);
+        var isWinner = winDrawing is not null;
+        var isWinnerRevealed = winDrawing is null || RaffleDrawReveal.IsRevealed(winDrawing.DrawnAt);
 
         return View(new TicketVerifyViewModel
         {
             Ticket = ticket,
             Raffle = raffle,
             IsWinner = isWinner,
-            DrawOrder = drawOrder,
+            IsWinnerRevealed = isWinnerRevealed,
+            DrawOrder = winDrawing?.DrawOrder,
             TotalDrawings = raffle.Drawings.Count
         });
     }

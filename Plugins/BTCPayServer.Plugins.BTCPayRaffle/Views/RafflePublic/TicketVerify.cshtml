@@ -1,99 +1,165 @@
 @using BTCPayServer.Plugins.BTCPayRaffle.Data.Entities
 @model BTCPayServer.Plugins.BTCPayRaffle.ViewModels.TicketVerifyViewModel
 @{
-    ViewData["Title"] = "Ticket Verification";
+    ViewData["Title"] = T["verify.title"];
     Layout = "_LayoutSimple";
 
-    var isCompleted = Model.Raffle.Status == RaffleStatus.Completed;
-    var isDrawing   = Model.Raffle.Status is RaffleStatus.Closed or RaffleStatus.Drawing;
+    var status = Model.Raffle.Status;
+    var showWinner = Model.IsWinner && Model.IsWinnerRevealed;
 
-    // Prize rank: last drawn (highest DrawOrder) = 1st prize
     string? prizeName = null;
-    if (Model.IsWinner && Model.DrawOrder.HasValue && Model.TotalDrawings > 0)
+    if (showWinner && Model.DrawOrder.HasValue && Model.TotalDrawings > 0)
     {
         var rank = Model.TotalDrawings - Model.DrawOrder.Value + 1;
-        prizeName = rank switch { 1 => "1st Prize 🥇", 2 => "2nd Prize 🥈", 3 => "3rd Prize 🥉", _ => $"Prize #{rank}" };
+        prizeName = rank switch
+        {
+            1 => T["draw.prize_first"] + " 🥇",
+            2 => T["draw.prize_second"] + " 🥈",
+            3 => T["draw.prize_third"] + " 🥉",
+            var n => T.Format("draw.prize_n", n)
+        };
     }
 }
 
 <style>
-.verify-page { max-width:480px; margin:0 auto; padding:1.5rem; }
+.verify-page { max-width:520px; margin:0 auto; padding:1rem; }
+.verify-header {
+    background:linear-gradient(135deg,#1a1a2e,#0f3460); color:#fff;
+    border-radius:16px; padding:1.75rem; text-align:center; margin-bottom:1.25rem;
+}
+.verify-header h2 { margin:0; font-size:1.35rem; }
+.verify-header .raffle-sub { opacity:.85; font-size:.95rem; margin-top:.25rem; }
 .ticket-card {
-    background:var(--btcpay-bg-tile, #fff);
-    border:2px solid var(--btcpay-body-border-medium); border-radius:16px;
-    padding:1.5rem; text-align:center; margin-bottom:1.5rem;
+    border-radius:14px; overflow:hidden; margin-bottom:1.25rem;
+    border:2px solid var(--btcpay-body-border-medium,#555);
+    box-shadow:0 4px 16px rgba(0,0,0,.12);
+}
+.ticket-card.ticket-winner-card { border-color:#ffd700; box-shadow:0 4px 20px rgba(255,215,0,.35); }
+.ticket-card-inner {
+    background:linear-gradient(135deg,#1a1a2e,#0f3460); color:#fff;
+    padding:1.5rem; text-align:center;
+}
+.ticket-card.ticket-winner-card .ticket-card-inner {
+    background:linear-gradient(135deg,#b8860b,#ffd700); color:#1a1a1a;
 }
 .ticket-number {
-    font-size:4rem; font-weight:900; font-family:monospace;
-    color:var(--btcpay-body-text); line-height:1; margin:.5rem 0;
+    font-size:3.5rem; font-weight:900; font-family:monospace; line-height:1; margin:.35rem 0;
+    color:#ffd700;
 }
-.raffle-name { font-size:.8rem; color:var(--btcpay-body-text-muted); text-transform:uppercase; letter-spacing:.06em; }
-.buyer-name  { font-size:.95rem; color:var(--btcpay-body-text-muted); margin-top:.25rem; }
-.status-box  { border-radius:12px; padding:1.25rem; text-align:center; }
-.status-box .status-icon { font-size:2.5rem; }
-.status-box .status-title { font-size:1.3rem; font-weight:700; margin:.4rem 0 .2rem; }
-.status-box .status-sub   { font-size:.9rem; opacity:.8; }
-.winner-box  { background:var(--btcpay-success-bg, #d1fae5); border:2px solid var(--btcpay-success, #16a34a); }
-.pending-box { background:var(--btcpay-warning-bg, #fef9c3); border:2px solid var(--btcpay-warning, #ca8a04); }
-.loser-box   { background:var(--btcpay-bg-secondary); border:2px solid var(--btcpay-body-border-medium); }
+.ticket-card.ticket-winner-card .ticket-number { color:#1a1a1a; }
+.buyer-name { font-size:.9rem; opacity:.85; margin-top:.25rem; }
+.status-box {
+    border-radius:12px; padding:1.25rem 1rem; text-align:center;
+    border:2px solid transparent;
+}
+.status-box .status-icon { font-size:2.25rem; line-height:1; }
+.status-box .status-title { font-size:1.2rem; font-weight:800; margin:.5rem 0 .25rem; }
+.status-box .status-sub { font-size:.9rem; line-height:1.4; margin:0; }
+.winner-box {
+    background:linear-gradient(135deg,#d1fae5,#a7f3d0);
+    border-color:#16a34a; color:#14532d;
+}
+.winner-box .status-sub { color:#166534; }
+.open-box {
+    background:linear-gradient(135deg,#fef3c7,#fde68a);
+    border-color:#d97706; color:#78350f;
+}
+.open-box .status-sub { color:#92400e; }
+.closed-box {
+    background:linear-gradient(135deg,#dbeafe,#bfdbfe);
+    border-color:#2563eb; color:#1e3a8a;
+}
+.closed-box .status-sub { color:#1d4ed8; }
+.drawing-box {
+    background:linear-gradient(135deg,#e0e7ff,#c7d2fe);
+    border-color:#4f46e5; color:#312e81;
+}
+.drawing-box .status-sub { color:#4338ca; }
+.loser-box {
+    background:var(--btcpay-bg-secondary,#2a2a3e);
+    border-color:var(--btcpay-body-border-medium,#555);
+    color:var(--btcpay-body-text,#f0f0f0);
+}
+.loser-box .status-sub { color:var(--btcpay-body-text-muted,#b0b0b0); opacity:1; }
+.verify-actions { text-align:center; margin-top:1.5rem; }
+.verify-actions .btn-outline-secondary {
+    border-color:var(--btcpay-primary,#f7931a); color:var(--btcpay-primary,#f7931a);
+}
 </style>
 
 <div class="verify-page">
 
-    <div class="text-center mb-3">
-        <span style="font-size:2rem">🎟️</span>
-        <h4 class="mt-1 mb-0">Ticket Verification</h4>
-        <div class="text-secondary small">@Model.Raffle.Name</div>
+    <div class="verify-header">
+        <div style="font-size:2.25rem">🎟️</div>
+        <h2>@T["verify.title"]</h2>
+        <div class="raffle-sub">@Model.Raffle.Name</div>
     </div>
 
-    <div class="ticket-card">
-        <div class="raffle-name">@Model.Raffle.Name</div>
-        <div class="ticket-number">#@Model.Ticket.TicketNumber</div>
-        @if (!string.IsNullOrEmpty(Model.Ticket.BuyerName))
-        {
-            <div class="buyer-name">@Model.Ticket.BuyerName</div>
-        }
+    <div class="ticket-card @(showWinner ? "ticket-winner-card" : "")">
+        <div class="ticket-card-inner">
+            <div class="ticket-number">#@Model.Ticket.TicketNumber</div>
+            @if (!string.IsNullOrEmpty(Model.Ticket.BuyerName))
+            {
+                <div class="buyer-name">@Model.Ticket.BuyerName</div>
+            }
+        </div>
     </div>
 
-    @if (Model.IsWinner)
+    @if (showWinner)
     {
         <div class="status-box winner-box">
             <div class="status-icon">🏆</div>
-            <div class="status-title" style="color:var(--btcpay-success,#16a34a)">Winner!</div>
+            <div class="status-title">@T["verify.winner"]</div>
             @if (prizeName is not null)
             {
-                <div class="status-sub">@prizeName</div>
+                <p class="status-sub">@prizeName</p>
             }
         </div>
     }
-    else if (!isCompleted && !isDrawing)
+    else if (Model.IsWinner && !Model.IsWinnerRevealed)
     {
-        <div class="status-box pending-box">
-            <div class="status-icon">⏳</div>
-            <div class="status-title">Raffle in progress</div>
-            <div class="status-sub">Ticket sales are still open. Check back after the draw.</div>
+        <div class="status-box drawing-box">
+            <div class="status-icon">🎲</div>
+            <div class="status-title">@T["verify.draw_in_progress"]</div>
+            <p class="status-sub">@T["verify.draw_in_progress_sub"]</p>
         </div>
     }
-    else if (!isCompleted)
+    else if (status == RaffleStatus.Open)
     {
-        <div class="status-box pending-box">
+        <div class="status-box open-box">
+            <div class="status-icon">⏳</div>
+            <div class="status-title">@T["verify.raffle_in_progress"]</div>
+            <p class="status-sub">@T["verify.raffle_in_progress_sub"]</p>
+        </div>
+    }
+    else if (status == RaffleStatus.Closed)
+    {
+        <div class="status-box closed-box">
+            <div class="status-icon">🔒</div>
+            <div class="status-title">@T["wallet.sales_closed_soon"]</div>
+            <p class="status-sub">@T["verify.sales_closed_sub"]</p>
+        </div>
+    }
+    else if (status is RaffleStatus.Drawing)
+    {
+        <div class="status-box drawing-box">
             <div class="status-icon">🎲</div>
-            <div class="status-title">Draw in progress</div>
-            <div class="status-sub">The draw has not yet finished. Results will appear here when complete.</div>
+            <div class="status-title">@T["verify.draw_in_progress"]</div>
+            <p class="status-sub">@T["verify.draw_in_progress_sub"]</p>
         </div>
     }
     else
     {
         <div class="status-box loser-box">
             <div class="status-icon">😔</div>
-            <div class="status-title">Not a winner</div>
-            <div class="status-sub">Better luck next time!</div>
+            <div class="status-title">@T["verify.not_winner"]</div>
+            <p class="status-sub">@T["verify.not_winner_sub"]</p>
         </div>
     }
 
-    <div class="text-center mt-4">
-        <a href="@Url.Action("View", "RafflePublic", new { raffleId = Model.Raffle.Id })" class="btn btn-outline-secondary btn-sm">
-            Back to raffle
+    <div class="verify-actions">
+        <a href="@Url.Action("View", "RafflePublic", new { raffleId = Model.Raffle.Id })" class="btn btn-outline-secondary">
+            @T["verify.back"]
         </a>
     </div>
 

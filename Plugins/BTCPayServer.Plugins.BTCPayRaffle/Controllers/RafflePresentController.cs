@@ -6,6 +6,7 @@ using BTCPayServer.Plugins.BTCPayRaffle.Data.Entities;
 using BTCPayServer.Plugins.BTCPayRaffle.Services;
 using BTCPayServer.Plugins.BTCPayRaffle.ViewModels;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Filters;
 
 namespace BTCPayServer.Plugins.BTCPayRaffle.Controllers;
 
@@ -14,6 +15,7 @@ namespace BTCPayServer.Plugins.BTCPayRaffle.Controllers;
 /// <c>POST .../presenter-token</c> — not BTCPay user session.
 /// </summary>
 [Route("raffle")]
+[ServiceFilter(typeof(RaffleUiCultureFilter))]
 public class RafflePresentController : Controller
 {
     private readonly RaffleService _raffle;
