@@ -1,0 +1,114 @@
+@using BTCPayServer.Abstractions.Contracts
+@using BTCPayServer.Abstractions.Extensions
+@using System.Globalization
+@using BTCPayServer.Abstractions.Models
+@using BTCPayServer.Plugins.SatoshiTickets.Data
+@using BTCPayServer.Plugins.SatoshiTickets.ViewModels
+@model TicketTypeViewModel
+@{
+    ViewData.SetLayoutModel(new LayoutModel(nameof(SatoshiTicketNavPages.SatoshiTicketIndex), "Ticket Tiers") { ActiveCategory = nameof(SatoshiTicketNavPages) });
+    bool isEditMode = !string.IsNullOrEmpty(Model.TicketTypeId);
+    string formAction = isEditMode
+        ? Url.Action("UpdateTicketType", "UITicketType", new { eventId = Model.EventId, storeId = Model.StoreId, ticketTypeId = Model.TicketTypeId })
+        : Url.Action("CreateTicketType", "UITicketType", new { eventId = Model.EventId, storeId = Model.StoreId });
+}
+
+<div class="sticky-header d-flex flex-column align-items-start">
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item">
+                <a asp-controller="UITicketType" asp-action="List" asp-route-eventId="@Model.EventId" asp-route-storeId="@Model.StoreId">Tiers</a>
+            </li>
+            <li class="breadcrumb-item active" aria-current="page">@ViewData["Title"]</li>
+        </ol>
+    </nav>
+    <div class="d-flex align-items-center w-100">
+        <h2>@ViewData["Title"]</h2>
+        <div class="ms-auto">
+            <button type="submit" form="event-form" class="btn btn-success">@(isEditMode ? "Update Ticket Tier" : "Create Ticket Tier")</button>
+        </div>
+    </div>
+</div>
+
+<partial name="_StatusMessage" />
+
+<form id="event-form" action="@formAction" method="post">
+    @Html.AntiForgeryToken()
+    <div class="row">
+        <div class="col-sm-10 col-md-9 col-xl-7 col-xxl-6">
+            <div class="form-group">
+                <label asp-for="Name" class="form-label" data-required></label>
+                <input asp-for="Name" class="form-control" required />
+                <span asp-validation-for="Name" class="text-danger"></span>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mt-3">
+        <div class="col-sm-6">
+            <div class="form-group">
+                <label asp-for="Description" class="form-label"></label>
+                <textarea asp-for="Description" rows="5" class="form-control richtext"></textarea>
+                <span asp-validation-for="Description" class="text-danger"></span>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mt-3">
+        <div class="col-sm-10 col-md-9 col-xl-7 col-xxl-6">
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="form-group">
+                        <label asp-for="Price" class="form-label" data-required></label>
+                        <input inputmode="decimal" asp-for="Price" class="form-control" required />
+                        <span asp-validation-for="Price" class="text-danger"></span>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="form-group">
+                        <label asp-for="Quantity" class="form-label" data-required></label>
+                        <input inputmode="numeric" asp-for="Quantity" class="form-control" required min="1" />
+                        <span asp-validation-for="Quantity" class="text-danger"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mt-4">
+        <div class="col-sm-10 col-md-9 col-xl-7 col-xxl-6">
+            <h4 class="mb-3">Raffle bundle</h4>
+            @if (!Model.RafflePluginAvailable)
+            {
+                <p class="text-secondary">
+                    Install the BTCPay Raffle plugin to include raffle tickets with this tier. Set raffle tickets per admission to 0 until then.
+                </p>
+            }
+            else if (!Model.OpenRaffles.Any())
+            {
+                <p class="text-secondary">
+                    No open raffles in this store. Create an open raffle first, or set raffle tickets per admission to 0.
+                </p>
+            }
+            <div class="form-group">
+                <label asp-for="BundledRaffleTicketsPerAdmission" class="form-label">Raffle tickets per admission</label>
+                <input inputmode="numeric" asp-for="BundledRaffleTicketsPerAdmission" class="form-control" min="0" max="20" />
+                <span class="form-text">Number of raffle tickets granted per ticket sold with the same buyer email. Use 0 to disable.</span>
+            </div>
+            <div class="form-group mt-3">
+                <label asp-for="BundledRaffleId" class="form-label">Open raffle</label>
+                <select asp-for="BundledRaffleId" class="form-select">
+                    <option value="">None</option>
+                    @foreach (var raffle in Model.OpenRaffles)
+                    {
+                        <option value="@raffle.Id">@raffle.Name</option>
+                    }
+                </select>
+                @if (Model.BundledRaffleId.HasValue && Model.OpenRaffles.All(r => r.Id != Model.BundledRaffleId))
+                {
+                    <span class="form-text text-warning">Selected raffle is no longer open. Choose another raffle or set count to 0.</span>
+                }
+            </div>
+        </div>
+    </div>
+</form>
