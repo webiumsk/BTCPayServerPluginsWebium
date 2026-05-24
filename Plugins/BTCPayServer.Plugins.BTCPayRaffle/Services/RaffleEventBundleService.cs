@@ -1,5 +1,6 @@
 #nullable enable
 using System;
+using System.Linq;
 using System.Threading.Tasks;
 using BTCPayServer.Plugins.BTCPayRaffle.Data.Entities;
 using Microsoft.Extensions.Logging;
@@ -39,21 +40,6 @@ public sealed class RaffleEventBundleService : IRaffleEventBundleService
         return (true, null);
     }
 
-    /// <summary>Config-time validation (Open only). Allocation allows Closed too (before draw).</summary>
-    private async Task<(bool Ok, string? Error)> ValidateForAllocationAsync(string storeId, Guid raffleId)
-    {
-        var raffle = await _raffle.GetRaffleAsync(raffleId);
-        if (raffle is null)
-            return (false, "Raffle not found");
-        if (!string.Equals(raffle.StoreId, storeId, StringComparison.Ordinal))
-            return (false, "Raffle does not belong to this store");
-        if (raffle.Status is not (RaffleStatus.Open or RaffleStatus.Closed))
-            return (false, "Raffle is not accepting bundle tickets (must be Open or Closed, before drawing)");
-        if (raffle.Drawings.Count > 0)
-            return (false, "Raffle has already started drawing prizes");
-        return (true, null);
-    }
-
     public async Task<RaffleEventBundleResult> AllocateForEventOrderAsync(
         string storeId,
         Guid raffleId,
@@ -69,7 +55,7 @@ public sealed class RaffleEventBundleService : IRaffleEventBundleService
         if (string.IsNullOrWhiteSpace(eventOrderId))
             return RaffleEventBundleResult.Fail("Event order id is required for raffle bundle");
 
-        var (valid, validationError) = await ValidateForAllocationAsync(storeId, raffleId);
+        var (valid, validationError) = await ValidateBundledRaffleAsync(storeId, raffleId);
         if (!valid)
             return RaffleEventBundleResult.Fail(validationError ?? "Raffle validation failed");
 
@@ -94,31 +80,26 @@ public sealed class RaffleEventBundleService : IRaffleEventBundleService
             if (isNew && allocated > 0)
             {
                 var raffle = await _raffle.GetRaffleAsync(raffleId);
-                if (raffle is null)
+                if (raffle is not null && !string.IsNullOrWhiteSpace(baseUrl))
                 {
-                    _logger.LogWarning(
-                        "Allocated {Count} bundle ticket(s) but skipped email (raffle not found, order={OrderId})",
-                        allocated, eventOrderId);
-                }
-                else if (string.IsNullOrWhiteSpace(baseUrl))
-                {
-                    _logger.LogWarning(
-                        "Allocated {Count} bundle ticket(s) but skipped email (missing base URL, order={OrderId})",
-                        allocated, eventOrderId);
-                }
-                else
-                {
-                    await _ticketEmail.SendTicketsEmailAsync(
-                        raffleId,
-                        raffle.Name,
-                        normalizedEmail,
-                        buyerName,
-                        tickets,
-                        baseUrl,
-                        receiptUrl: null,
-                        manualAllocation: true,
-                        introOverride: _localizer["email.event_bundle_intro"],
-                        storeId: storeId);
+                    var allTickets = await _raffle.GetTicketsByBuyerAsync(raffleId, normalizedEmail);
+                    var bundleTickets = allTickets
+                        .Where(t => t.InvoiceId == invoiceId)
+                        .OrderBy(t => t.TicketNumber)
+                        .ToList();
+                    if (bundleTickets.Count > 0)
+                    {
+                        await _ticketEmail.SendTicketsEmailAsync(
+                            raffleId,
+                            raffle.Name,
+                            normalizedEmail,
+                            buyerName,
+                            bundleTickets,
+                            baseUrl,
+                            receiptUrl: null,
+                            manualAllocation: true,
+                            introOverride: _localizer["email.event_bundle_intro"]);
+                    }
                 }
             }
 

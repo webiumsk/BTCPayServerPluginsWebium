@@ -37,30 +37,20 @@ public class RaffleTicketEmailService
         string baseUrl,
         string? receiptUrl = null,
         bool manualAllocation = false,
-        string? introOverride = null,
-        string? storeId = null)
+        string? introOverride = null)
     {
         if (tickets.Count == 0 || string.IsNullOrWhiteSpace(buyerEmail))
             return;
 
         try
         {
-            var (sender, settings, settingsSource) = await ResolveEmailSenderAsync(storeId);
+            var sender = await _emailSenderFactory.GetEmailSender();
+            var settings = await sender.GetEmailSettings();
             if (settings?.IsComplete() != true)
-            {
-                _logs.PayServer.LogWarning(
-                    "Raffle ticket email skipped: email settings not configured (store={StoreId}, tried={Source})",
-                    storeId ?? "(none)", settingsSource);
                 return;
-            }
 
             if (!RafflePublicUrlHelper.TryGetTrustedOrigin(baseUrl, out var origin))
-            {
-                _logs.PayServer.LogWarning(
-                    "Raffle ticket email skipped: invalid base URL {BaseUrl} (store={StoreId})",
-                    baseUrl, storeId ?? "(server)");
                 return;
-            }
 
             var (walletToken, _) = _walletTokens.CreateToken(raffleId, buyerEmail);
             var walletPath = $"/raffle/{raffleId}/my?token={Uri.EscapeDataString(walletToken)}";
@@ -138,20 +128,5 @@ public class RaffleTicketEmailService
 </body></html>");
 
         return sb.ToString();
-    }
-
-    private async Task<(IEmailSender Sender, EmailSettings? Settings, string Source)> ResolveEmailSenderAsync(string? storeId)
-    {
-        if (!string.IsNullOrEmpty(storeId))
-        {
-            var storeSender = await _emailSenderFactory.GetEmailSender(storeId);
-            var storeSettings = await storeSender.GetEmailSettings();
-            if (storeSettings?.IsComplete() == true)
-                return (storeSender, storeSettings, "store");
-        }
-
-        var serverSender = await _emailSenderFactory.GetEmailSender(null);
-        var serverSettings = await serverSender.GetEmailSettings();
-        return (serverSender, serverSettings, "server");
     }
 }

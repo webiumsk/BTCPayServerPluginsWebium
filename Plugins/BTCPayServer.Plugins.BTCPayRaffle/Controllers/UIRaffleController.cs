@@ -140,7 +140,7 @@ public class UIRaffleController : Controller
                 var baseUrl = $"{Request.Scheme}://{Request.Host}";
                 await _ticketEmail.SendTicketsEmailAsync(
                     raffleId, raffle.Name, vm.BuyerEmail, vm.BuyerName, tickets, baseUrl,
-                    manualAllocation: true, storeId: storeId);
+                    manualAllocation: true);
             }
             TempData[WellKnownTempData.SuccessMessage] = $"Added {vm.Count} manual ticket(s)";
         }
