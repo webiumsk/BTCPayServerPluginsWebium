@@ -167,6 +167,13 @@ public class UITicketSalesController(UriResolver uriResolver,
             await PopulateRaffleOptionsAsync(vm);
             return View(nameof(ViewEvent), vm);
         }
+        var bundleModelError = vm.GetFirstBundleValidationError();
+        if (bundleModelError is not null)
+        {
+            TempData[WellKnownTempData.ErrorMessage] = bundleModelError;
+            await PopulateRaffleOptionsAsync(vm);
+            return View(nameof(ViewEvent), vm);
+        }
         var bundleError = await EventRaffleBundleRequestValidator.ValidateAsync(
             CurrentStore.Id, vm.BundledRaffleTicketsPerAdmission, vm.BundledRaffleId, RaffleBundle);
         if (bundleError is not null)
@@ -229,6 +236,13 @@ public class UITicketSalesController(UriResolver uriResolver,
         if (vm.EndDate is DateTime endDate && endDate < vm.StartDate)
         {
             TempData[WellKnownTempData.ErrorMessage] = "Event end date cannot be before start date";
+            await PopulateRaffleOptionsAsync(vm);
+            return View(nameof(ViewEvent), vm);
+        }
+        var bundleModelError = vm.GetFirstBundleValidationError();
+        if (bundleModelError is not null)
+        {
+            TempData[WellKnownTempData.ErrorMessage] = bundleModelError;
             await PopulateRaffleOptionsAsync(vm);
             return View(nameof(ViewEvent), vm);
         }

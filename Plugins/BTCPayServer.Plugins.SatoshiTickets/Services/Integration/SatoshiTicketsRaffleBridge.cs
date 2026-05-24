@@ -1,4 +1,5 @@
 #nullable enable
+using System.Threading;
 
 namespace BTCPayServer.Plugins.SatoshiTickets.Services.Integration;
 
@@ -11,8 +12,8 @@ public static class SatoshiTicketsRaffleBridge
 
     public static void RegisterEventBundleService(object service)
     {
-        _eventBundleService = service;
+        Volatile.Write(ref _eventBundleService, service);
     }
 
-    public static object? EventBundleService => _eventBundleService;
+    public static object? EventBundleService => Volatile.Read(ref _eventBundleService);
 }

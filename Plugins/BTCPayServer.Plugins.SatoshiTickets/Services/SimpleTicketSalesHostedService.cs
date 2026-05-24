@@ -161,17 +161,16 @@ public class SimpleTicketSalesHostedService : EventHostedServiceBase, IPeriodicT
         var ticketEvent = ctx.Events.FirstOrDefault(c => c.Id == order.EventId && c.StoreId == order.StoreId);
         var result = new InvoiceLogs();
         result.Write($"Invoice status: {invoice.Status.ToString().ToLower()}", InvoiceEventData.EventSeverity.Info);
+        if (ticketEvent is null)
+            result.Write("Event record missing for order; skipped email and raffle bundle.", InvoiceEventData.EventSeverity.Warning);
         if (order.PaymentStatus != Data.TransactionStatus.New.ToString())
         {
             result.Write("Transaction has previously been acted on", InvoiceEventData.EventSeverity.Info);
-            if (success && order.PaymentStatus == Data.TransactionStatus.Settled.ToString())
+            if (success && order.PaymentStatus == Data.TransactionStatus.Settled.ToString() && ticketEvent is not null)
             {
                 var retryBaseUrl = ResolveBaseUrl(invoice);
-                if (ticketEvent is not null)
-                {
-                    await _raffleBundleService.AllocateForOrderAsync(
-                        invoice.StoreId, order, ticketEvent, retryBaseUrl, result);
-                }
+                await _raffleBundleService.AllocateForOrderAsync(
+                    invoice.StoreId, order, ticketEvent, retryBaseUrl, result);
             }
             await _invoiceRepository.AddInvoiceLogs(invoice.Id, result);
             return;
@@ -195,7 +194,7 @@ public class SimpleTicketSalesHostedService : EventHostedServiceBase, IPeriodicT
             }
         }
 
-        if (success)
+        if (success && ticketEvent is not null)
         {
             var isEmailConfigured = await _emailService.IsEmailSettingsConfigured(invoice.StoreId);
             if (isEmailConfigured)
@@ -209,7 +208,7 @@ public class SimpleTicketSalesHostedService : EventHostedServiceBase, IPeriodicT
 
             var baseUrl = ResolveBaseUrl(invoice);
             await _raffleBundleService.AllocateForOrderAsync(
-                invoice.StoreId, order, ticketEvent!, baseUrl, result);
+                invoice.StoreId, order, ticketEvent, baseUrl, result);
         }
         ctx.Orders.Update(order);
         await ctx.SaveChangesAsync();
