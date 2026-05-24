@@ -56,8 +56,6 @@ public class UpdateSimpleTicketSalesEventViewModel : IValidatableObject
     [Range(1, 365, ErrorMessage = "Must be between 1 and 365 days")]
     public int? ReminderDaysBeforeEvent { get; set; }
 
-    [Range(0, EventRaffleBundleRequestValidator.MaxTicketsPerAdmission,
-        ErrorMessage = "Bundled raffle tickets per admission must be between 0 and 20")]
     public int BundledRaffleTicketsPerAdmission { get; set; }
     public Guid? BundledRaffleId { get; set; }
     public bool RafflePluginAvailable { get; set; }
@@ -66,6 +64,20 @@ public class UpdateSimpleTicketSalesEventViewModel : IValidatableObject
 
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
+        var max = EventRaffleBundleRequestValidator.MaxTicketsPerAdmission;
+        if (BundledRaffleTicketsPerAdmission < 0)
+        {
+            yield return new ValidationResult(
+                "Bundled raffle tickets per admission cannot be negative",
+                [nameof(BundledRaffleTicketsPerAdmission)]);
+        }
+        else if (BundledRaffleTicketsPerAdmission > max)
+        {
+            yield return new ValidationResult(
+                $"Bundled raffle tickets per admission must be between 0 and {max}",
+                [nameof(BundledRaffleTicketsPerAdmission)]);
+        }
+
         if (BundledRaffleTicketsPerAdmission > 0
             && (!BundledRaffleId.HasValue || BundledRaffleId.Value == Guid.Empty))
         {
@@ -92,12 +104,6 @@ public class UpdateSimpleTicketSalesEventViewModel : IValidatableObject
 
     public string? GetFirstBundleValidationError()
     {
-        var results = new List<ValidationResult>();
-        Validator.TryValidateProperty(
-            BundledRaffleTicketsPerAdmission,
-            new ValidationContext(this) { MemberName = nameof(BundledRaffleTicketsPerAdmission) },
-            results);
-        results.AddRange(Validate(new ValidationContext(this)));
-        return results.FirstOrDefault()?.ErrorMessage;
+        return Validate(new ValidationContext(this)).FirstOrDefault()?.ErrorMessage;
     }
 }

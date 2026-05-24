@@ -6,4 +6,5 @@ public class CreateTicketsOfflineResponse
     public string TxnId { get; set; }
     public string OrderReference { get; set; }
     public int TicketsCreated { get; set; }
+    public bool EmailSent { get; set; }
 }

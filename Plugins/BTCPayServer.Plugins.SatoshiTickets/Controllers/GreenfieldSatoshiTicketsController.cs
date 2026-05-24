@@ -326,6 +326,7 @@ public class GreenfieldSatoshiTicketsController(
         ctx.TicketTypes.UpdateRange(ticketTypesList);
         await ctx.SaveChangesAsync();
 
+        var emailSent = false;
         var sender = await emailSenderFactory.GetEmailSender(storeId);
         var settings = await sender.GetEmailSettings();
         if (settings?.IsComplete() == true)
@@ -334,11 +335,13 @@ public class GreenfieldSatoshiTicketsController(
             {
                 await emailService.SendTicketRegistrationEmail(storeId, tickets, ticketEvent);
                 order.EmailSent = true;
+                emailSent = true;
                 ctx.Orders.Update(order);
                 await ctx.SaveChangesAsync();
             }
-            catch
+            catch (Exception ex)
             {
+                logger.LogError(ex, "Failed to send email for offline order {OrderId}", order.Id);
             }
         }
 
@@ -350,7 +353,8 @@ public class GreenfieldSatoshiTicketsController(
             OrderId = order.Id,
             TxnId = order.TxnId,
             OrderReference = request.OrderReference ?? string.Empty,
-            TicketsCreated = tickets.Count
+            TicketsCreated = tickets.Count,
+            EmailSent = emailSent
         });
     }
 
