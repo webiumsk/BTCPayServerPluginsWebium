@@ -29,6 +29,12 @@ namespace BTCPayServer.Plugins.SatoshiTickets.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("text");
 
+                    b.Property<Guid?>("BundledRaffleId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("BundledRaffleTicketsPerAdmission")
+                        .HasColumnType("integer");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -227,12 +233,6 @@ namespace BTCPayServer.Plugins.SatoshiTickets.Data.Migrations
                     b.Property<string>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("text");
-
-                    b.Property<Guid?>("BundledRaffleId")
-                        .HasColumnType("uuid");
-
-                    b.Property<int>("BundledRaffleTicketsPerAdmission")
-                        .HasColumnType("integer");
 
                     b.Property<string>("Description")
                         .HasColumnType("text");

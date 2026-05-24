@@ -305,54 +305,58 @@ public class RaffleService
         string logMessageTemplate,
         int? logCount = null)
     {
-        await using var tx = await ctx.Database.BeginTransactionAsync(IsolationLevel.Serializable);
-        try
+        var strategy = ctx.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () =>
         {
-            var existing = await ctx.RaffleTickets
-                .Where(t => t.InvoiceId == invoiceId)
-                .OrderBy(t => t.TicketNumber)
-                .ToListAsync();
-            if (existing.Count > 0)
+            await using var tx = await ctx.Database.BeginTransactionAsync(IsolationLevel.Serializable);
+            try
             {
+                var existing = await ctx.RaffleTickets
+                    .Where(t => t.InvoiceId == invoiceId)
+                    .OrderBy(t => t.TicketNumber)
+                    .ToListAsync();
+                if (existing.Count > 0)
+                {
+                    await tx.CommitAsync();
+                    return (existing, false);
+                }
+
+                var raffle = await loadRaffleAsync();
+                EnsureCapacity(raffle, count);
+
+                var tickets = CreateTicketEntities(raffle, count, invoiceId, buyerEmail, buyerName, isManual);
+                ctx.RaffleTickets.AddRange(tickets);
+                await ctx.SaveChangesAsync();
                 await tx.CommitAsync();
-                return (existing, false);
+
+                if (logCount is not null)
+                {
+                    _logger.LogInformation(
+                        logMessageTemplate,
+                        logCount, tickets[0].TicketNumber, tickets[^1].TicketNumber, raffleId, invoiceId);
+                }
+                else
+                {
+                    _logger.LogInformation(
+                        logMessageTemplate,
+                        tickets[0].TicketNumber, tickets[^1].TicketNumber, raffleId, invoiceId);
+                }
+
+                return (tickets, true);
             }
-
-            var raffle = await loadRaffleAsync();
-            EnsureCapacity(raffle, count);
-
-            var tickets = CreateTicketEntities(raffle, count, invoiceId, buyerEmail, buyerName, isManual);
-            ctx.RaffleTickets.AddRange(tickets);
-            await ctx.SaveChangesAsync();
-            await tx.CommitAsync();
-
-            if (logCount is not null)
+            catch (DbUpdateException ex)
             {
-                _logger.LogInformation(
-                    logMessageTemplate,
-                    logCount, tickets[0].TicketNumber, tickets[^1].TicketNumber, raffleId, invoiceId);
+                await tx.RollbackAsync();
+                _logger.LogWarning(ex, "Concurrent ticket allocation (invoice={InvoiceId})", invoiceId);
+                var retry = await ctx.RaffleTickets
+                    .Where(t => t.InvoiceId == invoiceId)
+                    .OrderBy(t => t.TicketNumber)
+                    .ToListAsync();
+                if (retry.Count > 0)
+                    return (retry, false);
+                throw;
             }
-            else
-            {
-                _logger.LogInformation(
-                    logMessageTemplate,
-                    tickets[0].TicketNumber, tickets[^1].TicketNumber, raffleId, invoiceId);
-            }
-
-            return (tickets, true);
-        }
-        catch (DbUpdateException ex)
-        {
-            await tx.RollbackAsync();
-            _logger.LogWarning(ex, "Concurrent ticket allocation (invoice={InvoiceId})", invoiceId);
-            var retry = await ctx.RaffleTickets
-                .Where(t => t.InvoiceId == invoiceId)
-                .OrderBy(t => t.TicketNumber)
-                .ToListAsync();
-            if (retry.Count > 0)
-                return (retry, false);
-            throw;
-        }
+        });
     }
 
     public async Task<(RaffleDrawing Drawing, RaffleTicket Winner)> DrawNextPrizeAsync(Guid raffleId)

@@ -7,11 +7,9 @@ using BTCPayServer.Client;
 using BTCPayServer.Data;
 using BTCPayServer.Plugins.SatoshiTickets.Data;
 using BTCPayServer.Plugins.SatoshiTickets.Services;
-using BTCPayServer.Plugins.SatoshiTickets.Services.Integration;
 using BTCPayServer.Plugins.SatoshiTickets.ViewModels;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 using EntityState = BTCPayServer.Plugins.SatoshiTickets.Data.EntityState;
 
 namespace BTCPayServer.Plugins.SatoshiTickets;
@@ -20,13 +18,9 @@ namespace BTCPayServer.Plugins.SatoshiTickets;
 [Route("~/plugins/{storeId}/satoshi-tickets/event/{eventId}/tickettype/")]
 [Authorize(AuthenticationSchemes = AuthenticationSchemes.Cookie, Policy = Policies.CanModifyStoreSettings)]
 [AutoValidateAntiforgeryToken]
-public class UITicketTypeController(
-    SimpleTicketSalesDbContextFactory dbContextFactory,
-    RaffleEventBundleClientProvider raffleBundleProvider,
-    RaffleListClientProvider raffleListProvider) : Controller
+public class UITicketTypeController(SimpleTicketSalesDbContextFactory dbContextFactory) : Controller
 {
     private StoreData CurrentStore => HttpContext.GetStoreData();
-    private IRaffleEventBundleClient? RaffleBundle => raffleBundleProvider.Client;
 
     [HttpGet("list")]
     public async Task<IActionResult> List(string storeId, string eventId, string sortBy = "Name", string sortDir = "asc")
@@ -38,9 +32,6 @@ public class UITicketTypeController(
         var ticketEvent = ctx.Events.FirstOrDefault(c => c.StoreId == CurrentStore.Id && c.Id == eventId);
         if (ticketEvent == null) return NotFound();
 
-        var openRaffles = await raffleListProvider.GetOpenRafflesAsync(CurrentStore.Id);
-        var raffleNames = openRaffles.ToDictionary(r => r.Id, r => r.Name);
-
         var ticketTypes = ctx.TicketTypes.Where(c => c.EventId == ticketEvent.Id);
         ticketTypes = sortBy switch
         {
@@ -48,26 +39,18 @@ public class UITicketTypeController(
             "Name" => sortDir == "desc" ? ticketTypes.OrderByDescending(t => t.Name) : ticketTypes.OrderBy(t => t.Name),
             _ => ticketTypes.OrderBy(t => t.Name)
         };
-        var tickets = ticketTypes.ToList().Select(x =>
+        var tickets = ticketTypes.ToList().Select(x => new TicketTypeViewModel
         {
-            return new TicketTypeViewModel
-            {
-                StoreId = CurrentStore.Id,
-                TicketTypeId = x.Id,
-                Name = x.Name,
-                Price = x.Price,
-                Quantity = x.Quantity,
-                QuantitySold = x.QuantitySold,
-                EventId = x.EventId,
-                TicketTypeState = x.TicketTypeState,
-                Description = x.Description,
-                IsDefault = x.IsDefault,
-                BundledRaffleTicketsPerAdmission = x.BundledRaffleTicketsPerAdmission,
-                BundledRaffleId = x.BundledRaffleId,
-                BundledRaffleName = x.BundledRaffleId.HasValue && raffleNames.TryGetValue(x.BundledRaffleId.Value, out var name)
-                    ? name
-                    : null
-            };
+            StoreId = CurrentStore.Id,
+            TicketTypeId = x.Id,
+            Name = x.Name,
+            Price = x.Price,
+            Quantity = x.Quantity,
+            QuantitySold = x.QuantitySold,
+            EventId = x.EventId,
+            TicketTypeState = x.TicketTypeState,
+            Description = x.Description,
+            IsDefault = x.IsDefault
         }).ToList();
         return View(new TicketTypeListViewModel { SortBy = sortBy, SortDir = sortDir, TicketTypes = tickets, EventId = eventId, StoreId = CurrentStore.Id });
     }
@@ -98,7 +81,6 @@ public class UITicketTypeController(
             vm = TicketTypeToViewModel(entity);
         }
         vm.TicketHasMaximumCapacity = ticketEvent.HasMaximumCapacity;
-        await PopulateRaffleOptionsAsync(vm);
         return View(vm);
     }
 
@@ -122,19 +104,9 @@ public class UITicketTypeController(
         if (!ValidateTicketType(ctx, ticketEvent, vm, null, out var errorMessage))
         {
             TempData[WellKnownTempData.ErrorMessage] = errorMessage;
-            await PopulateRaffleOptionsAsync(vm);
-            return View("ViewTicketType", vm);
-        }
-        var bundleError = await EventRaffleBundleRequestValidator.ValidateAsync(
-            CurrentStore.Id, vm.BundledRaffleTicketsPerAdmission, vm.BundledRaffleId, RaffleBundle);
-        if (bundleError is not null)
-        {
-            TempData[WellKnownTempData.ErrorMessage] = bundleError;
-            await PopulateRaffleOptionsAsync(vm);
             return View("ViewTicketType", vm);
         }
         var entity = TicketTypeViewModelToEntity(vm, eventId);
-        TicketTypeBundleHelper.ApplyBundleFields(entity, vm.BundledRaffleTicketsPerAdmission, vm.BundledRaffleId);
         entity.IsDefault = vm.IsDefault;
         if (entity.IsDefault)
         {
@@ -176,28 +148,17 @@ public class UITicketTypeController(
         {
             TempData[WellKnownTempData.ErrorMessage] =
                 $"Quantity cannot be less than tickets already sold ({entity.QuantitySold}).";
-            await PopulateRaffleOptionsAsync(vm);
             return View("ViewTicketType", vm);
         }
         if (!ValidateTicketType(ctx, ticketEvent, vm, ticketTypeId, out var errorMessage))
         {
             TempData[WellKnownTempData.ErrorMessage] = errorMessage;
-            await PopulateRaffleOptionsAsync(vm);
-            return View("ViewTicketType", vm);
-        }
-        var bundleError = await EventRaffleBundleRequestValidator.ValidateAsync(
-            CurrentStore.Id, vm.BundledRaffleTicketsPerAdmission, vm.BundledRaffleId, RaffleBundle);
-        if (bundleError is not null)
-        {
-            TempData[WellKnownTempData.ErrorMessage] = bundleError;
-            await PopulateRaffleOptionsAsync(vm);
             return View("ViewTicketType", vm);
         }
         entity.Name = vm.Name;
         entity.Price = vm.Price;
         entity.Quantity = vm.Quantity;
         entity.Description = vm.Description;
-        TicketTypeBundleHelper.ApplyBundleFields(entity, vm.BundledRaffleTicketsPerAdmission, vm.BundledRaffleId);
         entity.IsDefault = vm.IsDefault;
         if (entity.IsDefault)
         {
@@ -222,14 +183,19 @@ public class UITicketTypeController(
             error = "Quantity must be greater than zero";
             return false;
         }
-        if (ticketEvent.HasMaximumCapacity && !ValidateTicketCapacity(ticketEvent, ctx.TicketTypes.Where(t => t.EventId == ticketEvent.Id && t.Id != excludeTicketTypeId).Sum(c => c.Quantity), vm.Quantity))
+        if (ticketEvent.HasMaximumCapacity)
         {
-            error = $"Quantity specified is higher than available event capacity. Kindly update event to cater for more";
-            return false;
+            var usedQuantity = ctx.TicketTypes
+                .Where(t => t.EventId == ticketEvent.Id && (excludeTicketTypeId == null || t.Id != excludeTicketTypeId))
+                .Sum(c => c.Quantity);
+            if (vm.Quantity > (ticketEvent.MaximumEventCapacity - usedQuantity))
+            {
+                error = "Quantity specified is higher than available event capacity";
+                return false;
+            }
         }
         return true;
     }
-
 
     [HttpGet("toggle/{ticketTypeId}")]
     public async Task<IActionResult> ToggleTicketTypeStatus(string storeId, string eventId, string ticketTypeId, bool enable)
@@ -253,7 +219,6 @@ public class UITicketTypeController(
             new ConfirmModel($"{action} ticket type", $"The ticket type ({ticketType.Name}) will be {(enable ? "activated" : "disabled")}. Are you sure?", action));
     }
 
-
     [HttpPost("toggle/{ticketTypeId}")]
     public async Task<IActionResult> ToggleTicketTypeStatusPost(string storeId, string eventId, string ticketTypeId, bool enable)
     {
@@ -275,7 +240,6 @@ public class UITicketTypeController(
         TempData[WellKnownTempData.SuccessMessage] = $"Ticket type {(enable ? "activated" : "disabled")} successfully";
         return RedirectToAction(nameof(List), new { storeId, eventId });
     }
-
 
     [HttpGet("delete/{ticketTypeId}")]
     public async Task<IActionResult> DeleteTicketType(string storeId, string eventId, string ticketTypeId)
@@ -319,14 +283,6 @@ public class UITicketTypeController(
         return RedirectToAction(nameof(List), new { storeId, eventId });
     }
 
-    private async Task PopulateRaffleOptionsAsync(TicketTypeViewModel vm)
-    {
-        vm.RafflePluginAvailable = raffleListProvider.IsRafflePluginAvailable;
-        vm.OpenRaffles = (await raffleListProvider.GetOpenRafflesAsync(CurrentStore.Id)).ToList();
-        if (vm.BundledRaffleId.HasValue)
-            vm.BundledRaffleName = vm.OpenRaffles.FirstOrDefault(r => r.Id == vm.BundledRaffleId.Value)?.Name;
-    }
-
     private bool ValidateTicketCapacity(Event ticketEvent, int quantityOfTicketsUsed, int ticketModelQuantity) => ticketModelQuantity <= (ticketEvent.MaximumEventCapacity - quantityOfTicketsUsed);
 
     private TicketTypeViewModel TicketTypeToViewModel(TicketType entity)
@@ -342,9 +298,7 @@ public class UITicketTypeController(
             QuantitySold = entity.QuantitySold,
             TicketTypeState = entity.TicketTypeState,
             Description = entity.Description,
-            IsDefault = entity.IsDefault,
-            BundledRaffleTicketsPerAdmission = entity.BundledRaffleTicketsPerAdmission,
-            BundledRaffleId = entity.BundledRaffleId
+            IsDefault = entity.IsDefault
         };
     }
 

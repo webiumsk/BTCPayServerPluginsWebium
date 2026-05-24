@@ -22,4 +22,6 @@ public class EventData
     public string PurchaseLink { get; set; }
     public int TicketsSold { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
+    public Guid? BundledRaffleId { get; set; }
+    public int BundledRaffleTicketsPerAdmission { get; set; }
 }

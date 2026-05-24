@@ -9,6 +9,7 @@ using BTCPayServer.HostedServices;
 using BTCPayServer.Logging;
 using BTCPayServer.Plugins.Emails.Services;
 using BTCPayServer.Plugins.SatoshiTickets.Data;
+using BTCPayServer.Services;
 using BTCPayServer.Services.Invoices;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -23,17 +24,20 @@ public class SimpleTicketSalesHostedService : EventHostedServiceBase, IPeriodicT
     private readonly InvoiceRepository _invoiceRepository;
     private readonly SimpleTicketSalesDbContextFactory _dbContextFactory;
     private readonly SatoshiTicketsRaffleBundleService _raffleBundleService;
+    private readonly ISettingsAccessor<ServerSettings> _serverSettings;
 
     public SimpleTicketSalesHostedService(EmailService emailService,
         EventAggregator eventAggregator,
         InvoiceRepository invoiceRepository,
         SimpleTicketSalesDbContextFactory dbContextFactory, Logs logs,
-        SatoshiTicketsRaffleBundleService raffleBundleService) : base(eventAggregator, logs)
+        SatoshiTicketsRaffleBundleService raffleBundleService,
+        ISettingsAccessor<ServerSettings> serverSettings) : base(eventAggregator, logs)
     {
         _emailService = emailService;
         _dbContextFactory = dbContextFactory;
         _invoiceRepository = invoiceRepository;
         _raffleBundleService = raffleBundleService;
+        _serverSettings = serverSettings;
     }
 
     protected override void SubscribeToEvents()
@@ -154,6 +158,7 @@ public class SimpleTicketSalesHostedService : EventHostedServiceBase, IPeriodicT
         var order = ctx.Orders.Include(c => c.Tickets).FirstOrDefault(c => c.StoreId == invoice.StoreId && c.InvoiceId == invoice.Id);
         if (order == null) return;
 
+        var ticketEvent = ctx.Events.FirstOrDefault(c => c.Id == order.EventId && c.StoreId == order.StoreId);
         var result = new InvoiceLogs();
         result.Write($"Invoice status: {invoice.Status.ToString().ToLower()}", InvoiceEventData.EventSeverity.Info);
         if (order.PaymentStatus != Data.TransactionStatus.New.ToString())
@@ -162,13 +167,15 @@ public class SimpleTicketSalesHostedService : EventHostedServiceBase, IPeriodicT
             if (success && order.PaymentStatus == Data.TransactionStatus.Settled.ToString())
             {
                 var retryBaseUrl = ResolveBaseUrl(invoice);
-                await _raffleBundleService.AllocateForOrderAsync(
-                    invoice.StoreId, order, ctx, retryBaseUrl, result);
+                if (ticketEvent is not null)
+                {
+                    await _raffleBundleService.AllocateForOrderAsync(
+                        invoice.StoreId, order, ticketEvent, retryBaseUrl, result);
+                }
             }
             await _invoiceRepository.AddInvoiceLogs(invoice.Id, result);
             return;
         }
-        var ticketEvent = ctx.Events.FirstOrDefault(c => c.Id == order.EventId && c.StoreId == order.StoreId);
         order.PurchaseDate = DateTime.UtcNow;
         order.InvoiceStatus = invoice.Status.ToString().ToLower();
         order.PaymentStatus = success ? Data.TransactionStatus.Settled.ToString() : Data.TransactionStatus.Expired.ToString();
@@ -202,18 +209,20 @@ public class SimpleTicketSalesHostedService : EventHostedServiceBase, IPeriodicT
 
             var baseUrl = ResolveBaseUrl(invoice);
             await _raffleBundleService.AllocateForOrderAsync(
-                invoice.StoreId, order, ctx, baseUrl, result);
+                invoice.StoreId, order, ticketEvent!, baseUrl, result);
         }
         ctx.Orders.Update(order);
         await ctx.SaveChangesAsync();
         await _invoiceRepository.AddInvoiceLogs(invoice.Id, result);
     }
 
-    private static string ResolveBaseUrl(InvoiceEntity invoice)
+    private string ResolveBaseUrl(InvoiceEntity invoice)
     {
         var baseUrl = invoice.ServerUrl ?? "";
         if (string.IsNullOrWhiteSpace(baseUrl))
             baseUrl = invoice.GetRequestBaseUrl()?.ToString() ?? "";
+        if (string.IsNullOrWhiteSpace(baseUrl))
+            baseUrl = _serverSettings.Settings.BaseUrl ?? "";
         return baseUrl;
     }
 }

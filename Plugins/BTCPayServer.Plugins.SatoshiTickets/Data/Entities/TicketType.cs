@@ -15,8 +15,4 @@ public class TicketType
     public int QuantitySold { get; set; }
     public string EventId { get; set; }
     public EntityState TicketTypeState { get; set; }
-    /// <summary>BTCPay Raffle id when this ticket type includes raffle entries.</summary>
-    public Guid? BundledRaffleId { get; set; }
-    /// <summary>Raffle tickets granted per one ticket of this type (same buyer email).</summary>
-    public int BundledRaffleTicketsPerAdmission { get; set; }
 }

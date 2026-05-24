@@ -343,7 +343,8 @@ public class GreenfieldSatoshiTicketsController(
         }
 
         var baseUrl = $"{Request.Scheme}://{Request.Host}";
-        await raffleBundleService.AllocateForOrderAsync(storeId, order, ctx, baseUrl);
+        if (ticketEvent is not null)
+            await raffleBundleService.AllocateForOrderAsync(storeId, order, ticketEvent, baseUrl);
 
         return Ok(new CreateTicketsOfflineResponse
         {

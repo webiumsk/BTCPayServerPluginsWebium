@@ -18,4 +18,6 @@ public class ApiEventRequest
     public string RedirectUrl { get; set; }
     public string EmailSubject { get; set; }
     public string EmailBody { get; set; }
+    public Guid? BundledRaffleId { get; set; }
+    public int? BundledRaffleTicketsPerAdmission { get; set; }
 }

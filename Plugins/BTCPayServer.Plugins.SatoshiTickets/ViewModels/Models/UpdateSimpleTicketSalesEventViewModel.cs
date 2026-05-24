@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Http;
 using System.ComponentModel.DataAnnotations;
 using System.Text.Json.Serialization;
 using BTCPayServer.Plugins.SatoshiTickets.Data;
+using BTCPayServer.Plugins.SatoshiTickets.Services.Integration;
 using Microsoft.AspNetCore.Mvc.Rendering;
 using System.Collections.Generic;
 
@@ -52,4 +53,10 @@ public class UpdateSimpleTicketSalesEventViewModel
     [Display(Name = "Days before event to send reminder")]
     [Range(1, 365, ErrorMessage = "Must be between 1 and 365 days")]
     public int? ReminderDaysBeforeEvent { get; set; }
+
+    public int BundledRaffleTicketsPerAdmission { get; set; }
+    public Guid? BundledRaffleId { get; set; }
+    public bool RafflePluginAvailable { get; set; }
+    public List<RaffleOption> OpenRaffles { get; set; } = new();
+    public string? BundledRaffleName { get; set; }
 }

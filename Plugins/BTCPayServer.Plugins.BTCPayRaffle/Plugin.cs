@@ -35,6 +35,7 @@ public class BTCPayRafflePlugin : BaseBTCPayServerPlugin
         services.AddSingleton<RaffleBuyerWalletTokenService>();
         services.AddSingleton<RaffleTicketEmailService>();
         services.AddSingleton<IRaffleEventBundleService, RaffleEventBundleService>();
+        services.AddStartupTask<RaffleIntegrationStartupTask>();
         services.AddHttpContextAccessor();
         services.AddSingleton<RaffleStringLocalizer>();
         services.AddScoped<RaffleUiCultureFilter>();

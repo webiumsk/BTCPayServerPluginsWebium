@@ -7,7 +7,7 @@
   <PropertyGroup>
     <Product>Satoshi Tickets (Webium)</Product>
     <Description> Bitcoin-powered event ticket and management system</Description>
-    <Version>1.3.8.0</Version>
+    <Version>1.3.6.5</Version>
   </PropertyGroup>
 
   <!-- Plugin development properties -->

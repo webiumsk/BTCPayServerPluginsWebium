@@ -30,7 +30,6 @@ public sealed class RaffleListClientProvider
 
 internal static class RaffleListClientResolver
 {
-    private const string RaffleAssemblyName = "BTCPayServer.Plugins.BTCPayRaffle";
     private const string RaffleServiceTypeName = "BTCPayServer.Plugins.BTCPayRaffle.Services.RaffleService";
 
     public static bool IsRafflePluginAvailable(IServiceProvider serviceProvider)
@@ -94,16 +93,7 @@ internal static class RaffleListClientResolver
 
     private static object? TryGetRaffleService(IServiceProvider serviceProvider)
     {
-        var raffleAssembly = AppDomain.CurrentDomain.GetAssemblies()
-            .FirstOrDefault(a => string.Equals(a.GetName().Name, RaffleAssemblyName, StringComparison.Ordinal));
-        if (raffleAssembly is null)
-            return null;
-
-        var serviceType = raffleAssembly.GetType(RaffleServiceTypeName, throwOnError: false);
-        if (serviceType is null)
-            return null;
-
-        return serviceProvider.GetService(serviceType);
+        return RafflePluginAssemblyResolver.GetRaffleService(serviceProvider, RaffleServiceTypeName);
     }
 
     private static bool IsOpenStatus(object? status)

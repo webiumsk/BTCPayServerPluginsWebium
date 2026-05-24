@@ -43,25 +43,18 @@ public sealed class RaffleEventBundleClientProvider
 
 internal static class RaffleEventBundleClientResolver
 {
-    private const string RaffleAssemblyName = "BTCPayServer.Plugins.BTCPayRaffle";
     private const string BundleServiceTypeName = "BTCPayServer.Plugins.BTCPayRaffle.Services.IRaffleEventBundleService";
+    private const string BundleServiceConcreteTypeName = "BTCPayServer.Plugins.BTCPayRaffle.Services.RaffleEventBundleService";
     private const string BundleResultTypeName = "BTCPayServer.Plugins.BTCPayRaffle.Services.RaffleEventBundleResult";
+    private const string IntegrationRegistryTypeName = "BTCPayServer.Plugins.BTCPayRaffle.Services.RaffleIntegrationRegistry";
 
     public static IRaffleEventBundleClient? TryResolve(IServiceProvider serviceProvider)
     {
-        var raffleAssembly = AppDomain.CurrentDomain.GetAssemblies()
-            .FirstOrDefault(a => string.Equals(a.GetName().Name, RaffleAssemblyName, StringComparison.Ordinal));
-        if (raffleAssembly is null)
-            return null;
-
-        var serviceType = raffleAssembly.GetType(BundleServiceTypeName, throwOnError: false);
-        if (serviceType is null)
-            return null;
-
-        var implementation = serviceProvider.GetService(serviceType);
+        var implementation = TryGetBundleServiceInstance(serviceProvider);
         if (implementation is null)
             return null;
 
+        var raffleAssembly = implementation.GetType().Assembly;
         var resultType = raffleAssembly.GetType(BundleResultTypeName, throwOnError: false);
         if (resultType is null)
             return null;
@@ -73,9 +66,27 @@ internal static class RaffleEventBundleClientResolver
 
         return new ReflectionRaffleEventBundleClient(
             implementation,
-            serviceType,
+            implType,
             resultType,
             serviceProvider.GetService<ILoggerFactory>()?.CreateLogger(typeof(RaffleEventBundleClientResolver)));
+    }
+
+    private static object? TryGetBundleServiceInstance(IServiceProvider serviceProvider)
+    {
+        if (SatoshiTicketsRaffleBridge.EventBundleService is { } fromBridge)
+            return fromBridge;
+
+        var raffleAssembly = RafflePluginAssemblyResolver.GetRafflePluginAssembly(serviceProvider);
+        if (raffleAssembly is not null)
+        {
+            var registryType = raffleAssembly.GetType(IntegrationRegistryTypeName, throwOnError: false);
+            if (registryType?.GetProperty("EventBundleService", BindingFlags.Public | BindingFlags.Static)
+                    ?.GetValue(null) is { } fromRegistry)
+                return fromRegistry;
+        }
+
+        return RafflePluginAssemblyResolver.GetRaffleService(serviceProvider, BundleServiceTypeName)
+            ?? RafflePluginAssemblyResolver.GetRaffleService(serviceProvider, BundleServiceConcreteTypeName);
     }
 }
 

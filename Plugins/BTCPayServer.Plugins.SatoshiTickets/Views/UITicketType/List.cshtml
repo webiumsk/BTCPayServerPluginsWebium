@@ -54,7 +54,6 @@
                     </th>
                     <th>Total Quantity</th>
                     <th>Quantity Sold</th>
-                    <th>Raffle bundle</th>
                     <th class="w-75px"></th>
                 </tr>
             </thead>
@@ -73,16 +72,6 @@
                         <td>@ticketType.Price</td>
                         <td>@ticketType.Quantity</td>
                         <td>@ticketType.QuantitySold</td>
-                        <td>
-                            @if (ticketType.BundledRaffleTicketsPerAdmission > 0)
-                            {
-                                <span>@ticketType.BundledRaffleTicketsPerAdmission × @(ticketType.BundledRaffleName ?? "raffle")</span>
-                            }
-                            else
-                            {
-                                <span class="text-secondary">-</span>
-                            }
-                        </td>
                         <td class="text-end">
                             <div class="d-inline-flex align-items-center gap-3">
 

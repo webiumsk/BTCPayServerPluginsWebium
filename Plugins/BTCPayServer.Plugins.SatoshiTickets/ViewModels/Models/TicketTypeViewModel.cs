@@ -1,7 +1,5 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using BTCPayServer.Plugins.SatoshiTickets.Data;
-using BTCPayServer.Plugins.SatoshiTickets.Services.Integration;
 
 namespace BTCPayServer.Plugins.SatoshiTickets.ViewModels;
 
@@ -19,11 +17,6 @@ public class TicketTypeViewModel
     public string StoreId { get; set; }
     public EntityState TicketTypeState { get; set; }
     public bool IsDefault { get; set; }
-    public int BundledRaffleTicketsPerAdmission { get; set; }
-    public Guid? BundledRaffleId { get; set; }
-    public bool RafflePluginAvailable { get; set; }
-    public List<RaffleOption> OpenRaffles { get; set; } = new();
-    public string? BundledRaffleName { get; set; }
 }
 
 public class TicketTypeListViewModel

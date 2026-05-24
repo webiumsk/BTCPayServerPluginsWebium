@@ -7,13 +7,12 @@ using BTCPayServer.Logging;
 using BTCPayServer.Plugins.SatoshiTickets.Data;
 using BTCPayServer.Plugins.SatoshiTickets.Services.Integration;
 using BTCPayServer.Services.Invoices;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
 namespace BTCPayServer.Plugins.SatoshiTickets.Services;
 
 /// <summary>
-/// Allocates BTCPay Raffle bundle tickets after event ticket purchase (idempotent).
+/// Event-level raffle bundle allocation after ticket purchase (idempotent).
 /// </summary>
 public sealed class SatoshiTicketsRaffleBundleService
 {
@@ -31,12 +30,20 @@ public sealed class SatoshiTicketsRaffleBundleService
     public async Task AllocateForOrderAsync(
         string storeId,
         Order order,
-        SimpleTicketSalesDbContext ctx,
+        Event ticketEvent,
         string baseUrl,
         InvoiceLogs? invoiceLogs = null)
     {
         if (order.PaymentStatus != TransactionStatus.Settled.ToString())
             return;
+
+        if (ticketEvent.BundledRaffleTicketsPerAdmission <= 0 || ticketEvent.BundledRaffleId is not Guid raffleId)
+        {
+            Write(invoiceLogs,
+                "No raffle bundle configured on this event.",
+                InvoiceEventData.EventSeverity.Info);
+            return;
+        }
 
         var raffleBundle = _raffleBundleProvider.Client;
         if (raffleBundle is null)
@@ -47,42 +54,21 @@ public sealed class SatoshiTicketsRaffleBundleService
             return;
         }
 
-        var ticketTypesById = await ctx.TicketTypes
-            .Where(t => t.EventId == order.EventId)
-            .ToDictionaryAsync(t => t.Id);
-
         var allocations = order.Tickets
             .Where(t => !string.IsNullOrWhiteSpace(t.Email))
-            .GroupBy(t => (Email: NormalizeBuyerEmail(t.Email)!, t.TicketTypeId))
-            .Select(g =>
-            {
-                if (!ticketTypesById.TryGetValue(g.Key.TicketTypeId, out var tt))
-                    return null;
-                if (tt.BundledRaffleTicketsPerAdmission <= 0 || tt.BundledRaffleId is not Guid raffleId)
-                    return null;
-                return new
-                {
-                    g.Key.Email,
-                    RaffleId = raffleId,
-                    Count = g.Count() * tt.BundledRaffleTicketsPerAdmission,
-                    BuyerName = BuildBuyerName(g.First())
-                };
-            })
-            .Where(x => x != null)
-            .GroupBy(x => (x!.Email, x.RaffleId))
+            .GroupBy(t => NormalizeBuyerEmail(t.Email)!)
             .Select(g => new
             {
-                g.Key.Email,
-                g.Key.RaffleId,
-                Total = g.Sum(x => x!.Count),
-                BuyerName = g.Select(x => x!.BuyerName).FirstOrDefault(n => !string.IsNullOrWhiteSpace(n))
+                Email = g.Key,
+                Count = g.Count() * ticketEvent.BundledRaffleTicketsPerAdmission,
+                BuyerName = BuildBuyerName(g.First())
             })
             .ToList();
 
         if (allocations.Count == 0)
         {
             Write(invoiceLogs,
-                "No raffle bundle on purchased ticket tier(s), or buyer email was missing.",
+                "Raffle bundle skipped: buyer email was missing on order tickets.",
                 InvoiceEventData.EventSeverity.Info);
             return;
         }
@@ -91,14 +77,13 @@ public sealed class SatoshiTicketsRaffleBundleService
         {
             try
             {
-                var eventOrderId = $"{order.Id}:{alloc.RaffleId:N}";
                 var bundleResult = await raffleBundle.AllocateForEventOrderAsync(
                     storeId,
-                    alloc.RaffleId,
-                    alloc.Total,
+                    raffleId,
+                    alloc.Count,
                     alloc.Email,
                     alloc.BuyerName,
-                    eventOrderId,
+                    order.Id,
                     baseUrl);
 
                 if (!bundleResult.Success)

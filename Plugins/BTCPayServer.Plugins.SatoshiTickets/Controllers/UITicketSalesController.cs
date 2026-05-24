@@ -17,6 +17,7 @@ using BTCPayServer.Plugins.SatoshiTickets.Controllers;
 using BTCPayServer.Plugins.SatoshiTickets.Data;
 using BTCPayServer.Plugins.SatoshiTickets.Helper;
 using BTCPayServer.Plugins.SatoshiTickets.Services;
+using BTCPayServer.Plugins.SatoshiTickets.Services.Integration;
 using BTCPayServer.Plugins.SatoshiTickets.ViewModels;
 using BTCPayServer.Plugins.SatoshiTickets.ViewModels.Models;
 using BTCPayServer.Services;
@@ -44,10 +45,13 @@ public class UITicketSalesController(UriResolver uriResolver,
         TicketService ticketService,
         InvoiceRepository invoiceRepository,
         SimpleTicketSalesDbContextFactory dbContextFactory,
-        UserManager<ApplicationUser> userManager) : Controller
+        UserManager<ApplicationUser> userManager,
+        RaffleEventBundleClientProvider raffleBundleProvider,
+        RaffleListClientProvider raffleListProvider) : Controller
 {
 
     private StoreData CurrentStore => HttpContext.GetStoreData();
+    private IRaffleEventBundleClient? RaffleBundle => raffleBundleProvider.Client;
 
 
     [HttpGet("list")]
@@ -136,6 +140,7 @@ public class UITicketSalesController(UriResolver uriResolver,
                 Value = e.ToString(),
                 Text = e.ToString()
             }).ToList();
+        await PopulateRaffleOptionsAsync(vm);
         return View(vm);
     }
 
@@ -153,11 +158,21 @@ public class UITicketSalesController(UriResolver uriResolver,
         if (vm.StartDate <= DateTime.UtcNow)
         {
             TempData[WellKnownTempData.ErrorMessage] = "Event date cannot be in the past";
+            await PopulateRaffleOptionsAsync(vm);
             return View(nameof(ViewEvent), vm);
         }
         if (vm.EndDate.HasValue && vm.EndDate.Value < vm.StartDate)
         {
             TempData[WellKnownTempData.ErrorMessage] = "Event end date cannot be before start date";
+            await PopulateRaffleOptionsAsync(vm);
+            return View(nameof(ViewEvent), vm);
+        }
+        var bundleError = await EventRaffleBundleRequestValidator.ValidateAsync(
+            CurrentStore.Id, vm.BundledRaffleTicketsPerAdmission, vm.BundledRaffleId, RaffleBundle);
+        if (bundleError is not null)
+        {
+            TempData[WellKnownTempData.ErrorMessage] = bundleError;
+            await PopulateRaffleOptionsAsync(vm);
             return View(nameof(ViewEvent), vm);
         }
         if (string.IsNullOrEmpty(CurrentStore.Id))
@@ -166,6 +181,7 @@ public class UITicketSalesController(UriResolver uriResolver,
         await using var ctx = dbContextFactory.CreateContext();
 
         var entity = TicketSalesEventViewModelToEntity(vm, null, CurrentStore.Id);
+        EventBundleHelper.ApplyBundleFields(entity, vm.BundledRaffleTicketsPerAdmission, vm.BundledRaffleId);
         entity.EventState = Data.EntityState.Disabled;
         UploadImageResultModel imageUpload = null;
         if (vm.EventImageFile != null)
@@ -213,9 +229,19 @@ public class UITicketSalesController(UriResolver uriResolver,
         if (vm.EndDate is DateTime endDate && endDate < vm.StartDate)
         {
             TempData[WellKnownTempData.ErrorMessage] = "Event end date cannot be before start date";
+            await PopulateRaffleOptionsAsync(vm);
+            return View(nameof(ViewEvent), vm);
+        }
+        var bundleError = await EventRaffleBundleRequestValidator.ValidateAsync(
+            CurrentStore.Id, vm.BundledRaffleTicketsPerAdmission, vm.BundledRaffleId, RaffleBundle);
+        if (bundleError is not null)
+        {
+            TempData[WellKnownTempData.ErrorMessage] = bundleError;
+            await PopulateRaffleOptionsAsync(vm);
             return View(nameof(ViewEvent), vm);
         }
         entity = TicketSalesEventViewModelToEntity(vm, entity, CurrentStore.Id);
+        EventBundleHelper.ApplyBundleFields(entity, vm.BundledRaffleTicketsPerAdmission, vm.BundledRaffleId);
         UploadImageResultModel imageUpload = null;
         if (vm.EventImageFile != null)
         {
@@ -737,8 +763,18 @@ public class UITicketSalesController(UriResolver uriResolver,
             EventType = entity.EventType,
             EmailSubject = entity.EmailSubject,
             ReminderEnabled = entity.ReminderEnabled,
-            ReminderDaysBeforeEvent = entity.ReminderDaysBeforeEvent
+            ReminderDaysBeforeEvent = entity.ReminderDaysBeforeEvent,
+            BundledRaffleTicketsPerAdmission = entity.BundledRaffleTicketsPerAdmission,
+            BundledRaffleId = entity.BundledRaffleId
         };
+    }
+
+    private async Task PopulateRaffleOptionsAsync(UpdateSimpleTicketSalesEventViewModel vm)
+    {
+        vm.RafflePluginAvailable = raffleListProvider.IsRafflePluginAvailable;
+        vm.OpenRaffles = (await raffleListProvider.GetOpenRafflesAsync(CurrentStore.Id)).ToList();
+        if (vm.BundledRaffleId.HasValue)
+            vm.BundledRaffleName = vm.OpenRaffles.FirstOrDefault(r => r.Id == vm.BundledRaffleId.Value)?.Name;
     }
 
     private Event TicketSalesEventViewModelToEntity(UpdateSimpleTicketSalesEventViewModel model, Event entity, string storeId)

@@ -1,5 +1,3 @@
-using System;
-
 namespace BTCPayServer.Plugins.SatoshiTickets.Models.Api;
 
 public class TicketTypeData
@@ -14,6 +12,4 @@ public class TicketTypeData
     public int QuantityAvailable { get; set; }
     public bool IsDefault { get; set; }
     public string TicketTypeState { get; set; }
-    public Guid? BundledRaffleId { get; set; }
-    public int BundledRaffleTicketsPerAdmission { get; set; }
 }

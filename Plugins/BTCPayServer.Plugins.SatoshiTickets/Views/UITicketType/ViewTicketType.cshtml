@@ -74,41 +74,4 @@
             </div>
         </div>
     </div>
-
-    <div class="row mt-4">
-        <div class="col-sm-10 col-md-9 col-xl-7 col-xxl-6">
-            <h4 class="mb-3">Raffle bundle</h4>
-            @if (!Model.RafflePluginAvailable)
-            {
-                <p class="text-secondary">
-                    Install the BTCPay Raffle plugin to include raffle tickets with this tier. Set raffle tickets per admission to 0 until then.
-                </p>
-            }
-            else if (!Model.OpenRaffles.Any())
-            {
-                <p class="text-secondary">
-                    No open raffles in this store. Create an open raffle first, or set raffle tickets per admission to 0.
-                </p>
-            }
-            <div class="form-group">
-                <label asp-for="BundledRaffleTicketsPerAdmission" class="form-label">Raffle tickets per admission</label>
-                <input inputmode="numeric" asp-for="BundledRaffleTicketsPerAdmission" class="form-control" min="0" max="20" />
-                <span class="form-text">Number of raffle tickets granted per ticket sold with the same buyer email. Use 0 to disable.</span>
-            </div>
-            <div class="form-group mt-3">
-                <label asp-for="BundledRaffleId" class="form-label">Open raffle</label>
-                <select asp-for="BundledRaffleId" class="form-select">
-                    <option value="">None</option>
-                    @foreach (var raffle in Model.OpenRaffles)
-                    {
-                        <option value="@raffle.Id">@raffle.Name</option>
-                    }
-                </select>
-                @if (Model.BundledRaffleId.HasValue && Model.OpenRaffles.All(r => r.Id != Model.BundledRaffleId))
-                {
-                    <span class="form-text text-warning">Selected raffle is no longer open. Choose another raffle or set count to 0.</span>
-                }
-            </div>
-        </div>
-    </div>
 </form>

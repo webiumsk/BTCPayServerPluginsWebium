@@ -10,6 +10,7 @@ using BTCPayServer.Data;
 using BTCPayServer.Plugins.SatoshiTickets.Data;
 using BTCPayServer.Plugins.SatoshiTickets.Models.Api;
 using BTCPayServer.Plugins.SatoshiTickets.Services;
+using BTCPayServer.Plugins.SatoshiTickets.Services.Integration;
 using BTCPayServer.Services.Stores;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Cors;
@@ -25,8 +26,10 @@ namespace BTCPayServer.Plugins.SatoshiTickets.Controllers;
 [Authorize(AuthenticationSchemes = AuthenticationSchemes.Greenfield, Policy = Policies.CanModifyStoreSettings)]
 [EnableCors(CorsPolicies.All)]
 public class GreenfieldSatoshiTicketsEventsController(StoreRepository storeRepo,
-        IFileService fileService, UserManager<ApplicationUser> userManager, SimpleTicketSalesDbContextFactory dbContextFactory) : ControllerBase
+        IFileService fileService, UserManager<ApplicationUser> userManager, SimpleTicketSalesDbContextFactory dbContextFactory,
+        RaffleEventBundleClientProvider raffleBundleProvider) : ControllerBase
 {
+    private IRaffleEventBundleClient? RaffleBundle => raffleBundleProvider.Client;
 
     [HttpGet("events")]
     public async Task<IActionResult> GetEvents(string storeId, [FromQuery] bool expired = false)
@@ -96,6 +99,9 @@ public class GreenfieldSatoshiTicketsEventsController(StoreRepository storeRepo,
         if (request.StartDate.HasValue && request.EndDate.HasValue && request.EndDate.Value < request.StartDate.Value)
             ModelState.AddModelError(nameof(request.EndDate), "Event end date cannot be before start date");
 
+        await EventRaffleBundleRequestValidator.ApplyBundleFieldsAsync(
+            ModelState, storeId, request.BundledRaffleTicketsPerAdmission ?? 0, request.BundledRaffleId, RaffleBundle);
+
         EventType parsedEventType = default;
         if (string.IsNullOrEmpty(request.EventType) || !Enum.TryParse<EventType>(request.EventType, true, out parsedEventType))
             ModelState.AddModelError(nameof(request.EventType), "Invalid event type. Valid values: Virtual, Physical");
@@ -129,6 +135,7 @@ public class GreenfieldSatoshiTicketsEventsController(StoreRepository storeRepo,
             EventState = Data.EntityState.Disabled,
             CreatedAt = DateTime.UtcNow
         };
+        EventBundleHelper.ApplyBundleFields(entity, request.BundledRaffleTicketsPerAdmission ?? 0, request.BundledRaffleId);
         await using var ctx = dbContextFactory.CreateContext();
         ctx.Events.Add(entity);
         await ctx.SaveChangesAsync();
@@ -168,6 +175,17 @@ public class GreenfieldSatoshiTicketsEventsController(StoreRepository storeRepo,
         if (!string.IsNullOrEmpty(request.EventType) && !Enum.TryParse<EventType>(request.EventType, true, out _))
             ModelState.AddModelError(nameof(request.EventType), "Invalid event type. Valid values: Virtual, Physical");
 
+        var bundlePerAdmission = request.BundledRaffleTicketsPerAdmission ?? entity.BundledRaffleTicketsPerAdmission;
+        var bundleRaffleId = request.BundledRaffleId ?? entity.BundledRaffleId;
+        if (request.BundledRaffleTicketsPerAdmission is 0)
+        {
+            bundlePerAdmission = 0;
+            bundleRaffleId = null;
+        }
+
+        await EventRaffleBundleRequestValidator.ApplyBundleFieldsAsync(
+            ModelState, storeId, bundlePerAdmission, bundleRaffleId, RaffleBundle);
+
         if (!ModelState.IsValid)
             return this.CreateValidationError(ModelState);
 
@@ -185,6 +203,9 @@ public class GreenfieldSatoshiTicketsEventsController(StoreRepository storeRepo,
 
         if (!string.IsNullOrEmpty(request.EventType))
             entity.EventType = Enum.Parse<EventType>(request.EventType, true);
+
+        if (request.BundledRaffleTicketsPerAdmission.HasValue || request.BundledRaffleId.HasValue)
+            EventBundleHelper.ApplyBundleFields(entity, bundlePerAdmission, bundleRaffleId);
 
         ctx.Events.Update(entity);
         await ctx.SaveChangesAsync();
@@ -333,6 +354,8 @@ public class GreenfieldSatoshiTicketsEventsController(StoreRepository storeRepo,
             MaximumEventCapacity = entity.MaximumEventCapacity,
             EventState = entity.EventState.ToString(),
             CreatedAt = entity.CreatedAt,
+            BundledRaffleId = entity.BundledRaffleId,
+            BundledRaffleTicketsPerAdmission = entity.BundledRaffleTicketsPerAdmission,
             PurchaseLink = entity.EventState == Data.EntityState.Disabled ? null : Url.Action(nameof(UITicketSalesPublicController.EventSummary), "UITicketSalesPublic",
                 new { storeId = entity.StoreId, eventId = entity.Id }, Request.Scheme)
         };

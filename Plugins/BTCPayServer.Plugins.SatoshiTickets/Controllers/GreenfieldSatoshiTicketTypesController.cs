@@ -7,7 +7,6 @@ using BTCPayServer.Client;
 using BTCPayServer.Plugins.SatoshiTickets.Data;
 using BTCPayServer.Plugins.SatoshiTickets.Models.Api;
 using BTCPayServer.Plugins.SatoshiTickets.Services;
-using BTCPayServer.Plugins.SatoshiTickets.Services.Integration;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Cors;
 using Microsoft.AspNetCore.Mvc;
@@ -23,11 +22,8 @@ namespace BTCPayServer.Plugins.SatoshiTickets.Controllers;
 [Authorize(AuthenticationSchemes = AuthenticationSchemes.Greenfield, Policy = Policies.CanModifyStoreSettings)]
 [EnableCors(CorsPolicies.All)]
 public class GreenfieldSatoshiTicketTypesController(
-    SimpleTicketSalesDbContextFactory dbContextFactory,
-    RaffleEventBundleClientProvider raffleBundleProvider) : ControllerBase
+    SimpleTicketSalesDbContextFactory dbContextFactory) : ControllerBase
 {
-    private IRaffleEventBundleClient? RaffleBundle => raffleBundleProvider.Client;
-
     [HttpGet("events/{eventId}/ticket-types")]
     public async Task<IActionResult> GetTicketTypes(string storeId, string eventId, [FromQuery] string sortBy = "Name", [FromQuery] string sortDir = "asc")
     {
@@ -103,9 +99,6 @@ public class GreenfieldSatoshiTicketTypesController(
                 ModelState.AddModelError(nameof(request.Quantity), "Quantity specified is higher than available event capacity");
         }
 
-        await EventRaffleBundleRequestValidator.ApplyBundleFieldsAsync(
-            ModelState, storeId, request.BundledRaffleTicketsPerAdmission ?? 0, request.BundledRaffleId, RaffleBundle);
-
         if (!ModelState.IsValid)
             return this.CreateValidationError(ModelState);
 
@@ -119,7 +112,6 @@ public class GreenfieldSatoshiTicketTypesController(
             IsDefault = request.IsDefault,
             TicketTypeState = EntityState.Active
         };
-        TicketTypeBundleHelper.ApplyBundleFields(entity, request.BundledRaffleTicketsPerAdmission ?? 0, request.BundledRaffleId);
         var currentDefault = ctx.TicketTypes.FirstOrDefault(c => c.EventId == eventId && c.IsDefault);
         if (currentDefault == null)
         {
@@ -178,17 +170,6 @@ public class GreenfieldSatoshiTicketTypesController(
                 ModelState.AddModelError(nameof(request.Quantity), "Quantity specified is higher than available event capacity");
         }
 
-        var bundlePerAdmission = request.BundledRaffleTicketsPerAdmission ?? entity.BundledRaffleTicketsPerAdmission;
-        var bundleRaffleId = request.BundledRaffleId ?? entity.BundledRaffleId;
-        if (request.BundledRaffleTicketsPerAdmission is 0)
-        {
-            bundlePerAdmission = 0;
-            bundleRaffleId = null;
-        }
-
-        await EventRaffleBundleRequestValidator.ApplyBundleFieldsAsync(
-            ModelState, storeId, bundlePerAdmission, bundleRaffleId, RaffleBundle);
-
         if (!ModelState.IsValid)
             return this.CreateValidationError(ModelState);
 
@@ -211,9 +192,6 @@ public class GreenfieldSatoshiTicketTypesController(
             var anyDefault = ctx.TicketTypes.Any(t => t.EventId == eventId && t.Id != ticketTypeId && t.IsDefault);
             entity.IsDefault = !anyDefault;
         }
-
-        if (request.BundledRaffleTicketsPerAdmission.HasValue || request.BundledRaffleId.HasValue)
-            TicketTypeBundleHelper.ApplyBundleFields(entity, bundlePerAdmission, bundleRaffleId);
 
         await ctx.SaveChangesAsync();
         return Ok(ToTicketTypeData(entity));
@@ -282,9 +260,7 @@ public class GreenfieldSatoshiTicketTypesController(
             QuantitySold = entity.QuantitySold,
             QuantityAvailable = entity.Quantity - entity.QuantitySold,
             IsDefault = entity.IsDefault,
-            TicketTypeState = entity.TicketTypeState.ToString(),
-            BundledRaffleId = entity.BundledRaffleId,
-            BundledRaffleTicketsPerAdmission = entity.BundledRaffleTicketsPerAdmission
+            TicketTypeState = entity.TicketTypeState.ToString()
         };
     }
 
