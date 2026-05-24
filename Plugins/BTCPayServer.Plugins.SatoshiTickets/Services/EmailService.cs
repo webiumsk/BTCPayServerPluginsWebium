@@ -229,7 +229,12 @@ Click the link to view your tickets: {ticket.QRCodeLink}";
             throw new FileNotFoundException($"Resource '{resourceName}' not found in assembly.");
         }
         using var stream = assembly.GetManifestResourceStream(fullResourceName);
-        using var reader = new StreamReader(stream!);
+        if (stream is null)
+        {
+            throw new FileNotFoundException(
+                $"Resource stream for '{fullResourceName}' not found in assembly '{assembly.FullName}'.");
+        }
+        using var reader = new StreamReader(stream);
         return reader.ReadToEnd();
     }
 

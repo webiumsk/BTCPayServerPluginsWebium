@@ -104,13 +104,13 @@ public sealed class SatoshiTicketsRaffleBundleService
                 if (!bundleResult.Success)
                 {
                     Write(invoiceLogs,
-                        $"Raffle bundle failed for {alloc.Email}: {bundleResult.Error}",
+                        $"Raffle bundle failed for {MaskEmail(alloc.Email)}: {bundleResult.Error}",
                         InvoiceEventData.EventSeverity.Error);
                 }
                 else if (bundleResult.TicketsAllocated > 0)
                 {
                     Write(invoiceLogs,
-                        $"Allocated {bundleResult.TicketsAllocated} raffle ticket(s) for {alloc.Email}",
+                        $"Allocated {bundleResult.TicketsAllocated} raffle ticket(s) for {MaskEmail(alloc.Email)}",
                         InvoiceEventData.EventSeverity.Success);
                 }
             }
@@ -142,5 +142,17 @@ public sealed class SatoshiTicketsRaffleBundleService
     {
         var buyerName = $"{ticket.FirstName} {ticket.LastName}".Trim();
         return string.IsNullOrWhiteSpace(buyerName) ? null : buyerName;
+    }
+
+    private static string MaskEmail(string? address)
+    {
+        if (string.IsNullOrWhiteSpace(address))
+            return "(none)";
+
+        var at = address.IndexOf('@');
+        if (at <= 0)
+            return "****";
+
+        return $"****{address[at..]}";
     }
 }

@@ -21,6 +21,16 @@ internal static class GreenfieldPurchaseTicketValidator
 
         foreach (var item in items)
         {
+            if (string.IsNullOrWhiteSpace(item.TicketTypeId))
+            {
+                return controller.CreateAPIError(422, "invalid-ticket-type", "TicketTypeId is required for each item");
+            }
+
+            if (item.Quantity <= 0)
+            {
+                return controller.CreateAPIError(422, "invalid-quantity", "Quantity must be greater than zero for each item");
+            }
+
             if (item.Recipients == null || item.Recipients.Length != item.Quantity)
             {
                 return controller.CreateAPIError(422, "recipients-count-mismatch",

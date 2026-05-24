@@ -143,9 +143,6 @@ public class GreenfieldSatoshiTicketsController(
         if (ticketEvent.EndDate.HasValue && ticketEvent.EndDate.Value.Date < now.Date)
             return this.CreateAPIError(422, "event-expired", "The event has ended");
 
-        if (ticketEvent.EndDate.HasValue && ticketEvent.EndDate.Value.Date < now.Date)
-            return this.CreateAPIError(422, "event-expired", "The event has ended");
-
         var ticketTypes = ctx.TicketTypes.Where(t => t.EventId == eventId).ToDictionary(t => t.Id);
         var totalTicketsSold = ctx.Orders.AsNoTracking()
             .Where(c => c.StoreId == storeId && c.EventId == eventId && c.PaymentStatus == TransactionStatus.Settled.ToString())

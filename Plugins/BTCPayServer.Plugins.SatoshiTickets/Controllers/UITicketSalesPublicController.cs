@@ -224,16 +224,16 @@ public class UITicketSalesPublicController(UriResolver uriResolver,
                 return RedirectToAction(nameof(EventTicket), new { storeId, eventId });
             }
         }
-        orderViewModel.ContactInfo = model.ContactInfo;
-        orderViewModel.IsStepTwoComplete = true; // Move to Payment step
-        HttpContext.Session.SetObject(sessionKey, orderViewModel);
-
         var expectedTickets = orderViewModel.Tickets.Sum(t => t.Quantity);
         if (model.ContactInfo.Count != expectedTickets)
         {
             TempData[WellKnownTempData.ErrorMessage] = "Contact information does not match the number of tickets selected";
             return RedirectToAction(nameof(EventContactDetails), new { storeId, eventId, txnId = model.TxnId });
         }
+
+        orderViewModel.ContactInfo = model.ContactInfo;
+        orderViewModel.IsStepTwoComplete = true; // Move to Payment step
+        HttpContext.Session.SetObject(sessionKey, orderViewModel);
 
         var now = DateTimeOffset.UtcNow;
         var tickets = new List<Ticket>();

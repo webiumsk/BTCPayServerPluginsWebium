@@ -11,6 +11,7 @@ namespace BTCPayServer.Plugins.SatoshiTickets.Services.Integration;
 public sealed class RaffleEventBundleClientProvider
 {
     private readonly IServiceProvider _serviceProvider;
+    private readonly object _lock = new();
     private IRaffleEventBundleClient? _client;
 
     public RaffleEventBundleClientProvider(IServiceProvider serviceProvider)
@@ -23,12 +24,19 @@ public sealed class RaffleEventBundleClientProvider
     {
         get
         {
-            if (_client is not null)
-                return _client;
-            var resolved = RaffleEventBundleClientResolver.TryResolve(_serviceProvider);
-            if (resolved is not null)
-                _client = resolved;
-            return resolved;
+            var cached = _client;
+            if (cached is not null)
+                return cached;
+
+            lock (_lock)
+            {
+                if (_client is not null)
+                    return _client;
+                var resolved = RaffleEventBundleClientResolver.TryResolve(_serviceProvider);
+                if (resolved is not null)
+                    _client = resolved;
+                return resolved;
+            }
         }
     }
 }
