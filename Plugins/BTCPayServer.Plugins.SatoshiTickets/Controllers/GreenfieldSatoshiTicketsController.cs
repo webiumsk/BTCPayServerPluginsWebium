@@ -37,6 +37,7 @@ public class GreenfieldSatoshiTicketsController(
     UIInvoiceController invoiceController,
     LinkGenerator linkGenerator,
     SatoshiTicketsRaffleBundleService raffleBundleService,
+    TicketService ticketService,
     ILogger<GreenfieldSatoshiTicketsController> logger) : ControllerBase
 {
 
@@ -65,13 +66,11 @@ public class GreenfieldSatoshiTicketsController(
     }
 
 
-    /*[HttpPost("tickets/{ticketNumber}/check-in")]
+    [HttpPost("tickets/{ticketNumber}/check-in")]
     public async Task<IActionResult> CheckinTicket(string storeId, string eventId, string ticketNumber)
     {
-        await using var ctx = dbContextFactory.CreateContext();
-        var ticketExist = ctx.Events.Any(c => c.Id == eventId && c.StoreId == storeId);
-        if (!ticketExist)
-            return EventNotFound();
+        if (GreenfieldStoreGuard.RequireStore(HttpContext, this, storeId) is { } storeError)
+            return storeError;
 
         var checkinResult = await ticketService.CheckinTicket(eventId, ticketNumber, storeId);
         if (!checkinResult.Success)
@@ -84,8 +83,7 @@ public class GreenfieldSatoshiTicketsController(
             Ticket = checkinResult.Ticket != null ? ToTicketData(checkinResult.Ticket) : null
         };
         return Ok(result);
-    }*/
-
+    }
 
     [HttpGet("orders")]
     public async Task<IActionResult> GetOrders(string storeId, string eventId, [FromQuery] string searchText = null)
