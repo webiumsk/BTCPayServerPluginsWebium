@@ -1,0 +1,39 @@
+@using BTCPayServer.Payments
+@using BTCPayServer.Plugins.SepaInstantQr
+@using BTCPayServer.Plugins.SepaInstantQr.PaymentHandler
+@using BTCPayServer.Services.Invoices
+@model BTCPayServer.Models.InvoicingModels.InvoiceDetailsModel
+@inject PaymentMethodHandlerDictionary Handlers
+@{
+    var payments = Model.Payments?
+        .Where(p => p.PaymentMethodId == SepaInstantQrPlugin.SepaPaymentMethodId)
+        .ToList();
+}
+@if (payments is { Count: > 0 })
+{
+    <section class="mt-4">
+        <h5>SEPA Instant QR payments</h5>
+        <table class="table">
+            <thead>
+                <tr><th>Reference</th><th>IBAN</th><th>Amount</th></tr>
+            </thead>
+            <tbody>
+            @foreach (var payment in payments)
+            {
+                SepaPaymentData? data = null;
+                try
+                {
+                    if (Handlers.TryGetValue(SepaInstantQrPlugin.SepaPaymentMethodId, out var handler))
+                        data = handler.ParsePaymentDetails(payment.Details) as SepaPaymentData;
+                }
+                catch { /* ignore malformed rows */ }
+                <tr>
+                    <td class="font-monospace">@(data?.Reference ?? payment.Id)</td>
+                    <td class="font-monospace">@(data?.Iban ?? "-")</td>
+                    <td>@(data is null ? "-" : data.Amount.ToString("0.00") + " EUR")</td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </section>
+}

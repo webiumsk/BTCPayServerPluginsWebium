@@ -1,0 +1,59 @@
+using System;
+using System.ComponentModel.DataAnnotations;
+
+namespace BTCPayServer.Plugins.SepaInstantQr.Data.Entities;
+
+/// <summary>
+/// Per-store configuration. The merchant's own IBAN is the payment
+/// destination - the plugin never takes custody of funds.
+/// </summary>
+public class SepaStoreSettings
+{
+    [Key]
+    [MaxLength(100)]
+    public string StoreId { get; set; } = string.Empty;
+
+    public bool Enabled { get; set; }
+
+    /// <summary>Country profile driving the QR format: SK | CZ | EU.</summary>
+    [Required]
+    [MaxLength(2)]
+    public string CountryProfile { get; set; } = "SK";
+
+    [Required]
+    [MaxLength(34)]
+    public string Iban { get; set; } = string.Empty;
+
+    /// <summary>Beneficiary (creditor) name shown to the payer; max 70 per the QR standards.</summary>
+    [Required]
+    [MaxLength(70)]
+    public string Beneficiary { get; set; } = string.Empty;
+
+    [MaxLength(11)]
+    public string? Bic { get; set; }
+
+    /// <summary>Optional message/remittance shown to the payer (business name + branch recommended).</summary>
+    [MaxLength(60)]
+    public string? Message { get; set; }
+
+    /// <summary>Active confirmation backend id: manual | fio | nop-mqtt | nop-rest | gocardless.</summary>
+    [Required]
+    [MaxLength(20)]
+    public string ConfirmationBackend { get; set; } = "manual";
+
+    /// <summary>
+    /// Amount tolerance in EUR for automated matching (0 = exact). A payment
+    /// below due - tolerance never auto-settles; it lands in manual review.
+    /// </summary>
+    public decimal AmountTolerance { get; set; }
+
+    /// <summary>
+    /// Backend credentials as a data-protected JSON blob (Fio token, NOP
+    /// certificate, GoCardless secrets). Encrypted at rest, never logged.
+    /// </summary>
+    public string? EncryptedCredentialsJson { get; set; }
+
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+
+    public DateTimeOffset? UpdatedAt { get; set; }
+}
