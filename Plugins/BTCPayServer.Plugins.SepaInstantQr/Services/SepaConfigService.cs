@@ -93,4 +93,12 @@ public class SepaConfigService
             return null;
         }
     }
+
+    /// <summary>Decrypted backend credentials of a store (empty record when unset).</summary>
+    public SepaBackendCredentials GetCredentials(SepaStoreSettings settings)
+        => SepaBackendCredentials.FromJson(UnprotectCredentials(settings.EncryptedCredentialsJson));
+
+    /// <summary>Encrypts and stores the credentials blob on the settings entity (caller saves).</summary>
+    public void ApplyCredentials(SepaStoreSettings settings, SepaBackendCredentials credentials)
+        => settings.EncryptedCredentialsJson = ProtectCredentials(credentials.ToJson());
 }

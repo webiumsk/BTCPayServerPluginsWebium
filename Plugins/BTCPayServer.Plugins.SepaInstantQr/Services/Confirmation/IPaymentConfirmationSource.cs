@@ -14,12 +14,14 @@ namespace BTCPayServer.Plugins.SepaInstantQr.Services.Confirmation;
 /// <param name="Currency">ISO 4217 code.</param>
 /// <param name="RawJson">Raw notification/transaction payload for audit.</param>
 /// <param name="DedupKey">Idempotency key of the delivery; null when the transport has exactly-once semantics.</param>
+/// <param name="IntegrityFailure">Non-null when the payload failed integrity verification (e.g. NOP dataIntegrityHash) - routes to manual review, never settles.</param>
 public record ConfirmedPayment(
     string Reference,
     decimal Amount,
     string Currency,
     string? RawJson,
-    string? DedupKey);
+    string? DedupKey,
+    string? IntegrityFailure = null);
 
 public record ConfirmationTestResult(bool Ok, string? Message);
 

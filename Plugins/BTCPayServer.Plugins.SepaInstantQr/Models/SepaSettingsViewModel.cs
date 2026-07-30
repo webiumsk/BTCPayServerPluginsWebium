@@ -32,16 +32,48 @@ public class SepaSettingsViewModel : IValidatableObject
     public string? Message { get; set; }
 
     [Required]
-    [RegularExpression("manual", ErrorMessage = "Unknown confirmation backend.")]
+    [RegularExpression("manual|nop-mqtt|nop-rest", ErrorMessage = "Unknown confirmation backend.")]
     public string ConfirmationBackend { get; set; } = "manual";
 
     [Range(0, 10)]
     public decimal AmountTolerance { get; set; }
 
+    // ── NOP certificate upload (write-only; secrets never render back) ──
+    [RegularExpression("INT|PROD")]
+    public string NopEnvironment { get; set; } = "INT";
+
+    /// <summary>eKasa certificate: PEM certificate file.</summary>
+    public Microsoft.AspNetCore.Http.IFormFile? NopCertPemFile { get; set; }
+
+    /// <summary>eKasa certificate: PEM private key file (with NopCertPemFile).</summary>
+    public Microsoft.AspNetCore.Http.IFormFile? NopKeyPemFile { get; set; }
+
+    /// <summary>eKasa certificate: PKCS#12 (.p12/.pfx) alternative.</summary>
+    public Microsoft.AspNetCore.Http.IFormFile? NopPfxFile { get; set; }
+
+    [MaxLength(200)]
+    public string? NopPfxPassword { get; set; }
+
+    public bool ClearNopCertificate { get; set; }
+
+    // ── Read-only display state (populated by the controller) ──
+    public bool NopCertSet { get; set; }
+    public string? NopVatsk { get; set; }
+    public string? NopPokladnica { get; set; }
+
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
         if (!Services.IbanValidator.IsValid(Iban))
             yield return new ValidationResult("The IBAN is not valid (checksum failed).", [nameof(Iban)]);
+
+        var hasPemPair = NopCertPemFile is not null && NopKeyPemFile is not null;
+        var hasHalfPem = (NopCertPemFile is null) != (NopKeyPemFile is null);
+        if (hasHalfPem)
+            yield return new ValidationResult(
+                "Upload the PEM certificate together with its private key.", [nameof(NopCertPemFile)]);
+        if (hasPemPair && NopPfxFile is not null)
+            yield return new ValidationResult(
+                "Upload either the PEM pair or the PKCS#12 file, not both.", [nameof(NopPfxFile)]);
     }
 }
 

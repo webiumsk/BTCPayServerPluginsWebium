@@ -85,6 +85,24 @@ public class UISepaController : Controller
         settings.Message = string.IsNullOrWhiteSpace(model.Message) ? null : model.Message.Trim();
         settings.ConfirmationBackend = model.ConfirmationBackend;
         settings.AmountTolerance = model.AmountTolerance;
+
+        if (!await ApplyNopCertificateAsync(settings, model))
+        {
+            var page = await BuildPageModelAsync(storeId);
+            page.Settings = model;
+            return View(page);
+        }
+
+        if (model.ConfirmationBackend.StartsWith("nop-", StringComparison.Ordinal)
+            && string.IsNullOrEmpty(settings.NopVatsk))
+        {
+            ModelState.AddModelError(nameof(model.NopPfxFile),
+                "NOP backends need the eKasa cash-register certificate - upload it below.");
+            var page = await BuildPageModelAsync(storeId);
+            page.Settings = model;
+            return View(page);
+        }
+
         await _configService.SaveSettingsAsync(settings);
 
         if (_handlers.Support(SepaInstantQrPlugin.SepaPaymentMethodId))
@@ -101,6 +119,99 @@ public class UISepaController : Controller
             Message = "SEPA Instant QR settings saved.",
         });
         return RedirectToAction(nameof(Settings), new { storeId });
+    }
+
+    /// <summary>
+    /// Applies the uploaded/cleared NOP certificate to the settings entity.
+    /// Returns false (with ModelState errors) when the upload is invalid.
+    /// Certificate material goes straight into the encrypted credentials
+    /// blob - it is never logged or echoed back.
+    /// </summary>
+    private async Task<bool> ApplyNopCertificateAsync(SepaStoreSettings settings, SepaSettingsViewModel model)
+    {
+        var credentials = _configService.GetCredentials(settings);
+
+        if (model.ClearNopCertificate)
+        {
+            _configService.ApplyCredentials(settings, credentials with
+            {
+                NopCertificatePem = null,
+                NopPrivateKeyPem = null,
+                NopPfxBase64 = null,
+                NopPfxPassword = null,
+                NopEnvironment = model.NopEnvironment,
+            });
+            settings.NopVatsk = null;
+            settings.NopPokladnica = null;
+            return true;
+        }
+
+        SepaBackendCredentials updated = credentials with { NopEnvironment = model.NopEnvironment };
+        var uploaded = false;
+
+        if (model.NopPfxFile is not null)
+        {
+            using var stream = new System.IO.MemoryStream();
+            await model.NopPfxFile.CopyToAsync(stream);
+            updated = updated with
+            {
+                NopPfxBase64 = Convert.ToBase64String(stream.ToArray()),
+                NopPfxPassword = model.NopPfxPassword,
+                NopCertificatePem = null,
+                NopPrivateKeyPem = null,
+            };
+            uploaded = true;
+        }
+        else if (model.NopCertPemFile is not null && model.NopKeyPemFile is not null)
+        {
+            updated = updated with
+            {
+                NopCertificatePem = await ReadFormFileAsync(model.NopCertPemFile),
+                NopPrivateKeyPem = await ReadFormFileAsync(model.NopKeyPemFile),
+                NopPfxBase64 = null,
+                NopPfxPassword = null,
+            };
+            uploaded = true;
+        }
+
+        if (uploaded)
+        {
+            try
+            {
+                using var certificate = Services.Confirmation.Nop.NopCertificateLoader.Load(updated);
+                if (certificate.NotAfter < DateTime.UtcNow)
+                {
+                    ModelState.AddModelError(nameof(model.NopPfxFile),
+                        $"The certificate expired on {certificate.NotAfter:yyyy-MM-dd}.");
+                    return false;
+                }
+
+                var identity = Services.Confirmation.Nop.NopIdentity.FromCertificate(certificate);
+                if (identity is null)
+                {
+                    ModelState.AddModelError(nameof(model.NopPfxFile),
+                        "The certificate subject does not look like an eKasa cash-register certificate (expected CN \"VATSK-... POKLADNICA ...\").");
+                    return false;
+                }
+
+                settings.NopVatsk = identity.Vatsk;
+                settings.NopPokladnica = identity.Pokladnica;
+            }
+            catch (Exception ex)
+            {
+                ModelState.AddModelError(nameof(model.NopPfxFile), $"Could not load the certificate: {ex.Message}");
+                return false;
+            }
+        }
+
+        _configService.ApplyCredentials(settings, updated);
+        return true;
+    }
+
+    private static async Task<string> ReadFormFileAsync(Microsoft.AspNetCore.Http.IFormFile file)
+    {
+        using var reader = new System.IO.StreamReader(file.OpenReadStream());
+        return await reader.ReadToEndAsync();
     }
 
     [HttpPost("test-backend")]
@@ -191,6 +302,10 @@ public class UISepaController : Controller
                     Message = settings.Message,
                     ConfirmationBackend = settings.ConfirmationBackend,
                     AmountTolerance = settings.AmountTolerance,
+                    NopEnvironment = _configService.GetCredentials(settings).NopEnvironment,
+                    NopCertSet = _configService.GetCredentials(settings).HasNopCertificate,
+                    NopVatsk = settings.NopVatsk,
+                    NopPokladnica = settings.NopPokladnica,
                 },
         };
 

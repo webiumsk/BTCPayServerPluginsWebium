@@ -142,13 +142,35 @@ never auto-settle. Backends added per phase: Fio (poller), NOP MQTT
 Lite REST (getAllTransactions polling), GoCardless Bank Account Data
 (PSD2 AIS, 90-day consent lifecycle).
 
-### Still to verify at implementation time
+### Verified at the NOP phase (2026-07-30)
 
-- MQTTnet current major version + MQTT 3.1.1 + client certificates on
-  net10.0 (NOP phase).
-- Fio API contract: token REST `GET /v1/rest/last/{token}/transactions.json`,
-  30 s per-token rate limit, `setLastId` cursor (Fio phase;
-  <https://www.fio.cz/bank-services/internetbanking-api>).
-- GoCardless Bank Account Data: requisition/EUA flow, 90-day consent,
-  per-account polling limits (GoCardless phase;
-  <https://developer.gocardless.com/bank-account-data/overview>).
+- MQTTnet: pinned **5.2.0.1603** (net10.0-compatible; MQTT 3.1.1 via
+  `MqttClientOptionsBuilder.WithProtocolVersion(MqttProtocolVersion.V311)`,
+  client certificates via `WithTlsOptions(o => o.WithClientCertificates(...))`,
+  client from `MqttClientFactory`).
+- Backend order re-decided by the operator: coverage over simplicity →
+  Fio backend skipped entirely; NOP shipped as the universal instant SK
+  path (see `nop.md`).
+
+## Aggregators (all-EU PSD2 AIS) - status 2026-07-30
+
+- **GoCardless Bank Account Data (ex-Nordigen) is closed to new signups
+  since July 2025** - official notice at
+  <https://bankaccountdata.gocardless.com/new-signups-disabled>; existing
+  accounts keep working but community projects (e.g. Actual Budget,
+  actualbudget/actual#5505) are migrating away. The free-tier era
+  (50 connections, ~4 syncs/day/account, 90-day consent) is over for
+  newcomers.
+- **Enable Banking** (<https://enablebanking.com>) is the commonly named
+  successor: sandbox free; "Restricted Production" free **only for
+  accounts the account holder links themselves**; multi-merchant
+  production use requires a **paid operator contract** (custom-quoted by
+  AIS call volume, under their AISP licence or the customer's own).
+- Other licensed aggregators (Tink, Salt Edge, Yapily, Powens) are
+  commercial as well. Direct bank XS2A APIs require an AISP licence +
+  eIDAS QWAC (~EUR 3-8k/year) - not viable for a plugin.
+- Conclusion: an aggregator confirmation backend stays **deferred** until
+  the operator signs an aggregator contract; it will plug into the
+  existing `IPaymentConfirmationSource` + `SepaPollingHostedService` seam.
+  PSD2 unattended-refresh limits (~4/day/account) make it a
+  delayed-confirmation (e-commerce) backend either way - never a POS one.
