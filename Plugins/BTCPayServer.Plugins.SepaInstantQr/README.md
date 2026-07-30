@@ -40,8 +40,9 @@ merchants: the payer's bank pushes an instant-payment notification to the
 state NOP system (project KVERKOM) and the plugin receives it within
 seconds over MQTT - the invoice settles while the customer is still at the
 counter. Works for **every Slovak bank joined to the QR-payments scheme**
-(Tatra banka and SLSP today, VÚB in progress; coverage grows with the
-cashless-payment law), independent of the merchant's bank having an API.
+(Tatra banka and SLSP as of July 2026 per info-qrplatby.sk; coverage grows
+with the cashless-payment law), independent of the merchant's bank having
+an API.
 
 - `NOP - instant notifications` (recommended): persistent mTLS MQTT
   subscription per store, QoS 1 with deduplication, automatic reconnect
@@ -78,8 +79,9 @@ that contract exists.
 ### Slovakia - NOP setup
 
 1. Ask your bank to mark the business account as **"notifikačný"**
-   (notification-enabled) for the QR platby service. Banks supporting it at
-   research time: Tatra banka, SLSP (see <https://www.info-qrplatby.sk/>).
+   (notification-enabled) for the QR platby service. Banks supporting it as
+   of July 2026: Tatra banka, SLSP - check <https://www.info-qrplatby.sk/>
+   for the current list (coverage grows with the cashless-payment law).
 2. Get your **eKasa cash-register certificate** - the same identity your
    cash register uses (authentication package from the eKasa zone of the
    Financial Administration portal; VRP certificates download directly,
@@ -88,8 +90,8 @@ that contract exists.
    (VATSK / POKLADNICA) is read from the certificate automatically.
 3. Choose environment: **INT** for testing against
    `api-erp-i.kverkom.sk` / `mqtt-i.kverkom.sk` (open, no whitelisting) or
-   **PROD** (marked "in preparation" by FR SR at research time - verify
-   before relying on it).
+   **PROD** (production operation launched by FR SR in March 2026 per
+   info-qrplatby.sk).
 4. Press **Test confirmation backend** - it performs a live mTLS status
    call and reports your certificate identity.
 5. Payer-side support: bank apps implementing PayMe open the payment

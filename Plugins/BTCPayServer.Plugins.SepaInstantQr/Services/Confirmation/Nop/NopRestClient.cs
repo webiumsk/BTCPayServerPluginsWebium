@@ -112,6 +112,15 @@ public sealed class NopRestClient : IDisposable
                 _logger.LogWarning(ex, "NOP generateNewTransactionId attempt {Attempt} failed; retrying", attempt);
                 await Task.Delay(NopBackoff.DelayForAttempt(attempt), cancellationToken);
             }
+            catch (OperationCanceledException ex) when (
+                !cancellationToken.IsCancellationRequested && attempt < NopBackoff.MaxAttempts)
+            {
+                // HttpClient timeouts surface as TaskCanceledException while
+                // the caller's token is still live - retry those; genuine
+                // caller cancellations rethrow via the `when` filter.
+                _logger.LogWarning(ex, "NOP generateNewTransactionId attempt {Attempt} timed out; retrying", attempt);
+                await Task.Delay(NopBackoff.DelayForAttempt(attempt), cancellationToken);
+            }
         }
     }
 

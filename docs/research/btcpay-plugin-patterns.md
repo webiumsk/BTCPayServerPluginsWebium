@@ -137,10 +137,12 @@ gocardless): backends only produce `ConfirmedPayment(reference, amount,
 currency, raw, dedupKey)` records; a shared `SepaMatchingService` matches
 (exact reference + amount + EUR) and hands to a single `SepaPaymentRecorder`
 implementing the settle pattern above. Mismatches → MANUAL_REVIEW state,
-never auto-settle. Backends added per phase: Fio (poller), NOP MQTT
-(MQTTnet, mTLS with the merchant's eKasa certificate - see `nop.md`), NOP
-Lite REST (getAllTransactions polling), GoCardless Bank Account Data
-(PSD2 AIS, 90-day consent lifecycle).
+never auto-settle.
+
+> Historical note: the original phase plan listed Fio (poller) → NOP →
+> GoCardless. Superseded by the operator's coverage-first decision - Fio
+> was skipped, NOP (MQTT + NOP Lite REST) shipped as the universal instant
+> SK path, and the aggregator phase is deferred (see below).
 
 ### Verified at the NOP phase (2026-07-30)
 
@@ -167,8 +169,14 @@ Lite REST (getAllTransactions polling), GoCardless Bank Account Data
   production use requires a **paid operator contract** (custom-quoted by
   AIS call volume, under their AISP licence or the customer's own).
 - Other licensed aggregators (Tink, Salt Edge, Yapily, Powens) are
-  commercial as well. Direct bank XS2A APIs require an AISP licence +
-  eIDAS QWAC (~EUR 3-8k/year) - not viable for a plugin.
+  commercial as well. Direct bank XS2A APIs are gated on being a regulated
+  TPP: AISP registration/authorisation with the national competent
+  authority (see the EBA payment-institutions register,
+  <https://euclid.eba.europa.eu/register/>) plus eIDAS role certificates
+  (QWAC/QSealC) for identification towards banks - exact obligations vary
+  by jurisdiction and arrangement. Third-party cost estimates put QWACs at
+  roughly EUR 3-8k/year (unverified market quote). Either way this is not
+  viable for a merchant-installed plugin without an operator behind it.
 - Conclusion: an aggregator confirmation backend stays **deferred** until
   the operator signs an aggregator contract; it will plug into the
   existing `IPaymentConfirmationSource` + `SepaPollingHostedService` seam.

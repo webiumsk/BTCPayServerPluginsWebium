@@ -65,19 +65,7 @@ public class SepaPollingHostedService : BackgroundService
             {
                 _logger.LogError(ex, "SEPA polling tick failed");
             }
-        } while (await WaitNextTick(timer, stoppingToken));
-    }
-
-    private static async Task<bool> WaitNextTick(PeriodicTimer timer, CancellationToken ct)
-    {
-        try
-        {
-            return await timer.WaitForNextTickAsync(ct);
-        }
-        catch (OperationCanceledException)
-        {
-            return false;
-        }
+        } while (await timer.WaitNextTickSafeAsync(stoppingToken));
     }
 
     private async Task PollAllAsync(CancellationToken ct)
@@ -131,28 +119,50 @@ public class SepaPollingHostedService : BackgroundService
         if (!credentials.HasNopCertificate)
             return;
 
+        var startedAt = DateTimeOffset.UtcNow;
         var dateFrom = _lastSuccessfulPoll.TryGetValue(settings.StoreId, out var last)
             ? last - Overlap
-            : DateTimeOffset.UtcNow - InitialLookback;
+            : startedAt - InitialLookback;
 
         using var client = NopRestClient.Create(credentials, _logger);
         var json = await client.GetAllTransactionsAsync($"POKLADNICA-{settings.NopPokladnica}", dateFrom, ct);
-        _lastSuccessfulPoll[settings.StoreId] = DateTimeOffset.UtcNow;
 
-        if (json.ValueKind != System.Text.Json.JsonValueKind.Array)
-            return;
-
-        foreach (var element in json.EnumerateArray())
+        if (json.ValueKind == System.Text.Json.JsonValueKind.Array)
         {
-            var notification = _processor.Parse(element.GetRawText());
-            if (notification is null)
-                continue;
+            foreach (var element in json.EnumerateArray())
+            {
+                ct.ThrowIfCancellationRequested();
+                try
+                {
+                    var notification = _processor.Parse(element.GetRawText());
+                    if (notification is null)
+                        continue;
 
-            var confirmed = _processor.ToConfirmedPayment(notification, settings.Iban);
-            if (confirmed is null)
-                continue;
+                    var confirmed = _processor.ToConfirmedPayment(notification, settings.Iban);
+                    if (confirmed is null)
+                        continue;
 
-            await _matchingService.ProcessAsync(NopRestPollerSource.BackendId, confirmed, settings.AmountTolerance, ct);
+                    await _matchingService.ProcessAsync(NopRestPollerSource.BackendId, confirmed, settings.AmountTolerance, ct);
+                }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    // One broken notification must not sink the rest of the
+                    // batch; the checkpoint below still advances - the dedup
+                    // key makes any re-delivery harmless anyway.
+                    _logger.LogWarning(ex,
+                        "NOP REST notification processing failed for store {StoreId}; continuing with the batch",
+                        settings.StoreId);
+                }
+            }
         }
+
+        // Checkpoint advances only after the whole batch was fetched and
+        // walked - a thrown fetch keeps the previous window so unprocessed
+        // confirmations are retrieved again next tick.
+        _lastSuccessfulPoll[settings.StoreId] = startedAt;
     }
 }

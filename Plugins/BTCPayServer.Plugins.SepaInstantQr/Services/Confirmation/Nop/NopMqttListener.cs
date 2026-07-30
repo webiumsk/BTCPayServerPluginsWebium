@@ -68,23 +68,11 @@ public class NopMqttListener : BackgroundService
             {
                 _logger.LogError(ex, "NOP MQTT connection refresh failed");
             }
-        } while (await WaitNextTick(timer, stoppingToken));
+        } while (await timer.WaitNextTickSafeAsync(stoppingToken));
 
         foreach (var connection in _connections.Values)
             await connection.DisposeAsync();
         _connections.Clear();
-    }
-
-    private static async Task<bool> WaitNextTick(PeriodicTimer timer, CancellationToken ct)
-    {
-        try
-        {
-            return await timer.WaitForNextTickAsync(ct);
-        }
-        catch (OperationCanceledException)
-        {
-            return false;
-        }
     }
 
     private async Task RefreshConnectionsAsync(CancellationToken ct)
@@ -157,22 +145,37 @@ public class NopMqttListener : BackgroundService
         await _matchingService.ProcessAsync(sourceId, confirmed, settings.AmountTolerance, ct);
     }
 
-    /// <summary>Missed-notification catch-up: NOP retains notifications for 2 hours.</summary>
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, DateTimeOffset> _lastCatchUp = new();
+    private static readonly TimeSpan CatchUpOverlap = TimeSpan.FromMinutes(5);
+
+    /// <summary>
+    /// Missed-notification catch-up: NOP retains notifications for 2 hours.
+    /// The per-store timestamp advances only after a fully successful pass,
+    /// so a failed fetch re-covers the same window next time (dedup keys make
+    /// re-processing harmless).
+    /// </summary>
     internal async Task CatchUpAsync(SepaStoreSettings settings, SepaBackendCredentials credentials, CancellationToken ct)
     {
+        var startedAt = DateTimeOffset.UtcNow;
+        var dateFrom = _lastCatchUp.TryGetValue(settings.StoreId, out var last)
+            ? last - CatchUpOverlap
+            : startedAt.AddHours(-2);
+
         try
         {
             using var client = NopRestClient.Create(credentials, _logger);
             var json = await client.GetAllTransactionsAsync(
                 $"POKLADNICA-{settings.NopPokladnica}",
-                DateTimeOffset.UtcNow.AddHours(-2),
+                dateFrom,
                 ct);
 
-            if (json.ValueKind != System.Text.Json.JsonValueKind.Array)
-                return;
+            if (json.ValueKind == System.Text.Json.JsonValueKind.Array)
+            {
+                foreach (var element in json.EnumerateArray())
+                    await HandleNotificationAsync(settings, element.GetRawText(), "nop-mqtt:catchup", ct);
+            }
 
-            foreach (var element in json.EnumerateArray())
-                await HandleNotificationAsync(settings, element.GetRawText(), "nop-mqtt:catchup", ct);
+            _lastCatchUp[settings.StoreId] = startedAt;
         }
         catch (Exception ex)
         {
@@ -187,6 +190,7 @@ public class NopMqttListener : BackgroundService
         private readonly SepaBackendCredentials _credentials;
         private readonly ILogger _logger;
         private readonly CancellationTokenSource _cts = new();
+        private CancellationTokenSource? _linkedCts;
         private Task? _runTask;
 
         public string ConfigFingerprint { get; }
@@ -213,8 +217,8 @@ public class NopMqttListener : BackgroundService
 
         public void Start(CancellationToken outerCt)
         {
-            var linked = CancellationTokenSource.CreateLinkedTokenSource(outerCt, _cts.Token);
-            _runTask = Task.Run(() => RunAsync(linked.Token), CancellationToken.None);
+            _linkedCts = CancellationTokenSource.CreateLinkedTokenSource(outerCt, _cts.Token);
+            _runTask = Task.Run(() => RunAsync(_linkedCts.Token), CancellationToken.None);
         }
 
         private async Task RunAsync(CancellationToken ct)
@@ -317,6 +321,7 @@ public class NopMqttListener : BackgroundService
             {
                 try { await _runTask; } catch { /* run loop owns its errors */ }
             }
+            _linkedCts?.Dispose();
             _cts.Dispose();
         }
     }

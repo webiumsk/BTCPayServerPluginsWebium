@@ -65,6 +65,10 @@ public class SepaConfigService
             existing.Message = settings.Message;
             existing.ConfirmationBackend = settings.ConfirmationBackend;
             existing.AmountTolerance = settings.AmountTolerance;
+            // NOP identity travels with the certificate - persist both on
+            // upload AND on clear (null overwrites stale values).
+            existing.NopVatsk = settings.NopVatsk;
+            existing.NopPokladnica = settings.NopPokladnica;
             if (settings.EncryptedCredentialsJson is not null)
                 existing.EncryptedCredentialsJson = settings.EncryptedCredentialsJson;
             existing.UpdatedAt = DateTimeOffset.UtcNow;

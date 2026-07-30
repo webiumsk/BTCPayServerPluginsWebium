@@ -63,7 +63,12 @@ public class UISepaController : Controller
     }
 
     [HttpPost("")]
-    public async Task<IActionResult> Settings(string storeId, SepaSettingsViewModel model)
+    public async Task<IActionResult> Settings(
+        string storeId,
+        // The view binds fields as "Settings.X" (page model) - without the
+        // prefix nothing binds and Required validation silently rejects the
+        // save (same pattern as UICashuMeltController).
+        [Microsoft.AspNetCore.Mvc.Bind(Prefix = "Settings")] SepaSettingsViewModel model)
     {
         var store = await _storeRepository.FindStore(storeId);
         if (store is null)
@@ -179,6 +184,13 @@ public class UISepaController : Controller
             try
             {
                 using var certificate = Services.Confirmation.Nop.NopCertificateLoader.Load(updated);
+                if (!certificate.HasPrivateKey)
+                {
+                    ModelState.AddModelError(nameof(model.NopPfxFile),
+                        "The certificate has no private key - mTLS authentication needs it (upload the key file or a complete .p12).");
+                    return false;
+                }
+
                 if (certificate.NotAfter < DateTime.UtcNow)
                 {
                     ModelState.AddModelError(nameof(model.NopPfxFile),
