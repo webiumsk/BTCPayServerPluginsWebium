@@ -37,17 +37,38 @@ public class PluginMigrationRunner : IStartupTask
 
     public async Task ExecuteAsync(CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation("Migrating SepaInstantQr plugin database");
-        await using var ctx = _dbContextFactory.CreateContext();
-
-        var pending = await ctx.Database.GetPendingMigrationsAsync(cancellationToken);
-        if (pending.Any())
+        // A migration failure here must never take the whole server down (a
+        // startup-task exception aborts the host and BTCPay then disables the
+        // plugin on the next boot). A transient DB hiccup during a restart is
+        // survivable: every runtime query site tolerates missing tables, so we
+        // log and let the server come up - migrations retry on the next boot.
+        try
         {
-            _logger.LogInformation("Applying {Count} SepaInstantQr migration(s)", pending.Count());
-            await ctx.Database.MigrateAsync(cancellationToken);
-        }
+            _logger.LogInformation("Migrating SepaInstantQr plugin database");
+            await using var ctx = _dbContextFactory.CreateContext();
 
-        await EnsurePaymentMethodRegisteredAsync(ctx, cancellationToken);
+            var pending = await ctx.Database.GetPendingMigrationsAsync(cancellationToken);
+            if (pending.Any())
+            {
+                _logger.LogInformation("Applying {Count} SepaInstantQr migration(s)", pending.Count());
+                await ctx.Database.MigrateAsync(cancellationToken);
+            }
+
+            await EnsurePaymentMethodRegisteredAsync(ctx, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Do NOT rethrow: BTCPay attributes any startup exception whose
+            // stack trace crosses a plugin assembly to that plugin and
+            // disables it (Program.Main + PluginManager.IsExceptionByPlugin) -
+            // even when the cancellation came from the host itself.
+            _logger.LogInformation("SepaInstantQr migration cancelled by host shutdown.");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex,
+                "SepaInstantQr database migration failed; the plugin may be degraded until the next restart.");
+        }
     }
 
     /// <summary>
