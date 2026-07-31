@@ -49,13 +49,30 @@ Attributes (query string; max lengths before URL encoding):
   website (displays a PAY by square code with the details) - so a PayMe QR
   degrades gracefully even where the bank app lacks native support.
 
-### PAY by square (fast-follow, not in v0.1)
+### PAY by square (implemented in v0.3 as the SK "bysquare" variant)
 
-The older/parallel SK QR standard (SBA "PAY by square specifications",
-<https://bysquare.com/>): binary payload (LZMA-compressed, base32hex-encoded,
-CRC). Decision per operator: v0.1 renders PayMe only; bysquare lands as a
-follow-up once real bank-app scan coverage is validated. (satflux already
-ships a PAY by square implementation that can be ported.)
+The older/parallel SK QR standard (SBA "PAY by square specifications" 1.2.0,
+<https://bysquare.com/>). Encoding pipeline (verified against the
+production-proven satflux implementation - Trinetus generator + xz - and
+cross-checked with python lzma FORMAT_RAW; both produce identical bytes):
+
+1. Tab-separated data string: `"" 1 1 amount currency dueDate(yyyyMMdd) VS
+   CS SS originatorsReferenceInformation paymentNote 1 IBAN BIC 0 0
+   beneficiaryName addr1 addr2` (amount = invariant `0.##`; UTF-8 with
+   diacritics preserved).
+2. CRC32 (IEEE, little-endian binary) prepended to the data.
+3. Raw LZMA1, `lc=3, lp=0, pb=2, dict=128KiB`, end-of-payload marker
+   (equivalent of `xz --format=raw --lzma1=lc=3,lp=0,pb=2,dict=128KiB`).
+4. Header `0x00 0x00` (type Pay, version 0) + uint16 LE length of CRC+data,
+   then the compressed stream.
+5. 5-bit groups mapped through base32hex alphabet `0-9A-V` (zero-padded).
+
+The plugin puts the NOP `QR-` reference into
+OriginatorsReferenceInformation; whether a given bank propagates it as the
+SEPA end-to-end id is bank-specific, so PayMe stays the recommended variant
+for NOP auto-confirmation. LZMA note: independent encoders may emit
+different (equally valid) streams for the same input - golden tests pin the
+xz-identical ASCII vectors and round-trip-decode the UTF-8 one.
 
 ## CZ: SPD - Short Payment Descriptor ("QR Platba")
 
@@ -125,7 +142,6 @@ Source: EPC,
 
 ## Still to verify at implementation time
 
-- PAY by square exact payload spec (bysquare.com) before the fast-follow.
 - Real-world scanning coverage: which SK bank apps handle a `/m/` PayMe QR
   natively vs via the payme.sk fallback (manual test matrix in README).
 - CZ bank-app UX for `CC:EUR` SPD payments (Fio, ČSOB, KB).

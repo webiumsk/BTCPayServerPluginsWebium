@@ -94,6 +94,7 @@ public class UISepaController : Controller
         settings.Bic = string.IsNullOrWhiteSpace(model.Bic) ? null : model.Bic.Trim().ToUpperInvariant();
         settings.Message = string.IsNullOrWhiteSpace(model.Message) ? null : model.Message.Trim();
         settings.ConfirmationBackend = model.ConfirmationBackend;
+        settings.SkQrVariant = model.SkQrVariant;
         settings.AmountTolerance = model.AmountTolerance;
 
         if (!await ApplyNopCertificateAsync(settings, model))
@@ -327,6 +328,7 @@ public class UISepaController : Controller
                     Bic = settings.Bic,
                     Message = settings.Message,
                     ConfirmationBackend = settings.ConfirmationBackend,
+                    SkQrVariant = settings.SkQrVariant,
                     AmountTolerance = settings.AmountTolerance,
                     NopEnvironment = _configService.GetCredentials(settings).NopEnvironment,
                     NopCertSet = _configService.GetCredentials(settings).HasNopCertificate,

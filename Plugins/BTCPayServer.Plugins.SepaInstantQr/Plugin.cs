@@ -41,6 +41,7 @@ public class SepaInstantQrPlugin : BaseBTCPayServerPlugin
 
         // QR payload builders (profile-keyed)
         services.AddSingleton<IQrPayloadBuilder, PayMeV2PayloadBuilder>();
+        services.AddSingleton<IQrPayloadBuilder, PayBySquarePayloadBuilder>();
         services.AddSingleton<IQrPayloadBuilder, SpdPayloadBuilder>();
         services.AddSingleton<IQrPayloadBuilder, EpcQrPayloadBuilder>();
 

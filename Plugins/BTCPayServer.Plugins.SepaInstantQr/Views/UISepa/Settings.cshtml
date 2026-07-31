@@ -35,6 +35,22 @@
             </div>
 
             <div class="form-group">
+                <label asp-for="Settings.SkQrVariant" class="form-label">SK QR variant</label>
+                <select asp-for="Settings.SkQrVariant" class="form-select w-auto">
+                    <option value="payme">PayMe link (recommended with NOP confirmation)</option>
+                    <option value="bysquare">PAY by square (classic bank-app QR)</option>
+                </select>
+                <div class="form-text">
+                    Slovakia only. PayMe maps the payment reference to the SEPA
+                    end-to-end id, which NOP matching relies on. PAY by square is
+                    the long-established QR that every Slovak banking app scans -
+                    pick it if your customers' apps do not open PayMe links; the
+                    reference then travels as originator's reference and automatic
+                    NOP matching may not see it (confirm those payments manually).
+                </div>
+            </div>
+
+            <div class="form-group">
                 <label asp-for="Settings.Iban" class="form-label">IBAN</label>
                 <input asp-for="Settings.Iban" class="form-control font-monospace" placeholder="SK68 0720 0002 8919 8742 6353" />
                 <span asp-validation-for="Settings.Iban" class="text-danger"></span>

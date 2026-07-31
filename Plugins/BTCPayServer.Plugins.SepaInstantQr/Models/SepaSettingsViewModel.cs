@@ -28,6 +28,10 @@ public class SepaSettingsViewModel : IValidatableObject
     [MaxLength(11)]
     public string? Bic { get; set; }
 
+    [Required]
+    [RegularExpression("payme|bysquare", ErrorMessage = "Unknown SK QR variant.")]
+    public string SkQrVariant { get; set; } = "payme";
+
     [MaxLength(60)]
     public string? Message { get; set; }
 

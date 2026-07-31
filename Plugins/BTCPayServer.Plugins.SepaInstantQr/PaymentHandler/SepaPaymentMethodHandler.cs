@@ -69,8 +69,9 @@ public class SepaPaymentMethodHandler : IPaymentMethodHandler
         if (context.State is not SepaStoreSettings settings)
             throw new PaymentMethodUnavailableException("SEPA Instant QR is not configured for this store");
 
-        if (!_qrBuilders.TryGetValue(settings.CountryProfile, out var qrBuilder))
-            throw new PaymentMethodUnavailableException($"Unknown SEPA country profile '{settings.CountryProfile}'");
+        var builderKey = ResolveQrBuilderKey(settings);
+        if (!_qrBuilders.TryGetValue(builderKey, out var qrBuilder))
+            throw new PaymentMethodUnavailableException($"Unknown SEPA QR profile '{builderKey}'");
 
         var invoice = context.InvoiceEntity;
         var due = context.Prompt.Calculate().Due;
@@ -135,6 +136,16 @@ public class SepaPaymentMethodHandler : IPaymentMethodHandler
             ? PaymentReferenceGenerator.NewVariableSymbol()
             : PaymentReferenceGenerator.NewEndToEndId();
     }
+
+    /// <summary>
+    /// The SK profile has two QR variants (PayMe link vs PAY by square);
+    /// other profiles map 1:1 to their builder.
+    /// </summary>
+    internal static string ResolveQrBuilderKey(SepaStoreSettings settings)
+        => settings.CountryProfile.Equals("SK", StringComparison.OrdinalIgnoreCase)
+           && string.Equals(settings.SkQrVariant, "bysquare", StringComparison.OrdinalIgnoreCase)
+            ? Services.Qr.PayBySquarePayloadBuilder.ProfileKey
+            : settings.CountryProfile;
 
     public object ParsePaymentPromptDetails(JToken details)
     {
