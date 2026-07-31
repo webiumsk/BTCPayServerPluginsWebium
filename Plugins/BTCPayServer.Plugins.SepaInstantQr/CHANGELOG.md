@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.0 - unreleased
+
+- CZK invoices for the CZ profile: QR Platba is CZK-native, so the SPD
+  payload now carries the invoice currency (`CC:CZK`, `PT:IP` = domestic
+  CERTIS instant) and matching/settlement run in the request currency
+  end to end. SK/EU profiles stay EUR-only (SEPA instant). The payment
+  method appears on EUR invoices everywhere and additionally on CZK
+  invoices when the store profile is CZ.
+
+
 ## 0.4.0 - unreleased
 
 - Greenfield API for external control panels (satflux) under

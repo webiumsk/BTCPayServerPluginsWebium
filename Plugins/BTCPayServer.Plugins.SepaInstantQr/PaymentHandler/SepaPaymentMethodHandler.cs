@@ -44,13 +44,6 @@ public class SepaPaymentMethodHandler : IPaymentMethodHandler
 
     public async Task BeforeFetchingRates(PaymentMethodContext context)
     {
-        // EUR-only in v1: the tab simply does not exist on other invoices.
-        if (!string.Equals(context.InvoiceEntity.Currency, "EUR", StringComparison.OrdinalIgnoreCase))
-        {
-            context.State = null;
-            return;
-        }
-
         var settings = await _configService.GetEnabledSettingsAsync(context.Store.Id);
         if (settings is null || !IbanValidator.IsValid(settings.Iban))
         {
@@ -58,11 +51,35 @@ public class SepaPaymentMethodHandler : IPaymentMethodHandler
             return;
         }
 
-        context.Prompt.Currency = "EUR";
+        // Currency gate per profile: the CZ profile accepts CZK (QR Platba
+        // is CZK-native; PT:IP = domestic CERTIS instant) alongside EUR;
+        // SK/EU stay EUR-only (SEPA instant). Unsupported invoice currency
+        // -> the tab simply does not exist on that invoice.
+        var currency = context.InvoiceEntity.Currency?.ToUpperInvariant() ?? "";
+        if (!SupportsCurrency(settings.CountryProfile, currency))
+        {
+            context.State = null;
+            return;
+        }
+
+        context.Prompt.Currency = currency;
         context.Prompt.Divisibility = 2;
         context.Prompt.PaymentMethodFee = 0m;
         context.State = settings;
     }
+
+    /// <summary>
+    /// Which invoice currencies a profile can charge: CZ additionally
+    /// handles CZK - both the SPD payload (CC:CZK) and matching carry the
+    /// request currency end to end, settling 1:1 against the invoice.
+    /// </summary>
+    internal static bool SupportsCurrency(string countryProfile, string currency)
+        => currency switch
+        {
+            "EUR" => true,
+            "CZK" => countryProfile.Equals("CZ", StringComparison.OrdinalIgnoreCase),
+            _ => false,
+        };
 
     public async Task ConfigurePrompt(PaymentMethodContext context)
     {
@@ -83,7 +100,8 @@ public class SepaPaymentMethodHandler : IPaymentMethodHandler
             due,
             reference,
             settings.Message,
-            settings.Bic));
+            settings.Bic,
+            Currency: context.Prompt.Currency));
 
         context.Prompt.Destination = IbanValidator.Normalize(settings.Iban);
         context.Prompt.Details = JObject.FromObject(new SepaPromptDetails
@@ -109,7 +127,7 @@ public class SepaPaymentMethodHandler : IPaymentMethodHandler
             Backend = settings.ConfirmationBackend,
             State = SepaPaymentRequestState.Pending,
             AmountDue = due,
-            Currency = "EUR",
+            Currency = context.Prompt.Currency,
             Iban = IbanValidator.Normalize(settings.Iban),
             QrPayload = qrPayload,
             CreatedAt = DateTimeOffset.UtcNow,

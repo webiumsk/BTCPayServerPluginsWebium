@@ -13,7 +13,8 @@ capabilities.
 
 ## v0.1 scope
 
-- Payment method `SEPA_INSTANT` (EUR invoices only; hidden otherwise).
+- Payment method `SEPA_INSTANT` (EUR invoices; the CZ profile also
+  accepts CZK since v0.5 - hidden on any other currency).
 - QR formats by store country profile:
   - **SK**: PayMe (SBA Payment Link Standard 2.0, type `/m/` dynamic QR,
     SCT Inst) - the same format the state NOP/"QR platby" initiative uses.
@@ -27,8 +28,9 @@ capabilities.
     the SEPA end-to-end id - PayMe stays the recommended variant with NOP
     auto-confirmation.
   - **CZ**: QR Platba (SPD 1.0), reference in `X-VS`, `PT:IP` instant flag.
-    Note: `CC:EUR` makes CZ banks route it as a SEPA/foreign payment - UX
-    varies per bank.
+    CZK invoices produce `CC:CZK` (domestic CERTIS instant - the native
+    QR Platba flow). EUR invoices produce `CC:EUR`, which CZ banks route
+    as a SEPA/foreign payment - UX varies per bank.
   - **EU generic**: EPC QR ("girocode", EPC069-12 v3.1, version 002).
 - Confirmation backend: **Manual** - the merchant sees the transfer in their
   banking app and presses "Mark as paid" on the store's SEPA page

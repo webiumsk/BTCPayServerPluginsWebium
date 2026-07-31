@@ -12,4 +12,5 @@ public record SepaQrRequest(
     string Reference,
     string? Message,
     string? Bic = null,
-    System.DateOnly? PaymentDate = null);
+    System.DateOnly? PaymentDate = null,
+    string Currency = "EUR");
