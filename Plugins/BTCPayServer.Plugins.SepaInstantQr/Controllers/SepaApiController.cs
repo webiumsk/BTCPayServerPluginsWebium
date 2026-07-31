@@ -99,9 +99,13 @@ public class SepaApiController : ControllerBase
                 detail: "NOP backends need the eKasa cash-register certificate - upload it first (POST certificate).");
 
         // Environment changes without re-uploading material go through the
-        // certificate service so the encrypted blob stays consistent.
+        // certificate service so the encrypted blob stays consistent; an
+        // omitted nopEnvironment keeps the stored one instead of silently
+        // resetting a PROD store to INT.
+        var environment = request.NopEnvironment
+                          ?? _configService.GetCredentials(settings).NopEnvironment;
         var error = _certificateService.Apply(settings,
-            new SepaCertificateUpload(null, null, null, null, request.NopEnvironment));
+            new SepaCertificateUpload(null, null, null, null, environment));
         if (error is not null)
             return Problem(statusCode: 400, detail: error);
 
@@ -128,7 +132,8 @@ public class SepaApiController : ControllerBase
             return Problem(statusCode: 400, detail: "Save the settings first (PUT settings).");
 
         var error = _certificateService.Apply(settings, new SepaCertificateUpload(
-            request.PfxBase64, request.PfxPassword, request.CertPem, request.KeyPem, request.NopEnvironment));
+            request.PfxBase64, request.PfxPassword, request.CertPem, request.KeyPem,
+            request.NopEnvironment ?? _configService.GetCredentials(settings).NopEnvironment));
         if (error is not null)
             return Problem(statusCode: 400, detail: error);
 

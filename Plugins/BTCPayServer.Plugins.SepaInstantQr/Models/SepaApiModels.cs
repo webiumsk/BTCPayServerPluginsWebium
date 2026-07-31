@@ -53,11 +53,12 @@ public class SepaUpdateSettingsRequest
     [RegularExpression("payme|bysquare", ErrorMessage = "Unknown SK QR variant.")]
     public string SkQrVariant { get; set; } = "payme";
 
-    [Range(0, 10)]
+    [Range(typeof(decimal), "0", "10")]
     public decimal AmountTolerance { get; set; }
 
+    /// <summary>Optional - omitting it keeps the currently stored NOP environment.</summary>
     [RegularExpression("INT|PROD")]
-    public string NopEnvironment { get; set; } = "INT";
+    public string? NopEnvironment { get; set; }
 }
 
 /// <summary>Certificate upload: either PfxBase64 (+PfxPassword) or the CertPem/KeyPem pair.</summary>
@@ -68,8 +69,9 @@ public class SepaUploadCertificateRequest
     public string? CertPem { get; set; }
     public string? KeyPem { get; set; }
 
+    /// <summary>Optional - omitting it keeps the currently stored NOP environment.</summary>
     [RegularExpression("INT|PROD")]
-    public string NopEnvironment { get; set; } = "INT";
+    public string? NopEnvironment { get; set; }
 }
 
 public class SepaPaymentRequestData

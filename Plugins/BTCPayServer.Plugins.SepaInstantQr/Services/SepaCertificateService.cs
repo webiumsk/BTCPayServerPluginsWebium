@@ -122,7 +122,7 @@ public class SepaCertificateService
                 settings.NopVatsk = identity.Vatsk;
                 settings.NopPokladnica = identity.Pokladnica;
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is System.Security.Cryptography.CryptographicException or ArgumentException)
             {
                 return $"Could not load the certificate: {ex.Message}";
             }

@@ -180,6 +180,22 @@ public class SepaCertificateServiceTests
     }
 
     [Fact]
+    public void Rejects_a_pfx_with_a_wrong_password()
+    {
+        var (service, _) = CreateServices();
+        var settings = new SepaStoreSettings { StoreId = "store" };
+        using var rsa = RSA.Create(2048);
+        using var certificate = CreateEkasaCertificate(rsa);
+
+        var error = service.Apply(settings, new SepaCertificateUpload(
+            Convert.ToBase64String(certificate.Export(X509ContentType.Pkcs12, "secret")),
+            "wrong", null, null, "INT"));
+
+        Assert.NotNull(error);
+        Assert.Null(settings.NopVatsk);
+    }
+
+    [Fact]
     public void Environment_only_apply_keeps_the_stored_certificate()
     {
         var (service, config) = CreateServices();

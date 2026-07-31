@@ -39,7 +39,7 @@ public class SepaSettingsViewModel : IValidatableObject
     [RegularExpression("manual|nop-mqtt|nop-rest", ErrorMessage = "Unknown confirmation backend.")]
     public string ConfirmationBackend { get; set; } = "manual";
 
-    [Range(0, 10)]
+    [Range(typeof(decimal), "0", "10")]
     public decimal AmountTolerance { get; set; }
 
     // ── NOP certificate upload (write-only; secrets never render back) ──
