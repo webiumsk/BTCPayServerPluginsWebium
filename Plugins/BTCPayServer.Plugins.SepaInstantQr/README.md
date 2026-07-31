@@ -19,6 +19,13 @@ capabilities.
     SCT Inst) - the same format the state NOP/"QR platby" initiative uses.
     The payment reference is NOP-shaped (`QR-` + 32 hex), so upgrading to
     automated NOP confirmation later changes nothing for the payer.
+    Since v0.3 the SK profile can switch to **PAY by square** (SBA
+    "PAY by square specifications" 1.2.0) - the long-established binary QR
+    every Slovak banking app scans. Pick it when your customers' apps do
+    not open PayMe links; note the payment reference then travels as
+    originator's reference information, which not every bank propagates as
+    the SEPA end-to-end id - PayMe stays the recommended variant with NOP
+    auto-confirmation.
   - **CZ**: QR Platba (SPD 1.0), reference in `X-VS`, `PT:IP` instant flag.
     Note: `CC:EUR` makes CZ banks route it as a SEPA/foreign payment - UX
     varies per bank.

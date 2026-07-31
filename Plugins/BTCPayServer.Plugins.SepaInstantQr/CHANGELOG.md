@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.0 - unreleased
+
+- PAY by square QR variant for the SK profile (`SkQrVariant` store
+  setting: `payme` default | `bysquare`). Payload per SBA "PAY by square
+  specifications" 1.2.0: raw LZMA1 + CRC32 + base32hex, UTF-8 diacritics
+  preserved, NOP reference carried as originator's reference information.
+  PayMe remains the recommended variant with NOP auto-confirmation.
+
+
 ## 0.2.0 - unreleased
 
 - NOP backend (Slovak state instant-payment notifications, project

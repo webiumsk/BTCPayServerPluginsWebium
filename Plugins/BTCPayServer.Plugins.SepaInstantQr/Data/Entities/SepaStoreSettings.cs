@@ -32,6 +32,11 @@ public class SepaStoreSettings
     [MaxLength(11)]
     public string? Bic { get; set; }
 
+    /// <summary>SK profile QR variant: payme (PayMe link, NOP-recommended) | bysquare.</summary>
+    [Required]
+    [MaxLength(16)]
+    public string SkQrVariant { get; set; } = "payme";
+
     /// <summary>Optional message/remittance shown to the payer (business name + branch recommended).</summary>
     [MaxLength(60)]
     public string? Message { get; set; }
