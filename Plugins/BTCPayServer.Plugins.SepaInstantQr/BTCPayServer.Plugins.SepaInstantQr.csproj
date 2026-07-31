@@ -8,7 +8,7 @@
   <PropertyGroup>
     <Product>SEPA Instant QR</Product>
     <Description>Accept instant SEPA credit transfers via QR code (SK PayMe, CZ SPD, EU EPC QR) paid directly to the merchant's own bank account. Manual and automated payment confirmation backends. No custody.</Description>
-    <Version>0.3.0</Version>
+    <Version>0.4.0</Version>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
   </PropertyGroup>
 

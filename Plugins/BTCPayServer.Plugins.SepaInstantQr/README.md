@@ -125,6 +125,29 @@ their bank), and is not a payment service. Merchants should verify their own
 regulatory and fiscal obligations - in particular, eKasa receipt duties
 remain with the merchant's cash register (no fiscal integration in v1).
 
+## Greenfield API (external control panels)
+
+All endpoints live under
+`/api/v1/stores/{storeId}/plugins/sepa-instant-qr` and require a
+store-scoped API key with the `btcpay.store.canmodifystoresettings`
+permission (`Authorization: token <apikey>`). Responses expose only
+`nopCertSet` + the parsed identity - certificate material and passwords
+never leave the server.
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/settings` | Current settings (`configured: false` when unset) |
+| PUT | `/settings` | Create/update settings; syncs the SEPA_INSTANT payment method on the store |
+| POST | `/certificate` | Upload the eKasa certificate: `{ "pfxBase64", "pfxPassword" }` or `{ "certPem", "keyPem" }`, plus `nopEnvironment` |
+| DELETE | `/certificate` | Remove the certificate (a NOP backend falls back to `manual`) |
+| POST | `/test` | Live test of the configured confirmation backend |
+| GET | `/payment-requests?state=pending\|review` | Awaiting/needs-review payments (newest 100) |
+| POST | `/payment-requests/{reference}/confirm` | Manual confirmation through the normal invoice lifecycle |
+
+Notes for integrators: PUT `/settings` rejects a `nop-*` backend until a
+certificate is uploaded; upload the certificate first, then switch the
+backend. Validation errors come back as RFC 7807 problem responses.
+
 ## Development
 
 ```bash

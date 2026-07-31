@@ -35,6 +35,7 @@ public class UISepaController : Controller
 
     private readonly StoreRepository _storeRepository;
     private readonly SepaConfigService _configService;
+    private readonly SepaCertificateService _certificateService;
     private readonly SepaDbContextFactory _dbContextFactory;
     private readonly SepaMatchingService _matchingService;
     private readonly PaymentMethodHandlerDictionary _handlers;
@@ -43,6 +44,7 @@ public class UISepaController : Controller
     public UISepaController(
         StoreRepository storeRepository,
         SepaConfigService configService,
+        SepaCertificateService certificateService,
         SepaDbContextFactory dbContextFactory,
         SepaMatchingService matchingService,
         PaymentMethodHandlerDictionary handlers,
@@ -50,6 +52,7 @@ public class UISepaController : Controller
     {
         _storeRepository = storeRepository;
         _configService = configService;
+        _certificateService = certificateService;
         _dbContextFactory = dbContextFactory;
         _matchingService = matchingService;
         _handlers = handlers;
@@ -133,106 +136,37 @@ public class UISepaController : Controller
     }
 
     /// <summary>
-    /// Applies the uploaded/cleared NOP certificate to the settings entity.
-    /// Returns false (with ModelState errors) when the upload is invalid.
-    /// Certificate material goes straight into the encrypted credentials
-    /// blob - it is never logged or echoed back.
+    /// Applies the uploaded/cleared NOP certificate via the shared
+    /// SepaCertificateService (also used by the Greenfield API). Returns
+    /// false with a ModelState error when the upload is invalid.
     /// </summary>
     private async Task<bool> ApplyNopCertificateAsync(SepaStoreSettings settings, SepaSettingsViewModel model)
     {
-        var credentials = _configService.GetCredentials(settings);
-
         if (model.ClearNopCertificate)
         {
-            _configService.ApplyCredentials(settings, credentials with
-            {
-                NopCertificatePem = null,
-                NopPrivateKeyPem = null,
-                NopPfxBase64 = null,
-                NopPfxPassword = null,
-                NopEnvironment = model.NopEnvironment,
-            });
-            settings.NopVatsk = null;
-            settings.NopPokladnica = null;
+            _certificateService.Clear(settings, model.NopEnvironment);
             return true;
         }
 
-        SepaBackendCredentials updated = credentials with { NopEnvironment = model.NopEnvironment };
-        var uploaded = false;
-
+        string? pfxBase64 = null;
         if (model.NopPfxFile is not null)
         {
             using var stream = new System.IO.MemoryStream();
             await model.NopPfxFile.CopyToAsync(stream);
-            updated = updated with
-            {
-                NopPfxBase64 = Convert.ToBase64String(stream.ToArray()),
-                NopPfxPassword = model.NopPfxPassword,
-                NopCertificatePem = null,
-                NopPrivateKeyPem = null,
-            };
-            uploaded = true;
-        }
-        else if (model.NopCertPemFile is not null && model.NopKeyPemFile is not null)
-        {
-            updated = updated with
-            {
-                NopCertificatePem = await ReadFormFileAsync(model.NopCertPemFile),
-                NopPrivateKeyPem = await ReadFormFileAsync(model.NopKeyPemFile),
-                NopPfxBase64 = null,
-                NopPfxPassword = null,
-            };
-            uploaded = true;
+            pfxBase64 = Convert.ToBase64String(stream.ToArray());
         }
 
-        if (uploaded)
-        {
-            try
-            {
-                using var certificate = Services.Confirmation.Nop.NopCertificateLoader.Load(updated);
-                if (!certificate.HasPrivateKey)
-                {
-                    ModelState.AddModelError(NopCertFieldKey,
-                        "The certificate has no private key - mTLS authentication needs it (upload the key file or a complete .p12).");
-                    return false;
-                }
+        var error = _certificateService.Apply(settings, new SepaCertificateUpload(
+            pfxBase64,
+            model.NopPfxPassword,
+            model.NopCertPemFile is not null ? await ReadFormFileAsync(model.NopCertPemFile) : null,
+            model.NopKeyPemFile is not null ? await ReadFormFileAsync(model.NopKeyPemFile) : null,
+            model.NopEnvironment));
+        if (error is null)
+            return true;
 
-                // NotBefore/NotAfter are local-time DateTimes - convert
-                // before comparing against UtcNow.
-                if (certificate.NotAfter.ToUniversalTime() < DateTime.UtcNow)
-                {
-                    ModelState.AddModelError(NopCertFieldKey,
-                        $"The certificate expired on {certificate.NotAfter:yyyy-MM-dd}.");
-                    return false;
-                }
-
-                if (certificate.NotBefore.ToUniversalTime() > DateTime.UtcNow)
-                {
-                    ModelState.AddModelError(NopCertFieldKey,
-                        $"The certificate is not valid yet (valid from {certificate.NotBefore:yyyy-MM-dd}).");
-                    return false;
-                }
-
-                var identity = Services.Confirmation.Nop.NopIdentity.FromCertificate(certificate);
-                if (identity is null)
-                {
-                    ModelState.AddModelError(NopCertFieldKey,
-                        "The certificate subject does not look like an eKasa cash-register certificate (expected CN \"VATSK-... POKLADNICA ...\").");
-                    return false;
-                }
-
-                settings.NopVatsk = identity.Vatsk;
-                settings.NopPokladnica = identity.Pokladnica;
-            }
-            catch (Exception ex)
-            {
-                ModelState.AddModelError(NopCertFieldKey, $"Could not load the certificate: {ex.Message}");
-                return false;
-            }
-        }
-
-        _configService.ApplyCredentials(settings, updated);
-        return true;
+        ModelState.AddModelError(NopCertFieldKey, error);
+        return false;
     }
 
     private static async Task<string> ReadFormFileAsync(Microsoft.AspNetCore.Http.IFormFile file)
