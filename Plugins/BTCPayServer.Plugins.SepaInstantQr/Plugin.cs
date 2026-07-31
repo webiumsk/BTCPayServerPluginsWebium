@@ -8,6 +8,7 @@ using BTCPayServer.Plugins.SepaInstantQr.Data;
 using BTCPayServer.Plugins.SepaInstantQr.PaymentHandler;
 using BTCPayServer.Plugins.SepaInstantQr.Services;
 using BTCPayServer.Plugins.SepaInstantQr.Services.Confirmation;
+using BTCPayServer.Plugins.SepaInstantQr.Services.Confirmation.Nop;
 using BTCPayServer.Plugins.SepaInstantQr.Services.Qr;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -43,8 +44,13 @@ public class SepaInstantQrPlugin : BaseBTCPayServerPlugin
         services.AddSingleton<IQrPayloadBuilder, SpdPayloadBuilder>();
         services.AddSingleton<IQrPayloadBuilder, EpcQrPayloadBuilder>();
 
-        // Confirmation backends (v0.1: manual only; Fio/NOP/GoCardless follow)
+        // Confirmation backends: manual + Slovak NOP (MQTT push, REST poll)
         services.AddSingleton<IPaymentConfirmationSource, ManualConfirmSource>();
+        services.AddSingleton<NopNotificationProcessor>();
+        services.AddSingleton<IPaymentConfirmationSource, NopMqttSource>();
+        services.AddSingleton<IPaymentConfirmationSource, NopRestPollerSource>();
+        services.AddHostedService<NopMqttListener>();
+        services.AddHostedService<SepaPollingHostedService>();
 
         // ── BTCPay payment method integration ──────────────────────────────
         services.AddSingleton<IPaymentMethodHandler, SepaPaymentMethodHandler>();

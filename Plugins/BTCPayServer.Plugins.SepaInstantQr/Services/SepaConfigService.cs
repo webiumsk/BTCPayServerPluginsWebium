@@ -65,6 +65,10 @@ public class SepaConfigService
             existing.Message = settings.Message;
             existing.ConfirmationBackend = settings.ConfirmationBackend;
             existing.AmountTolerance = settings.AmountTolerance;
+            // NOP identity travels with the certificate - persist both on
+            // upload AND on clear (null overwrites stale values).
+            existing.NopVatsk = settings.NopVatsk;
+            existing.NopPokladnica = settings.NopPokladnica;
             if (settings.EncryptedCredentialsJson is not null)
                 existing.EncryptedCredentialsJson = settings.EncryptedCredentialsJson;
             existing.UpdatedAt = DateTimeOffset.UtcNow;
@@ -93,4 +97,12 @@ public class SepaConfigService
             return null;
         }
     }
+
+    /// <summary>Decrypted backend credentials of a store (empty record when unset).</summary>
+    public SepaBackendCredentials GetCredentials(SepaStoreSettings settings)
+        => SepaBackendCredentials.FromJson(UnprotectCredentials(settings.EncryptedCredentialsJson));
+
+    /// <summary>Encrypts and stores the credentials blob on the settings entity (caller saves).</summary>
+    public void ApplyCredentials(SepaStoreSettings settings, SepaBackendCredentials credentials)
+        => settings.EncryptedCredentialsJson = ProtectCredentials(credentials.ToJson());
 }

@@ -33,33 +33,73 @@ capabilities.
   auto-settle a mismatched payment - amount/currency mismatches land in
   "Needs review" for the merchant to decide.
 
-Planned next (see `docs/research/` in the repo root): Fio API polling (CZ),
-NOP MQTT + NOP Lite REST (SK state instant-payment notifications,
-authenticated with the merchant's eKasa cash-register certificate),
-GoCardless Bank Account Data (PSD2 AIS).
+## Automatic confirmation: NOP (Slovakia, v0.2)
+
+The **NOP backend** turns confirmations fully automatic for Slovak
+merchants: the payer's bank pushes an instant-payment notification to the
+state NOP system (project KVERKOM) and the plugin receives it within
+seconds over MQTT - the invoice settles while the customer is still at the
+counter. Works for **every Slovak bank joined to the QR-payments scheme**
+(Tatra banka and SLSP as of July 2026 per info-qrplatby.sk; coverage grows
+with the cashless-payment law), independent of the merchant's bank having
+an API.
+
+- `NOP - instant notifications` (recommended): persistent mTLS MQTT
+  subscription per store, QoS 1 with deduplication, automatic reconnect
+  with exponential backoff and a 2-hour catch-up over REST after downtime.
+- `NOP - polling fallback`: the same notifications fetched via the NOP Lite
+  REST API every minute - for deployments where a persistent MQTT
+  connection is impractical.
+- Every notification's `dataIntegrityHash` (SHA-256 per the SBA Standard
+  for Push Payment Notification) is verified; tampered or mismatched
+  notifications go to "Needs review" and never auto-settle.
+- Payment references are issued by NOP (`generateNewTransactionId`). If NOP
+  is unreachable at invoice creation, a compatible local reference is used
+  and confirmation degrades to Manual for that invoice.
+
+Aggregator status (all-EU PSD2 account access): GoCardless Bank Account
+Data stopped accepting new signups in July 2025; successor services
+(e.g. Enable Banking) require a paid operator contract for multi-merchant
+production use. See `docs/research/qr-formats.md` / `docs/research/nop.md`
+and the aggregator notes in `docs/research/btcpay-plugin-patterns.md`.
+An aggregator backend can plug into the existing confirmation seam once
+that contract exists.
 
 ## Merchant setup
 
 1. Store settings → **SEPA Instant QR** (wallets nav).
 2. Pick the country profile, enter IBAN + beneficiary name, save, enable.
 3. Create a EUR invoice - the SEPA tab appears next to Bitcoin/Lightning.
-4. When a customer pays, confirm the payment under "Awaiting payment" once
-   it shows up in your banking app (automated confirmation arrives in later
-   versions).
+4. Confirmation:
+   - **Manual** (default, any bank): confirm under "Awaiting payment" once
+     the transfer shows in your banking app.
+   - **NOP** (Slovakia): upload your eKasa cash-register certificate and
+     switch the backend - see below.
 
-### Slovakia notes
+### Slovakia - NOP setup
 
-- Ask your bank to mark the business account as **"notifikačný"**
-  (notification-enabled) for the QR platby service - required for the
-  upcoming automatic NOP confirmation. Banks supporting it at research time:
-  Tatra banka, SLSP (see <https://www.info-qrplatby.sk/>).
-- Payer-side support: bank apps implementing PayMe open the payment
-  pre-filled; others fall back through the central payme.sk page.
+1. Ask your bank to mark the business account as **"notifikačný"**
+   (notification-enabled) for the QR platby service. Banks supporting it as
+   of July 2026: Tatra banka, SLSP - check <https://www.info-qrplatby.sk/>
+   for the current list (coverage grows with the cashless-payment law).
+2. Get your **eKasa cash-register certificate** - the same identity your
+   cash register uses (authentication package from the eKasa zone of the
+   Financial Administration portal; VRP certificates download directly,
+   ORP certificates come from your cash-register registration/vendor).
+   Upload it (PEM pair or .p12/.pfx) in the plugin settings; the identity
+   (VATSK / POKLADNICA) is read from the certificate automatically.
+3. Choose environment: **INT** for testing against
+   `api-erp-i.kverkom.sk` / `mqtt-i.kverkom.sk` (open, no whitelisting) or
+   **PROD** (production operation launched by FR SR in March 2026 per
+   info-qrplatby.sk).
+4. Press **Test confirmation backend** - it performs a live mTLS status
+   call and reports your certificate identity.
+5. Payer-side support: bank apps implementing PayMe open the payment
+   pre-filled; others fall back through the central payme.sk page.
 
-### Czechia notes
-
-- The upcoming Fio backend needs an API token: Fio internetbanking →
-  Settings → API. Polling respects Fio's 30-second per-token limit.
+If NOP is down when an invoice is created, the invoice still works - the
+QR renders with a locally generated reference and the merchant confirms
+manually for that one payment.
 
 ### Counter-top POS setup
 

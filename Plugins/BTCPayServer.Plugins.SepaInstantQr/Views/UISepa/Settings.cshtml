@@ -17,7 +17,8 @@
             intermediary, no custody.
         </p>
 
-        <form method="post" asp-action="Settings" asp-route-storeId="@Model.StoreId">
+        <form method="post" asp-action="Settings" asp-route-storeId="@Model.StoreId" enctype="multipart/form-data">
+            <div asp-validation-summary="All" class="text-danger"></div>
             <div class="form-group form-check">
                 <input asp-for="Settings.Enabled" type="checkbox" class="form-check-input" />
                 <label asp-for="Settings.Enabled" class="form-check-label">Enable SEPA Instant QR on this store (EUR invoices only)</label>
@@ -60,12 +61,67 @@
                 <label asp-for="Settings.ConfirmationBackend" class="form-label">Payment confirmation</label>
                 <select asp-for="Settings.ConfirmationBackend" class="form-select w-auto">
                     <option value="manual">Manual - I confirm payments in my banking app</option>
+                    <option value="nop-mqtt">NOP - instant notifications (Slovakia, recommended)</option>
+                    <option value="nop-rest">NOP - polling fallback (Slovakia)</option>
                 </select>
                 <div class="form-text">
-                    Automated backends (Slovak NOP notifications, Fio API, PSD2
-                    account access) arrive in upcoming versions.
+                    NOP delivers bank-pushed confirmations within seconds for every
+                    Slovak bank joined to the state QR-payments scheme. Requires the
+                    eKasa cash-register certificate below and a "notification-enabled"
+                    business account at your bank.
                 </div>
             </div>
+
+            <fieldset class="border rounded p-3 my-3">
+                <legend class="fs-6">NOP - eKasa certificate</legend>
+                @if (Model.Settings.NopCertSet)
+                {
+                    <p class="text-success mb-2">
+                        Certificate uploaded - identity
+                        <strong>@Model.Settings.NopVatsk</strong> /
+                        <strong>POKLADNICA-@Model.Settings.NopPokladnica</strong>.
+                    </p>
+                    <div class="form-group form-check">
+                        <input asp-for="Settings.ClearNopCertificate" type="checkbox" class="form-check-input" />
+                        <label asp-for="Settings.ClearNopCertificate" class="form-check-label">Remove the stored certificate</label>
+                    </div>
+                }
+                else
+                {
+                    <p class="text-muted small">
+                        The same certificate your cash register uses for eKasa
+                        (download the authentication package from the eKasa zone of
+                        the Financial Administration portal). Upload either the PEM
+                        pair or a PKCS#12 (.p12/.pfx) file. Stored encrypted; never
+                        displayed again.
+                    </p>
+                }
+                <div class="form-group">
+                    <label asp-for="Settings.NopPfxFile" class="form-label">PKCS#12 file (.p12/.pfx)</label>
+                    <input asp-for="Settings.NopPfxFile" type="file" class="form-control" accept=".p12,.pfx" />
+                    <span asp-validation-for="Settings.NopPfxFile" class="text-danger"></span>
+                </div>
+                <div class="form-group">
+                    <label asp-for="Settings.NopPfxPassword" class="form-label">PKCS#12 password</label>
+                    <input asp-for="Settings.NopPfxPassword" type="password" autocomplete="new-password" class="form-control w-auto" />
+                </div>
+                <div class="form-group">
+                    <label asp-for="Settings.NopCertPemFile" class="form-label">... or PEM certificate</label>
+                    <input asp-for="Settings.NopCertPemFile" type="file" class="form-control" accept=".pem,.crt" />
+                    <span asp-validation-for="Settings.NopCertPemFile" class="text-danger"></span>
+                </div>
+                <div class="form-group">
+                    <label asp-for="Settings.NopKeyPemFile" class="form-label">PEM private key</label>
+                    <input asp-for="Settings.NopKeyPemFile" type="file" class="form-control" accept=".pem,.key" />
+                </div>
+                <div class="form-group">
+                    <label asp-for="Settings.NopEnvironment" class="form-label">Environment</label>
+                    <select asp-for="Settings.NopEnvironment" class="form-select w-auto">
+                        <option value="INT">INT - integration/testing</option>
+                        <option value="PROD">PROD - production</option>
+                    </select>
+                </div>
+            </fieldset>
 
             <div class="form-group">
                 <label asp-for="Settings.AmountTolerance" class="form-label">Amount tolerance (EUR)</label>

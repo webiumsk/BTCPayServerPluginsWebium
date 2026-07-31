@@ -39,8 +39,10 @@ Sources (primary, retrieved 2026-07-30):
 | INT | `https://api-erp-i.kverkom.sk` | `https://api-banka-i.kverkom.sk` | `mqtt-i.kverkom.sk:8883` |
 | PROD | `https://api-erp.kverkom.sk` | `https://api-banka.kverkom.sk` | `mqtt.kverkom.sk:8883` |
 
-PROD was marked "v príprave" (in preparation) as of manual v1.7 - re-verify
-before enabling the PROD toggle. SNI must match; IP ranges limited to
+PROD was marked "v príprave" in manual v1.7; **update 2026-07-31:**
+info-qrplatby.sk states production operation is launched ("Spustili sme
+produkčnú prevádzku"; open pilot Jan-Feb 2026, production launch March
+2026). Live banks still Tatra banka + SLSP only. SNI must match; IP ranges limited to
 SK/EU/USA; system timezone Europe/Bratislava; NTP drift < 200 ms required.
 Public diagnostics REST (no mTLS): `https://kdejemojaplatba.kverkom.sk` /
 `https://kdejemojaplatba-i.kverkom.sk`.
@@ -149,7 +151,9 @@ pilot until 15.1.2026 via `kverkom.kasoveIS@financnasprava.sk`.
 
 ## Still to verify at implementation time (NOP phases)
 
-- Current PROD availability + onboarding process outside the closed pilot.
+- PROD onboarding process outside the closed pilot (production itself
+  launched March 2026 - see the Environments note; live banks still
+  Tatra banka + SLSP only).
 - Whether the `id` vs `transaction_id` response-field discrepancy is resolved
   in a newer Services API revision (OpenAPI: `erp_openapi-0.5.1.yaml`).
 - eKasa certificate export practicality per merchant segment (ORP vs VRP).

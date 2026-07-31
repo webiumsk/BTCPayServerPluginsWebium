@@ -21,6 +21,13 @@ public class SepaMatchingEvaluateTests
     }
 
     [Fact]
+    public void Integrity_failure_always_wins_even_when_amount_matches()
+    {
+        var payment = Payment(100.00m) with { IntegrityFailure = "dataIntegrityHash mismatch" };
+        Assert.Equal("dataIntegrityHash mismatch", SepaMatchingService.Evaluate(100.00m, "EUR", payment, 0m));
+    }
+
+    [Fact]
     public void Overpayment_matches()
     {
         Assert.Null(SepaMatchingService.Evaluate(100.00m, "EUR", Payment(120.00m), 0m));

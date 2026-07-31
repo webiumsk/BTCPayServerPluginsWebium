@@ -48,10 +48,18 @@ public class SepaStoreSettings
     public decimal AmountTolerance { get; set; }
 
     /// <summary>
-    /// Backend credentials as a data-protected JSON blob (Fio token, NOP
-    /// certificate, GoCardless secrets). Encrypted at rest, never logged.
+    /// Backend credentials as a data-protected JSON blob (NOP certificate,
+    /// aggregator secrets). Encrypted at rest, never logged.
     /// </summary>
     public string? EncryptedCredentialsJson { get; set; }
+
+    /// <summary>NOP identity cached from the uploaded eKasa certificate ("VATSK-1234567890").</summary>
+    [MaxLength(20)]
+    public string? NopVatsk { get; set; }
+
+    /// <summary>Cash-register code from the certificate CN (without the "POKLADNICA-" prefix).</summary>
+    [MaxLength(30)]
+    public string? NopPokladnica { get; set; }
 
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 

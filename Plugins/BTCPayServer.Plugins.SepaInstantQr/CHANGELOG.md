@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.2.0 - unreleased
+
+- NOP backend (Slovak state instant-payment notifications, project
+  KVERKOM): `nop-mqtt` (per-store mTLS MQTT subscription, QoS 1 dedup,
+  exponential-backoff reconnect, 2-hour REST catch-up) and `nop-rest`
+  (NOP Lite polling fallback). eKasa cash-register certificate upload
+  (PEM pair or PKCS#12, encrypted at rest; VATSK/POKLADNICA identity
+  parsed from the subject), INT/PROD environment toggle, live-status
+  test button. Payment references issued by NOP
+  `generateNewTransactionId` with graceful local fallback.
+  `dataIntegrityHash` verification per the SBA Standard for Push Payment
+  Notification - mismatches route to manual review, never auto-settle.
+- Aggregator note: GoCardless Bank Account Data closed to new signups
+  (July 2025); an aggregator backend stays deferred until an operator
+  contract with a successor (e.g. Enable Banking) exists.
+
 ## 0.1.0 - unreleased
 
 - Initial version: `SEPA_INSTANT` payment method for EUR invoices with a

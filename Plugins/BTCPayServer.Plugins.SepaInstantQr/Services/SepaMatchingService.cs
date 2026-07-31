@@ -115,6 +115,9 @@ public class SepaMatchingService
         ConfirmedPayment confirmation,
         decimal amountTolerance)
     {
+        if (confirmation.IntegrityFailure is not null)
+            return confirmation.IntegrityFailure;
+
         if (!string.Equals(confirmation.Currency, requestCurrency, StringComparison.OrdinalIgnoreCase))
             return $"currency mismatch: expected {requestCurrency}, got {confirmation.Currency}";
 
