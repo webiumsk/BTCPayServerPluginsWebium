@@ -1,0 +1,30 @@
+@using BTCPayServer.Abstractions.Contracts
+@using BTCPayServer.Abstractions.Extensions
+@using BTCPayServer.Client
+@using BTCPayServer.Abstractions.Constants
+@using BTCPayServer.Plugins.SepaInstantQr.Data.Entities
+@using BTCPayServer.Plugins.SepaInstantQr.Services
+@inject IScopeProvider ScopeProvider
+@inject SepaConfigService SepaConfigService
+@{
+    var storeId = ScopeProvider.GetCurrentStoreId();
+    SepaStoreSettings? settings = null;
+    if (!string.IsNullOrEmpty(storeId))
+    {
+        try { settings = await SepaConfigService.GetSettingsAsync(storeId); } catch { /* tables may not exist yet */ }
+    }
+    var status = settings == null ? "pending" : (settings.Enabled ? "enabled" : "disabled");
+}
+@if (!string.IsNullOrEmpty(storeId))
+{
+    <li class="nav-item">
+        <a permission="@Policies.CanModifyStoreSettings"
+           layout-menu-item="SepaInstantQr"
+           asp-controller="UISepa"
+           asp-action="Settings"
+           asp-route-storeId="@storeId">
+            <span class="me-2 btcpay-status btcpay-status--@status"></span>
+            <span>SEPA Instant QR</span>
+        </a>
+    </li>
+}

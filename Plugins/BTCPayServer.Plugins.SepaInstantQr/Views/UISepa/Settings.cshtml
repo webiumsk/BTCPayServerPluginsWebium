@@ -1,0 +1,209 @@
+@using BTCPayServer.Abstractions.Extensions
+@model BTCPayServer.Plugins.SepaInstantQr.Models.SepaSettingsPageViewModel
+@{
+    ViewData.SetActivePage("Wallets", "SEPA Instant QR", "SepaInstantQr");
+    ViewData["Title"] = "SEPA Instant QR";
+}
+
+<partial name="_StatusMessage" />
+
+<h2 class="mb-4">SEPA Instant QR</h2>
+
+<div class="row">
+    <div class="col-xl-8 col-xxl-constrain">
+        <p class="text-muted">
+            Customers pay by scanning a QR code with their banking app - an instant
+            SEPA transfer straight to your own bank account. No card terminal, no
+            intermediary, no custody.
+        </p>
+
+        <form method="post" asp-action="Settings" asp-route-storeId="@Model.StoreId" enctype="multipart/form-data">
+            <div asp-validation-summary="All" class="text-danger"></div>
+            <div class="form-group form-check">
+                <input asp-for="Settings.Enabled" type="checkbox" class="form-check-input" />
+                <label asp-for="Settings.Enabled" class="form-check-label">Enable SEPA Instant QR on this store (EUR invoices only)</label>
+            </div>
+
+            <div class="form-group">
+                <label asp-for="Settings.CountryProfile" class="form-label">Country profile</label>
+                <select asp-for="Settings.CountryProfile" class="form-select w-auto">
+                    <option value="SK">Slovakia - PayMe QR (payment link standard)</option>
+                    <option value="CZ">Czechia - QR Platba (SPD)</option>
+                    <option value="EU">EU generic - EPC QR (girocode)</option>
+                </select>
+                <div class="form-text">Determines the QR format and the payment reference style.</div>
+            </div>
+
+            <div class="form-group">
+                <label asp-for="Settings.SkQrVariant" class="form-label">SK QR variant</label>
+                <select asp-for="Settings.SkQrVariant" class="form-select w-auto">
+                    <option value="payme">PayMe link (recommended with NOP confirmation)</option>
+                    <option value="bysquare">PAY by square (classic bank-app QR)</option>
+                </select>
+                <div class="form-text">
+                    Slovakia only. PayMe maps the payment reference to the SEPA
+                    end-to-end id, which NOP matching relies on. PAY by square is
+                    the long-established QR that every Slovak banking app scans -
+                    pick it if your customers' apps do not open PayMe links; the
+                    reference then travels as originator's reference and automatic
+                    NOP matching may not see it (confirm those payments manually).
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label asp-for="Settings.Iban" class="form-label">IBAN</label>
+                <input asp-for="Settings.Iban" class="form-control font-monospace" placeholder="SK68 0720 0002 8919 8742 6353" />
+                <span asp-validation-for="Settings.Iban" class="text-danger"></span>
+            </div>
+
+            <div class="form-group">
+                <label asp-for="Settings.Beneficiary" class="form-label">Beneficiary name</label>
+                <input asp-for="Settings.Beneficiary" class="form-control" placeholder="My Company s.r.o." />
+                <span asp-validation-for="Settings.Beneficiary" class="text-danger"></span>
+            </div>
+
+            <div class="form-group">
+                <label asp-for="Settings.Bic" class="form-label">BIC (optional)</label>
+                <input asp-for="Settings.Bic" class="form-control font-monospace w-auto" />
+            </div>
+
+            <div class="form-group">
+                <label asp-for="Settings.Message" class="form-label">Payment message (optional)</label>
+                <input asp-for="Settings.Message" class="form-control" placeholder="Business name and branch" />
+                <div class="form-text">Shown to the payer in their banking app.</div>
+            </div>
+
+            <div class="form-group">
+                <label asp-for="Settings.ConfirmationBackend" class="form-label">Payment confirmation</label>
+                <select asp-for="Settings.ConfirmationBackend" class="form-select w-auto">
+                    <option value="manual">Manual - I confirm payments in my banking app</option>
+                    <option value="nop-mqtt">NOP - instant notifications (Slovakia, recommended)</option>
+                    <option value="nop-rest">NOP - polling fallback (Slovakia)</option>
+                </select>
+                <div class="form-text">
+                    NOP delivers bank-pushed confirmations within seconds for every
+                    Slovak bank joined to the state QR-payments scheme. Requires the
+                    eKasa cash-register certificate below and a "notification-enabled"
+                    business account at your bank.
+                </div>
+            </div>
+
+            <fieldset class="border rounded p-3 my-3">
+                <legend class="fs-6">NOP - eKasa certificate</legend>
+                @if (Model.Settings.NopCertSet)
+                {
+                    <p class="text-success mb-2">
+                        Certificate uploaded - identity
+                        <strong>@Model.Settings.NopVatsk</strong> /
+                        <strong>POKLADNICA-@Model.Settings.NopPokladnica</strong>.
+                    </p>
+                    <div class="form-group form-check">
+                        <input asp-for="Settings.ClearNopCertificate" type="checkbox" class="form-check-input" />
+                        <label asp-for="Settings.ClearNopCertificate" class="form-check-label">Remove the stored certificate</label>
+                    </div>
+                }
+                else
+                {
+                    <p class="text-muted small">
+                        The same certificate your cash register uses for eKasa
+                        (download the authentication package from the eKasa zone of
+                        the Financial Administration portal). Upload either the PEM
+                        pair or a PKCS#12 (.p12/.pfx) file. Stored encrypted; never
+                        displayed again.
+                    </p>
+                }
+                <div class="form-group">
+                    <label asp-for="Settings.NopPfxFile" class="form-label">PKCS#12 file (.p12/.pfx)</label>
+                    <input asp-for="Settings.NopPfxFile" type="file" class="form-control" accept=".p12,.pfx" />
+                    <span asp-validation-for="Settings.NopPfxFile" class="text-danger"></span>
+                </div>
+                <div class="form-group">
+                    <label asp-for="Settings.NopPfxPassword" class="form-label">PKCS#12 password</label>
+                    <input asp-for="Settings.NopPfxPassword" type="password" autocomplete="new-password" class="form-control w-auto" />
+                </div>
+                <div class="form-group">
+                    <label asp-for="Settings.NopCertPemFile" class="form-label">... or PEM certificate</label>
+                    <input asp-for="Settings.NopCertPemFile" type="file" class="form-control" accept=".pem,.crt" />
+                    <span asp-validation-for="Settings.NopCertPemFile" class="text-danger"></span>
+                </div>
+                <div class="form-group">
+                    <label asp-for="Settings.NopKeyPemFile" class="form-label">PEM private key</label>
+                    <input asp-for="Settings.NopKeyPemFile" type="file" class="form-control" accept=".pem,.key" />
+                </div>
+                <div class="form-group">
+                    <label asp-for="Settings.NopEnvironment" class="form-label">Environment</label>
+                    <select asp-for="Settings.NopEnvironment" class="form-select w-auto">
+                        <option value="INT">INT - integration/testing</option>
+                        <option value="PROD">PROD - production</option>
+                    </select>
+                </div>
+            </fieldset>
+
+            <div class="form-group">
+                <label asp-for="Settings.AmountTolerance" class="form-label">Amount tolerance (EUR)</label>
+                <input asp-for="Settings.AmountTolerance" type="number" step="0.01" min="0" max="10" class="form-control w-auto" />
+                <div class="form-text">Automated matching accepts payments short by at most this amount. 0 = exact.</div>
+            </div>
+
+            <button type="submit" class="btn btn-primary mt-2">Save</button>
+        </form>
+
+        <form method="post" asp-action="TestBackend" asp-route-storeId="@Model.StoreId" class="mt-3">
+            <button type="submit" class="btn btn-secondary">Test confirmation backend</button>
+        </form>
+
+        @if (Model.ReviewRequests.Count > 0)
+        {
+            <h4 class="mt-5">Needs review</h4>
+            <p class="text-muted">A payment arrived but did not match the expected amount or currency. Verify it in your bank before confirming.</p>
+            <table class="table">
+                <thead>
+                    <tr><th>Reference</th><th>Invoice</th><th>Due</th><th>Reason</th><th></th></tr>
+                </thead>
+                <tbody>
+                @foreach (var row in Model.ReviewRequests)
+                {
+                    <tr>
+                        <td class="font-monospace">@row.Reference</td>
+                        <td><a asp-controller="UIInvoice" asp-action="Invoice" asp-route-invoiceId="@row.InvoiceId">@row.InvoiceId</a></td>
+                        <td>@row.AmountDue.ToString("0.00") EUR</td>
+                        <td>@row.ReviewReason</td>
+                        <td>
+                            <form method="post" asp-action="ConfirmManually" asp-route-storeId="@Model.StoreId" asp-route-reference="@row.Reference">
+                                <button type="submit" class="btn btn-sm btn-outline-success">Mark as paid</button>
+                            </form>
+                        </td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        }
+
+        @if (Model.PendingRequests.Count > 0)
+        {
+            <h4 class="mt-5">Awaiting payment</h4>
+            <p class="text-muted">Confirm a payment here once you see the transfer in your banking app.</p>
+            <table class="table">
+                <thead>
+                    <tr><th>Reference</th><th>Invoice</th><th>Due</th><th>Created</th><th></th></tr>
+                </thead>
+                <tbody>
+                @foreach (var row in Model.PendingRequests)
+                {
+                    <tr>
+                        <td class="font-monospace">@row.Reference</td>
+                        <td><a asp-controller="UIInvoice" asp-action="Invoice" asp-route-invoiceId="@row.InvoiceId">@row.InvoiceId</a></td>
+                        <td>@row.AmountDue.ToString("0.00") EUR</td>
+                        <td>@row.CreatedAt.ToString("yyyy-MM-dd HH:mm")</td>
+                        <td>
+                            <form method="post" asp-action="ConfirmManually" asp-route-storeId="@Model.StoreId" asp-route-reference="@row.Reference">
+                                <button type="submit" class="btn btn-sm btn-outline-success">Mark as paid</button>
+                            </form>
+                        </td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        }
+    </div>
+</div>

@@ -1,0 +1,134 @@
+@* SEPA Instant QR checkout Vue component - QR code + polling *@
+@model BTCPayServer.Models.InvoicingModels.CheckoutModel
+
+<template id="SepaInstantQrCheckout">
+    <div class="payment-box">
+        <div v-if="paymentComplete" class="text-center py-4">
+            <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" fill="currentColor" class="bi bi-check-circle text-success mb-3" viewBox="0 0 16 16">
+                <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/>
+                <path d="M10.97 4.97a.235.235 0 0 0-.02.022L7.477 9.417 5.384 7.323a.75.75 0 0 0-1.06 1.06L6.97 11.03a.75.75 0 0 0 1.079-.02l3.992-4.99a.75.75 0 0 0-1.071-1.05z"/>
+            </svg>
+            <h4>Payment Received!</h4>
+            <p class="text-muted">The bank transfer has been confirmed.</p>
+        </div>
+
+        <div v-else>
+            <div v-if="sepaQrPayload">
+                <div class="qr-container clipboard-button mb-3"
+                     :data-qr-value="sepaQrPayload"
+                     :data-clipboard="sepaQrPayload">
+                    <qrcode :value="sepaQrPayload" :options="qrOptions"></qrcode>
+                </div>
+
+                <p class="mb-1 text-center">
+                    <strong>{{ sepaAmount }} EUR</strong>
+                </p>
+                <p class="text-muted small mb-1 text-center">{{ sepaBeneficiary }}</p>
+                <p class="text-muted small mb-3 text-center font-monospace">{{ sepaIban }}</p>
+                <p class="text-muted small mb-3 text-center">
+                    Scan with your banking app to pay by instant SEPA transfer.
+                    Reference: <span class="font-monospace">{{ sepaReference }}</span>
+                </p>
+
+                <div class="d-flex gap-2 mb-3">
+                    <button id="sepa-copy-iban" type="button" class="btn btn-outline-secondary flex-grow-1"
+                            :data-clipboard="sepaIban">
+                        Copy IBAN
+                    </button>
+                    <button id="sepa-copy-ref" type="button" class="btn btn-outline-secondary flex-grow-1"
+                            :data-clipboard="sepaReference">
+                        Copy reference
+                    </button>
+                </div>
+            </div>
+
+            <div v-if="pollError" class="alert alert-warning mb-3">
+                {{ pollError }}
+            </div>
+            <div v-else class="text-muted small text-center">
+                <span v-if="polling" class="spinner-border spinner-border-sm me-1" role="status"></span>
+                Waiting for the bank transfer confirmation...
+            </div>
+        </div>
+    </div>
+</template>
+
+<script src="~/vendor/vue-qrcode/vue-qrcode.min.js"></script>
+<script>
+(function() {
+    if (typeof Vue === 'undefined') return;
+
+    Vue.component('SepaInstantQrCheckout', {
+        props: ['model', 'nfcSupported', 'nfcScanning', 'nfcErrorMessage', 'nfcWarningMessage'],
+        template: '#SepaInstantQrCheckout',
+        components: {
+            qrcode: window.VueQrcode
+        },
+        data() {
+            return {
+                polling: false,
+                pollInterval: null,
+                paymentComplete: false,
+                pollError: null,
+                qrOptions: {
+                    width: 256,
+                    margin: 1,
+                    color: { dark: '#000000', light: '#ffffff' }
+                }
+            };
+        },
+        computed: {
+            sepaQrPayload() { return this.model?.sepaQrPayload; },
+            sepaReference() { return this.model?.sepaReference; },
+            sepaIban() { return this.model?.sepaIban; },
+            sepaBeneficiary() { return this.model?.sepaBeneficiary; },
+            sepaAmount() { return this.model?.sepaAmount; }
+        },
+        watch: {
+            sepaReference: {
+                handler(val) {
+                    if (val) this.startPolling();
+                    else this.stopPolling();
+                },
+                immediate: true
+            }
+        },
+        beforeDestroy() {
+            this.stopPolling();
+        },
+        methods: {
+            startPolling() {
+                this.stopPolling();
+                if (!this.sepaReference || this.paymentComplete) return;
+                this.polling = true;
+                this.pollError = null;
+                this.pollInterval = setInterval(() => this.checkPayment(), 2000);
+                this.checkPayment();
+            },
+            stopPolling() {
+                if (this.pollInterval) {
+                    clearInterval(this.pollInterval);
+                    this.pollInterval = null;
+                }
+                this.polling = false;
+            },
+            async checkPayment() {
+                if (!this.sepaReference) return;
+                try {
+                    var r = await fetch('/plugins/sepainstantqr/poll/' + encodeURIComponent(this.sepaReference));
+                    var json = await r.json();
+                    if (json.paid) {
+                        this.paymentComplete = true;
+                        this.stopPolling();
+                        setTimeout(() => window.location.reload(), 2000);
+                    } else if (json.error) {
+                        this.pollError = json.error;
+                    }
+                } catch (e) {
+                    this.pollError = 'Failed to check payment status';
+                }
+            }
+        }
+    });
+})();
+</script>
