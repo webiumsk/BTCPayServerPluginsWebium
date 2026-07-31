@@ -290,6 +290,7 @@ public class UISepaController : Controller
                     InvoiceId = row.InvoiceId,
                     State = row.State,
                     AmountDue = row.AmountDue,
+                    Currency = row.Currency,
                     CreatedAt = row.CreatedAt,
                     ReviewReason = row.ReviewReason,
                 };

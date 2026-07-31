@@ -66,6 +66,7 @@ public class QrPayloadGoldenTests
     [InlineData("SK", "CZK", false)]
     [InlineData("CZ", "EUR", true)]
     [InlineData("CZ", "CZK", true)]
+    [InlineData("EU", "EUR", true)]
     [InlineData("EU", "CZK", false)]
     [InlineData("CZ", "USD", false)]
     public void Profile_currency_gate(string profile, string currency, bool expected)

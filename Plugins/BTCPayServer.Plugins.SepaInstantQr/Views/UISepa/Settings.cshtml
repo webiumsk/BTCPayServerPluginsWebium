@@ -140,9 +140,9 @@
             </fieldset>
 
             <div class="form-group">
-                <label asp-for="Settings.AmountTolerance" class="form-label">Amount tolerance (EUR)</label>
+                <label asp-for="Settings.AmountTolerance" class="form-label">Amount tolerance (invoice currency)</label>
                 <input asp-for="Settings.AmountTolerance" type="number" step="0.01" min="0" max="10" class="form-control w-auto" />
-                <div class="form-text">Automated matching accepts payments short by at most this amount. 0 = exact.</div>
+                <div class="form-text">Automated matching accepts payments short by at most this amount, in the invoice currency (EUR, or CZK on the CZ profile). 0 = exact.</div>
             </div>
 
             <button type="submit" class="btn btn-primary mt-2">Save</button>
@@ -166,7 +166,7 @@
                     <tr>
                         <td class="font-monospace">@row.Reference</td>
                         <td><a asp-controller="UIInvoice" asp-action="Invoice" asp-route-invoiceId="@row.InvoiceId">@row.InvoiceId</a></td>
-                        <td>@row.AmountDue.ToString("0.00") EUR</td>
+                        <td>@row.AmountDue.ToString("0.00") @row.Currency</td>
                         <td>@row.ReviewReason</td>
                         <td>
                             <form method="post" asp-action="ConfirmManually" asp-route-storeId="@Model.StoreId" asp-route-reference="@row.Reference">
@@ -193,7 +193,7 @@
                     <tr>
                         <td class="font-monospace">@row.Reference</td>
                         <td><a asp-controller="UIInvoice" asp-action="Invoice" asp-route-invoiceId="@row.InvoiceId">@row.InvoiceId</a></td>
-                        <td>@row.AmountDue.ToString("0.00") EUR</td>
+                        <td>@row.AmountDue.ToString("0.00") @row.Currency</td>
                         <td>@row.CreatedAt.ToString("yyyy-MM-dd HH:mm")</td>
                         <td>
                             <form method="post" asp-action="ConfirmManually" asp-route-storeId="@Model.StoreId" asp-route-reference="@row.Reference">
