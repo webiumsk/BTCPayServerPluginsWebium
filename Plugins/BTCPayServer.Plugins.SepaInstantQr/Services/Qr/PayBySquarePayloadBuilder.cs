@@ -39,7 +39,7 @@ public class PayBySquarePayloadBuilder : IQrPayloadBuilder
             "",                                                     // variable symbol
             "",                                                     // constant symbol
             "",                                                     // specific symbol
-            request.Reference,                                      // originators reference information
+            Clean(request.Reference, 35),                           // originators reference information (SEPA e2e id length)
             Clean(request.Message, 60),                             // payment note
             "1",                                                    // number of bank accounts
             request.Iban,
