@@ -6,6 +6,16 @@
 
 ---
 
+## Identita pluginu (od 1.4.0)
+
+Fork beží pod vlastným identifikátorom **`BTCPayServer.Plugins.SatoshiTicketsWebium`**
+(len `<AssemblyName>` v csproj; `RootNamespace`, views, Greenfield routes aj
+DB schéma `BTCPayServer.Plugins.SatoshiTickets` zostávajú). BTCPay páruje
+ponuky aktualizácií podľa identifikátora, takže upstream release od
+TChukwuleta sa už nikdy neponúkne ako "update" nášho pluginu. Pri merge z
+upstreamu NEprepisovať `<AssemblyName>` ani `PLUGIN_NAME` v `build-plugin.sh`.
+BTCPay Raffle >= 1.3.1.3 akceptuje obe identity v integračnom bridge.
+
 ## Repozitáre a remote
 
 | Remote | URL | Účel |

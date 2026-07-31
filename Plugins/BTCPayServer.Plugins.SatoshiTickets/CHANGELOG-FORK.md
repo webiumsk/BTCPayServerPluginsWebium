@@ -1,3 +1,24 @@
+# 1.4.0 (identity cutover)
+
+- The fork ships under its own BTCPay plugin identifier
+  `BTCPayServer.Plugins.SatoshiTicketsWebium` (assembly rename only -
+  namespaces, views, Greenfield routes and the DB schema literal
+  `BTCPayServer.Plugins.SatoshiTickets` are unchanged, so all data and
+  migration history survive). BTCPay matches update offers by identifier,
+  so upstream TChukwuleta releases are never offered as updates again.
+- BTCPay Raffle 1.3.1.3 accepts both identities in its integration
+  bridge - deploy order does not matter.
+
+Production cutover:
+
+1. Upload BTCPay Raffle 1.3.1.3 (.btcpay).
+2. Uninstall the old "Satoshi Tickets" plugin in BTCPay (removes plugin
+   files only; the plugin schema and data stay in Postgres). Remove a
+   stale line from `<plugins dir>/disabled` if present.
+3. Upload `BTCPayServer.Plugins.SatoshiTicketsWebium.btcpay` and restart.
+4. Verify events/tickets are intact (same DB schema) and satflux /
+   WordPress keep working (Greenfield routes unchanged).
+
 # Changelog — Webium fork (Satoshi Tickets)
 
 Upstream autor: [TChukwuleta/BTCPayServerPlugins](https://github.com/TChukwuleta/BTCPayServerPlugins).  

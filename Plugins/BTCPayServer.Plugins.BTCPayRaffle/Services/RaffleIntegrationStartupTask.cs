@@ -22,9 +22,16 @@ public sealed class RaffleIntegrationStartupTask(IRaffleEventBundleService bundl
 
     private static void RegisterSatoshiBridge(IRaffleEventBundleService bundleService)
     {
+        // The Webium fork ships under its own plugin identifier (assembly
+        // name) so upstream updates are never offered - accept both so the
+        // bridge works regardless of which build is installed.
+        string[] satoshiAssemblyNames =
+        [
+            "BTCPayServer.Plugins.SatoshiTicketsWebium",
+            "BTCPayServer.Plugins.SatoshiTickets",
+        ];
         var satoshiAssembly = AppDomain.CurrentDomain.GetAssemblies()
-            .FirstOrDefault(a => string.Equals(
-                a.GetName().Name, "BTCPayServer.Plugins.SatoshiTickets", StringComparison.Ordinal));
+            .FirstOrDefault(a => satoshiAssemblyNames.Contains(a.GetName().Name, StringComparer.Ordinal));
         if (satoshiAssembly is null)
             return;
 

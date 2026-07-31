@@ -3,7 +3,8 @@
 
 set -e
 
-PLUGIN_NAME="BTCPayServer.Plugins.SatoshiTickets"
+PROJECT_NAME="BTCPayServer.Plugins.SatoshiTickets"
+PLUGIN_NAME="BTCPayServer.Plugins.SatoshiTicketsWebium"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 PUBLISH_DIR="$SCRIPT_DIR/bin/publish/$PLUGIN_NAME"
@@ -34,7 +35,7 @@ if [ ! -d "$PLUGIN_PACKER" ]; then
 fi
 
 echo "Building $PLUGIN_NAME..."
-$DOTNET publish "$SCRIPT_DIR/$PLUGIN_NAME.csproj" -c Release -o "$PUBLISH_DIR"
+$DOTNET publish "$SCRIPT_DIR/$PROJECT_NAME.csproj" -c Release -o "$PUBLISH_DIR"
 
 echo "Packing plugin..."
 $DOTNET run --project "$PLUGIN_PACKER" -- "$PUBLISH_DIR" "$PLUGIN_NAME" "$OUTPUT_DIR"
