@@ -151,7 +151,9 @@ pilot until 15.1.2026 via `kverkom.kasoveIS@financnasprava.sk`.
 
 ## Still to verify at implementation time (NOP phases)
 
-- Current PROD availability + onboarding process outside the closed pilot.
+- PROD onboarding process outside the closed pilot (production itself
+  launched March 2026 - see the Environments note; live banks still
+  Tatra banka + SLSP only).
 - Whether the `id` vs `transaction_id` response-field discrepancy is resolved
   in a newer Services API revision (OpenAPI: `erp_openapi-0.5.1.yaml`).
 - eKasa certificate export practicality per merchant segment (ORP vs VRP).

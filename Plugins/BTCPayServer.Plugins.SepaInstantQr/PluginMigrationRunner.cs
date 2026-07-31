@@ -95,17 +95,31 @@ public class PluginMigrationRunner : IStartupTask
         var handler = _handlers[SepaInstantQrPlugin.SepaPaymentMethodId];
         foreach (var settings in allSettings)
         {
-            var store = await _storeRepository.FindStore(settings.StoreId);
-            if (store is null)
-                continue;
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                var store = await _storeRepository.FindStore(settings.StoreId);
+                if (store is null)
+                    continue;
 
-            var existing = store.GetPaymentMethodConfig(SepaInstantQrPlugin.SepaPaymentMethodId);
-            if (existing is not null)
-                continue;
+                var existing = store.GetPaymentMethodConfig(SepaInstantQrPlugin.SepaPaymentMethodId);
+                if (existing is not null)
+                    continue;
 
-            store.SetPaymentMethodConfig(handler, new SepaPaymentMethodConfig { Enabled = settings.Enabled });
-            await _storeRepository.UpdateStore(store);
-            _logger.LogInformation("Registered SEPA_INSTANT payment method for store {StoreId}", settings.StoreId);
+                store.SetPaymentMethodConfig(handler, new SepaPaymentMethodConfig { Enabled = settings.Enabled });
+                await _storeRepository.UpdateStore(store);
+                _logger.LogInformation("Registered SEPA_INSTANT payment method for store {StoreId}", settings.StoreId);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "SEPA_INSTANT payment method registration failed for store {StoreId}; continuing with the remaining stores.",
+                    settings.StoreId);
+            }
         }
     }
 }

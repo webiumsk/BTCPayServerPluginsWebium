@@ -28,6 +28,11 @@ namespace BTCPayServer.Plugins.SepaInstantQr.Controllers;
 [Route("plugins/{storeId}/sepainstantqr")]
 public class UISepaController : Controller
 {
+    // The view renders fields with the "Settings." page-model prefix, so
+    // manual ModelState errors must use the prefixed key to attach to the
+    // field's asp-validation-for span (the summary shows any key either way).
+    private const string NopCertFieldKey = $"Settings.{nameof(Models.SepaSettingsViewModel.NopPfxFile)}";
+
     private readonly StoreRepository _storeRepository;
     private readonly SepaConfigService _configService;
     private readonly SepaDbContextFactory _dbContextFactory;
@@ -101,7 +106,7 @@ public class UISepaController : Controller
         if (model.ConfirmationBackend.StartsWith("nop-", StringComparison.Ordinal)
             && string.IsNullOrEmpty(settings.NopVatsk))
         {
-            ModelState.AddModelError(nameof(model.NopPfxFile),
+            ModelState.AddModelError(NopCertFieldKey,
                 "NOP backends need the eKasa cash-register certificate - upload it below.");
             var page = await BuildPageModelAsync(storeId);
             page.Settings = model;
@@ -186,22 +191,31 @@ public class UISepaController : Controller
                 using var certificate = Services.Confirmation.Nop.NopCertificateLoader.Load(updated);
                 if (!certificate.HasPrivateKey)
                 {
-                    ModelState.AddModelError(nameof(model.NopPfxFile),
+                    ModelState.AddModelError(NopCertFieldKey,
                         "The certificate has no private key - mTLS authentication needs it (upload the key file or a complete .p12).");
                     return false;
                 }
 
-                if (certificate.NotAfter < DateTime.UtcNow)
+                // NotBefore/NotAfter are local-time DateTimes - convert
+                // before comparing against UtcNow.
+                if (certificate.NotAfter.ToUniversalTime() < DateTime.UtcNow)
                 {
-                    ModelState.AddModelError(nameof(model.NopPfxFile),
+                    ModelState.AddModelError(NopCertFieldKey,
                         $"The certificate expired on {certificate.NotAfter:yyyy-MM-dd}.");
+                    return false;
+                }
+
+                if (certificate.NotBefore.ToUniversalTime() > DateTime.UtcNow)
+                {
+                    ModelState.AddModelError(NopCertFieldKey,
+                        $"The certificate is not valid yet (valid from {certificate.NotBefore:yyyy-MM-dd}).");
                     return false;
                 }
 
                 var identity = Services.Confirmation.Nop.NopIdentity.FromCertificate(certificate);
                 if (identity is null)
                 {
-                    ModelState.AddModelError(nameof(model.NopPfxFile),
+                    ModelState.AddModelError(NopCertFieldKey,
                         "The certificate subject does not look like an eKasa cash-register certificate (expected CN \"VATSK-... POKLADNICA ...\").");
                     return false;
                 }
@@ -211,7 +225,7 @@ public class UISepaController : Controller
             }
             catch (Exception ex)
             {
-                ModelState.AddModelError(nameof(model.NopPfxFile), $"Could not load the certificate: {ex.Message}");
+                ModelState.AddModelError(NopCertFieldKey, $"Could not load the certificate: {ex.Message}");
                 return false;
             }
         }
