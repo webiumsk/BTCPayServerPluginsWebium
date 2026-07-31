@@ -36,6 +36,7 @@ public class SepaInstantQrPlugin : BaseBTCPayServerPlugin
 
         // ── Services ───────────────────────────────────────────────────────
         services.AddSingleton<SepaConfigService>();
+        services.AddSingleton<SepaCertificateService>();
         services.AddSingleton<SepaPaymentRecorder>();
         services.AddSingleton<SepaMatchingService>();
 

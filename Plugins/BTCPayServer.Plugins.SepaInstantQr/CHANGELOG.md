@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.4.0 - unreleased
+
+- Greenfield API for external control panels (satflux) under
+  `/api/v1/stores/{storeId}/plugins/sepa-instant-qr`: settings GET/PUT,
+  eKasa certificate upload (JSON, base64/PEM) and removal, backend test,
+  pending/review payment-request listing and manual confirmation.
+  Store-scoped API key with the `btcpay.store.canmodifystoresettings`
+  permission; responses never contain certificate material or secrets.
+- NOP certificate handling extracted into a shared SepaCertificateService
+  used by both the settings UI and the API (identical validation:
+  private-key presence, UTC validity window, eKasa subject).
+
+
 ## 0.3.0 - unreleased
 
 - PAY by square QR variant for the SK profile (`SkQrVariant` store
