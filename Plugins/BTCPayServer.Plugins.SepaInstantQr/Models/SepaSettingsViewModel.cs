@@ -87,6 +87,7 @@ public class SepaPendingRowViewModel
     public string InvoiceId { get; set; } = string.Empty;
     public string State { get; set; } = SepaPaymentRequestState.Pending;
     public decimal AmountDue { get; set; }
+    public string Currency { get; set; } = "EUR";
     public System.DateTimeOffset CreatedAt { get; set; }
     public string? ReviewReason { get; set; }
 }

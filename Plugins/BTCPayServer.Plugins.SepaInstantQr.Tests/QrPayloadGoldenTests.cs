@@ -46,6 +46,36 @@ public class QrPayloadGoldenTests
     }
 
     [Fact]
+    public void Spd_payload_uses_the_request_currency_for_czk()
+    {
+        var builder = new SpdPayloadBuilder();
+        var payload = builder.Build(new SepaQrRequest(
+            Iban: "CZ5855000000001265098001",
+            Beneficiary: "Petr Dvořák",
+            Amount: 480.55m,
+            Reference: "1234567890",
+            Message: null,
+            Currency: "CZK"));
+
+        Assert.Contains("*CC:CZK*", payload);
+        Assert.Contains("AM:480.55", payload);
+    }
+
+    [Theory]
+    [InlineData("SK", "EUR", true)]
+    [InlineData("SK", "CZK", false)]
+    [InlineData("CZ", "EUR", true)]
+    [InlineData("CZ", "CZK", true)]
+    [InlineData("EU", "EUR", true)]
+    [InlineData("EU", "CZK", false)]
+    [InlineData("CZ", "USD", false)]
+    public void Profile_currency_gate(string profile, string currency, bool expected)
+    {
+        Assert.Equal(expected,
+            BTCPayServer.Plugins.SepaInstantQr.PaymentHandler.SepaPaymentMethodHandler.SupportsCurrency(profile, currency));
+    }
+
+    [Fact]
     public void Spd_payload_carries_vs_and_instant_payment_flag()
     {
         var builder = new SpdPayloadBuilder();

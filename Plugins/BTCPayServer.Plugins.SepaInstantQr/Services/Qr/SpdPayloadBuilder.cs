@@ -19,7 +19,7 @@ public class SpdPayloadBuilder : IQrPayloadBuilder
             sb.Append('+').Append(request.Bic!.Trim().ToUpperInvariant());
         sb.Append('*');
         sb.Append("AM:").Append(QrText.Amount(request.Amount)).Append('*');
-        sb.Append("CC:EUR*");
+        sb.Append("CC:").Append(request.Currency.ToUpperInvariant()).Append('*');
         sb.Append("X-VS:").Append(request.Reference).Append('*');
         sb.Append("RN:").Append(EncodeValue(request.Beneficiary, 35)).Append('*');
         if (!string.IsNullOrWhiteSpace(request.Message))

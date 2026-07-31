@@ -27,7 +27,8 @@ public enum MatchOutcome
 /// <summary>
 /// The single matching rule for every confirmation backend: the reference
 /// must match a pending request AND the credited amount must cover the due
-/// amount (within the store's tolerance) in EUR. Anything else is flagged
+/// amount (within the store's tolerance) in the request currency.
+/// Anything else is flagged
 /// as MANUAL_REVIEW - automated sources never settle a mismatched payment.
 /// </summary>
 public class SepaMatchingService
