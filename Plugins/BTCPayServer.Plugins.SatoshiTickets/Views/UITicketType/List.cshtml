@@ -1,0 +1,105 @@
+@using BTCPayServer.Abstractions.Models
+@using BTCPayServer.Plugins.SatoshiTickets.Data
+@using BTCPayServer.Plugins.SatoshiTickets.ViewModels
+@using BTCPayServer.Abstractions.Extensions
+@model TicketTypeListViewModel
+@{
+    Layout = "_Layout";
+    ViewData.SetLayoutModel(new LayoutModel(nameof(SatoshiTicketNavPages.SatoshiTicketIndex), "Ticket Tiers") { ActiveCategory = nameof(SatoshiTicketNavPages) });
+}
+
+<div class="sticky-header d-flex flex-column align-items-start">
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item">
+                <a asp-controller="UITicketSales" asp-action="List" asp-route-storeId="@Model.StoreId">Events</a>
+            </li>
+            <li class="breadcrumb-item active" aria-current="page">@ViewData["Title"]</li>
+        </ol>
+    </nav>
+    <div class="d-flex align-items-center w-100">
+        <h2>@ViewData["Title"]</h2>
+        <div class="ms-auto">
+            <a asp-action="ViewTicketType" asp-route-storeId="@Model.StoreId" asp-route-eventId="@Model.EventId" class="btn btn-success" role="button">Create Ticket Tier</a>
+        </div>
+    </div>
+</div>
+<partial name="_StatusMessage" />
+
+@if (Model.TicketTypes.Any())
+{
+    <div class="table-responsive">
+        <table class="table table-hover">
+            <thead>
+                <tr>
+                    <th>
+                        <a asp-action="List"
+                           asp-route-storeId="@Model.StoreId"
+                           asp-route-eventId="@Model.EventId"
+                           asp-route-sortBy="Name"
+                           asp-route-sortDir="@(Model.SortBy == "Name" && Model.SortDir == "asc" ? "desc" : "asc")">
+                            Name
+                            <vc:icon symbol="@(Model.SortDir == "asc" ? "actions-sort-alpha-asc" : "actions-sort-alpha-desc")" />
+                        </a>
+                    </th>
+                    <th>
+                        <a asp-action="List"
+                           asp-route-storeId="@Model.StoreId"
+                           asp-route-eventId="@Model.EventId"
+                           asp-route-sortBy="Price"
+                           asp-route-sortDir="@(Model.SortBy == "Price" && Model.SortDir == "asc" ? "desc" : "asc")">
+                            Price
+                            <vc:icon symbol="@(Model.SortDir == "asc" ? "actions-sort-alpha-asc" : "actions-sort-alpha-desc")" />
+                        </a>
+                    </th>
+                    <th>Total Quantity</th>
+                    <th>Quantity Sold</th>
+                    <th class="w-75px"></th>
+                </tr>
+            </thead>
+            <tbody id="UsersList">
+                @foreach (var ticketType in Model.TicketTypes)
+                {
+                    <tr id="tickettype_@ticketType.TicketTypeId" class="user-overview-row mass-action-row">
+                        <td>
+                            <div class="d-inline-flex align-items-center gap-3">
+                                <a asp-action="ViewTicketType"
+                                   asp-route-storeId="@Model.StoreId"
+                                   asp-route-eventId="@ticketType.EventId" 
+                                asp-route-ticketTypeId="@ticketType.TicketTypeId">@ticketType.Name</a>
+                            </div>
+                        </td>
+                        <td>@ticketType.Price</td>
+                        <td>@ticketType.Quantity</td>
+                        <td>@ticketType.QuantitySold</td>
+                        <td class="text-end">
+                            <div class="d-inline-flex align-items-center gap-3">
+
+                                <a class="dropdown-item text-success"
+                                   asp-action="ToggleTicketTypeStatus"
+                                   asp-route-storeId="@Model.StoreId"
+                                   asp-route-eventId="@ticketType.EventId"
+                                   asp-route-ticketTypeId="@ticketType.TicketTypeId"
+                                   asp-route-enable="@(ticketType.TicketTypeState == EntityState.Disabled)">
+                                    @(ticketType.TicketTypeState == EntityState.Disabled ? "Activate" : "Disable")
+                                </a>
+
+                                <a asp-action="DeleteTicketType"
+                                   asp-route-eventId="@ticketType.EventId"
+                                   asp-route-ticketTypeId="@ticketType.TicketTypeId"
+                                   asp-route-storeId="@Model.StoreId"
+                                   class="dropdown-item text-danger">
+                                    Delete
+                                </a>
+                            </div>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+else
+{
+    <p class="text-secondary mt-4">No tickets tiers found</p>
+}

@@ -1,0 +1,51 @@
+@using BTCPayServer.Abstractions.Services
+@using BTCPayServer.Plugins.SatoshiTickets.Data
+@using BTCPayServer.Plugins.SatoshiTickets.ViewModels
+@using System.Globalization
+@inject Safe Safe
+@model EventSummaryViewModel
+@{
+    ViewData["Title"] = Model.EventTitle;
+    Layout = "_BaseSimpleTicketPublicLayout";
+}
+
+<div class="container py-4">
+
+    <div class="row mt-3">
+        <div class="col-md-6 mb-4">
+            <div class="card border-0">
+                <img src="@Model.EventImageUrl" alt="@Model.EventTitle" class="img-fluid rounded">
+                <div class="text-white mt-3">
+                    <a asp-action="EventTicket" asp-route-storeId="@Model.StoreId" asp-route-eventId="@Model.EventId" class="btn btn-success w-100 fw-bold shadow-none">Get a Ticket</a>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <h1 class="display-6 fw-bold text-uppercase mb-4">@Model.EventTitle</h1>
+            <div class="d-flex align-items-center mb-3">
+                <div class="me-2">
+                    <i class="bi bi-calendar-event fs-5"></i>
+                </div>
+                <div>Date: @Model.FormattedEventDate, @Model.FormattedEventTime</div>
+            </div>
+            @if (Model.EndDate.HasValue)
+            {
+                <div class="d-flex align-items-center mb-3">
+                    <div class="me-2">
+                        <i class="bi bi-calendar-event fs-5"></i>
+                    </div>
+                    <div>End Date: @Model.FormattedEventEndDate, @Model.FormattedEventEndTime</div>
+                </div>
+            }
+
+            <div class="bg-light p-2 rounded mb-3 small">
+                @(Model.EventType == EventType.Virtual ? "Online event – access link will be e-mailed after purchase." : "Physical event – QR ticket will be e-mailed after purchase.")
+            </div>
+
+            <hr class="my-4">
+            <h2 class="h4 fw-bold mb-3">About this event</h2>
+            <p>@Safe.Raw(Model.Description)</p>
+        </div>
+    </div>
+</div>
