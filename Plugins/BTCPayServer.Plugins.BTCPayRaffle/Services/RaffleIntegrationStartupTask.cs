@@ -10,8 +10,11 @@ namespace BTCPayServer.Plugins.BTCPayRaffle.Services;
 
 public sealed class RaffleIntegrationStartupTask(IRaffleEventBundleService bundleService) : IStartupTask
 {
-    private const string SatoshiBridgeTypeName =
-        "BTCPayServer.Plugins.SatoshiTickets.Services.Integration.SatoshiTicketsRaffleBridge";
+    private static readonly string[] BridgeTypeNames =
+    [
+        "BTCPayServer.Plugins.SatfluxTickets.Services.Integration.SatfluxTicketsRaffleBridge",
+        "BTCPayServer.Plugins.SatoshiTickets.Services.Integration.SatoshiTicketsRaffleBridge",
+    ];
 
     public Task ExecuteAsync(CancellationToken cancellationToken = default)
     {
@@ -27,6 +30,7 @@ public sealed class RaffleIntegrationStartupTask(IRaffleEventBundleService bundl
         // bridge works regardless of which build is installed.
         string[] satoshiAssemblyNames =
         [
+            "BTCPayServer.Plugins.SatfluxTickets",
             "BTCPayServer.Plugins.SatoshiTicketsWebium",
             "BTCPayServer.Plugins.SatoshiTickets",
         ];
@@ -35,7 +39,9 @@ public sealed class RaffleIntegrationStartupTask(IRaffleEventBundleService bundl
         if (satoshiAssembly is null)
             return;
 
-        var bridgeType = satoshiAssembly.GetType(SatoshiBridgeTypeName, throwOnError: false);
+        var bridgeType = BridgeTypeNames
+            .Select(name => satoshiAssembly.GetType(name, throwOnError: false))
+            .FirstOrDefault(type => type is not null);
         var register = bridgeType?.GetMethod(
             "RegisterEventBundleService",
             BindingFlags.Public | BindingFlags.Static,

@@ -10,7 +10,7 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Plugins", "Plugins", "{B2C3
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BTCPayServer.Plugins.BTCPayRaffle.Tests", "Plugins\BTCPayServer.Plugins.BTCPayRaffle.Tests\BTCPayServer.Plugins.BTCPayRaffle.Tests.csproj", "{CD9962F4-A6FD-4E23-AE15-7FFC93149FBF}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BTCPayServer.Plugins.SatoshiTickets", "Plugins\BTCPayServer.Plugins.SatoshiTickets\BTCPayServer.Plugins.SatoshiTickets.csproj", "{F0686616-5952-4D8A-8412-0930C4033AC8}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BTCPayServer.Plugins.SatfluxTickets", "Plugins\BTCPayServer.Plugins.SatfluxTickets\BTCPayServer.Plugins.SatfluxTickets.csproj", "{F0686616-5952-4D8A-8412-0930C4033AC8}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "submodules", "submodules", "{B3415621-5EBA-1A55-0B57-0078FEC59DC7}"
 EndProject
