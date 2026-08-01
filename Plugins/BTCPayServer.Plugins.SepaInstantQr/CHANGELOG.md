@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.1 - unreleased
+
+- Friendly Fio diagnostics: the Test button now explains the documented
+  token states (fresh tokens activate ~5 minutes after authorization;
+  Fio delays ~30 s before rejecting an invalid token - the test caps the
+  wait at 20 s so upstream proxies do not time out first; 409 = 30 s
+  rate limit). The poller logs the invalid-token case without a stack
+  trace.
+
+
 ## 0.6.0 - unreleased
 
 - Fio banka confirmation backend (`fio`): certificate-free automatic
