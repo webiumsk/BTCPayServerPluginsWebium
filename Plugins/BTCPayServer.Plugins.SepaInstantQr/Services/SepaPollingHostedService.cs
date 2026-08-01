@@ -114,6 +114,14 @@ public class SepaPollingHostedService : BackgroundService
                 else
                     await PollStoreAsync(settings, ct);
             }
+            catch (System.Net.Http.HttpRequestException ex)
+                when (ex.StatusCode == System.Net.HttpStatusCode.InternalServerError
+                      && settings.ConfirmationBackend == FioSource.BackendId)
+            {
+                _logger.LogWarning(
+                    "Fio rejected the token for store {StoreId} (nonexistent, expired or not yet active - fresh tokens activate ~5 min after authorization)",
+                    settings.StoreId);
+            }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Confirmation poll failed for store {StoreId} ({Backend})",

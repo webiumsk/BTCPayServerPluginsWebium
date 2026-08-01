@@ -36,9 +36,17 @@ public class FioSource : IPaymentConfirmationSource
         if (!credentials.HasFioToken)
             return new ConfirmationTestResult(false, "No Fio API token stored - save one first.");
 
+        // Fio deliberately delays the response ~30 s before rejecting an
+        // invalid/inactive token (measured; documented as 500 = "nonexistent
+        // or inactive token"). Cap the wait below upstream proxy timeouts and
+        // translate the outcome, because the most common cause is completely
+        // benign: a fresh token only becomes active ~5 minutes after its
+        // authorization in internetbanking.
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(20));
         try
         {
-            using var document = await _client.GetTodayTransactionsAsync(credentials.FioToken!, cancellationToken);
+            using var document = await _client.GetTodayTransactionsAsync(credentials.FioToken!, timeout.Token);
             var info = document.RootElement.GetProperty("accountStatement").GetProperty("info");
             var iban = info.TryGetProperty("iban", out var ibanValue) ? ibanValue.GetString() : null;
             var currency = info.TryGetProperty("currency", out var currencyValue) ? currencyValue.GetString() : null;
@@ -48,6 +56,28 @@ public class FioSource : IPaymentConfirmationSource
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
+        }
+        catch (OperationCanceledException)
+        {
+            return new ConfirmationTestResult(false,
+                "Fio did not answer in time - this is how Fio reports an invalid or not-yet-active token. "
+                + "A freshly generated token becomes active about 5 minutes after its authorization; "
+                + "wait a few minutes and test again. Also check the token validity and scope in internetbanking.");
+        }
+        catch (System.Net.Http.HttpRequestException ex)
+        {
+            var message = ex.StatusCode switch
+            {
+                System.Net.HttpStatusCode.InternalServerError =>
+                    "Fio rejected the token (nonexistent or inactive). A fresh token becomes active ~5 minutes "
+                    + "after authorization - wait and retry; otherwise re-check the token in internetbanking.",
+                System.Net.HttpStatusCode.Conflict =>
+                    "Fio rate limit: one request per token per 30 seconds - wait half a minute and test again.",
+                System.Net.HttpStatusCode.UnprocessableEntity =>
+                    "Fio refused the request (data older than 90 days need an unlock in internetbanking).",
+                _ => $"Fio API test failed: {ex.Message}",
+            };
+            return new ConfirmationTestResult(false, message);
         }
         catch (Exception ex)
         {

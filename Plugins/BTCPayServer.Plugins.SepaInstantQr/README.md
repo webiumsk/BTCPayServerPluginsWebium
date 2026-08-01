@@ -122,7 +122,10 @@ without any certificates:
    Fio stores the download cursor per token.
 2. Paste the token in the plugin settings and switch the confirmation
    backend to "Fio banka". Press "Test confirmation backend".
-3. Payments are picked up within ~60 seconds of arriving on the account.
+3. Note: a freshly generated token becomes active **about 5 minutes
+   after its authorization** - until then Fio reports it as invalid
+   (after a deliberate ~30 s delay). Wait a moment before testing.
+4. Payments are picked up within ~60 seconds of arriving on the account.
    Matching uses the payer reference (SEPA end-to-end id), the variable
    symbol (CZ) or a `QR-…` id found in the payment message.
 
