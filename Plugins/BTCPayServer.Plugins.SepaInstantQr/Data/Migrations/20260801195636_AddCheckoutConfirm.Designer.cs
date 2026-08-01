@@ -3,6 +3,7 @@ using System;
 using BTCPayServer.Plugins.SepaInstantQr.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace BTCPayServer.Plugins.SepaInstantQr.Data.Migrations
 {
     [DbContext(typeof(SepaDbContext))]
-    partial class SepaDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260801195636_AddCheckoutConfirm")]
+    partial class AddCheckoutConfirm
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

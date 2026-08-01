@@ -19,6 +19,8 @@ public class SepaSettingsData
     public decimal AmountTolerance { get; set; }
     public string NopEnvironment { get; set; } = "INT";
     public bool NopCertSet { get; set; }
+    public bool FioTokenSet { get; set; }
+    public bool CheckoutConfirmEnabled { get; set; }
     public string? NopVatsk { get; set; }
     public string? NopPokladnica { get; set; }
 }
@@ -46,7 +48,7 @@ public class SepaUpdateSettingsRequest
     public string? Message { get; set; }
 
     [Required]
-    [RegularExpression("manual|nop-mqtt|nop-rest", ErrorMessage = "Unknown confirmation backend.")]
+    [RegularExpression("manual|fio|nop-mqtt|nop-rest", ErrorMessage = "Unknown confirmation backend.")]
     public string ConfirmationBackend { get; set; } = "manual";
 
     [Required]
@@ -55,6 +57,9 @@ public class SepaUpdateSettingsRequest
 
     [Range(typeof(decimal), "0", "10")]
     public decimal AmountTolerance { get; set; }
+
+    /// <summary>Merchant "Mark as paid" button in the checkout - POS only, default off.</summary>
+    public bool CheckoutConfirmEnabled { get; set; }
 
     /// <summary>Optional - omitting it keeps the currently stored NOP environment.</summary>
     [RegularExpression("INT|PROD")]
@@ -72,6 +77,14 @@ public class SepaUploadCertificateRequest
     /// <summary>Optional - omitting it keeps the currently stored NOP environment.</summary>
     [RegularExpression("INT|PROD")]
     public string? NopEnvironment { get; set; }
+}
+
+/// <summary>Write-only Fio token upload.</summary>
+public class SepaFioTokenRequest
+{
+    [Required]
+    [MaxLength(128)]
+    public string Token { get; set; } = string.Empty;
 }
 
 public class SepaPaymentRequestData

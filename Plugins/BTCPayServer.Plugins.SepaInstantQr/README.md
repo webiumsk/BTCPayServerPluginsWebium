@@ -32,7 +32,8 @@ capabilities.
     QR Platba flow). EUR invoices produce `CC:EUR`, which CZ banks route
     as a SEPA/foreign payment - UX varies per bank.
   - **EU generic**: EPC QR ("girocode", EPC069-12 v3.1, version 002).
-- Confirmation backend: **Manual** - the merchant sees the transfer in their
+- Confirmation backends: **Manual**, **Fio banka** (token API, no
+  certificates - see below) and **NOP** (Slovakia, v0.2) - the merchant sees the transfer in their
   banking app and presses "Mark as paid" on the store's SEPA page
   (permission: modify store settings). Settlement runs through BTCPay's
   normal invoice lifecycle: webhooks fire, the POS shows paid.
@@ -110,6 +111,30 @@ If NOP is down when an invoice is created, the invoice still works - the
 QR renders with a locally generated reference and the merchant confirms
 manually for that one payment.
 
+### Fio banka - certificate-free confirmations
+
+For merchants with a Fio account (SK/CZ) the plugin confirms payments
+without any certificates:
+
+1. In Fio internetbanking open Settings → API and create a token with the
+   **"watch the account only"** scope (validity up to 180 days; enable
+   automatic renewal). The token must be **dedicated to this plugin** -
+   Fio stores the download cursor per token.
+2. Paste the token in the plugin settings and switch the confirmation
+   backend to "Fio banka". Press "Test confirmation backend".
+3. Payments are picked up within ~60 seconds of arriving on the account.
+   Matching uses the payer reference (SEPA end-to-end id), the variable
+   symbol (CZ) or a `QR-…` id found in the payment message.
+
+### Merchant confirm button in the checkout (POS only)
+
+With **"Show a merchant Mark as paid button"** enabled in the settings
+(default off), the checkout page itself offers a two-tap "Mark as paid"
+button - the cashier confirms the transfer they just saw in their banking
+app without leaving the POS screen. The checkout page is public, so only
+enable this on counter-top devices the merchant controls - never for
+e-commerce/online invoices; anyone viewing the page could press it.
+
 ### Counter-top POS setup
 
 Use BTCPay's built-in **Point of Sale** app on a tablet/phone stand with the
@@ -142,6 +167,8 @@ never leave the server.
 | PUT | `/settings` | Create/update settings; syncs the SEPA_INSTANT payment method on the store |
 | POST | `/certificate` | Upload the eKasa certificate: `{ "pfxBase64", "pfxPassword" }` or `{ "certPem", "keyPem" }`, plus `nopEnvironment` |
 | DELETE | `/certificate` | Remove the certificate (a NOP backend falls back to `manual`) |
+| POST | `/fio-token` | Store the Fio API token: `{ "token" }` |
+| DELETE | `/fio-token` | Remove the token (a fio backend falls back to `manual`) |
 | POST | `/test` | Live test of the configured confirmation backend |
 | GET | `/payment-requests?state=pending\|review` | Awaiting/needs-review payments (newest 100) |
 | POST | `/payment-requests/{reference}/confirm` | Manual confirmation through the normal invoice lifecycle |

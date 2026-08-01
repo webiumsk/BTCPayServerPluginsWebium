@@ -98,10 +98,23 @@ public class UISepaController : Controller
         settings.Message = string.IsNullOrWhiteSpace(model.Message) ? null : model.Message.Trim();
         settings.ConfirmationBackend = model.ConfirmationBackend;
         settings.SkQrVariant = model.SkQrVariant;
+        settings.CheckoutConfirmEnabled = model.CheckoutConfirmEnabled;
         settings.AmountTolerance = model.AmountTolerance;
 
         if (!await ApplyNopCertificateAsync(settings, model))
         {
+            var page = await BuildPageModelAsync(storeId);
+            page.Settings = model;
+            return View(page);
+        }
+
+        ApplyFioToken(settings, model);
+
+        if (model.ConfirmationBackend == Services.Confirmation.Fio.FioSource.BackendId
+            && !_configService.GetCredentials(settings).HasFioToken)
+        {
+            ModelState.AddModelError($"Settings.{nameof(model.FioToken)}",
+                "The Fio backend needs an API token - generate one in Fio internetbanking (read-only scope) and paste it here.");
             var page = await BuildPageModelAsync(storeId);
             page.Settings = model;
             return View(page);
@@ -167,6 +180,19 @@ public class UISepaController : Controller
 
         ModelState.AddModelError(NopCertFieldKey, error);
         return false;
+    }
+
+    /// <summary>
+    /// Applies the write-only Fio token field: a pasted token overwrites the
+    /// stored one, the clear checkbox removes it. Never rendered back.
+    /// </summary>
+    private void ApplyFioToken(SepaStoreSettings settings, SepaSettingsViewModel model)
+    {
+        var credentials = _configService.GetCredentials(settings);
+        if (model.ClearFioToken)
+            _configService.ApplyCredentials(settings, credentials with { FioToken = null });
+        else if (!string.IsNullOrWhiteSpace(model.FioToken))
+            _configService.ApplyCredentials(settings, credentials with { FioToken = model.FioToken.Trim() });
     }
 
     private static async Task<string> ReadFormFileAsync(Microsoft.AspNetCore.Http.IFormFile file)
@@ -268,6 +294,8 @@ public class UISepaController : Controller
                     NopCertSet = _configService.GetCredentials(settings).HasNopCertificate,
                     NopVatsk = settings.NopVatsk,
                     NopPokladnica = settings.NopPokladnica,
+                    FioTokenSet = _configService.GetCredentials(settings).HasFioToken,
+                    CheckoutConfirmEnabled = settings.CheckoutConfirmEnabled,
                 },
         };
 

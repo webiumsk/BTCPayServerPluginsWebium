@@ -65,6 +65,7 @@ public class SepaConfigService
             existing.Message = settings.Message;
             existing.ConfirmationBackend = settings.ConfirmationBackend;
             existing.SkQrVariant = settings.SkQrVariant;
+            existing.CheckoutConfirmEnabled = settings.CheckoutConfirmEnabled;
             existing.AmountTolerance = settings.AmountTolerance;
             // NOP identity travels with the certificate - persist both on
             // upload AND on clear (null overwrites stale values).

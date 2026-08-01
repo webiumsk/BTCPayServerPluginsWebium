@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.6.0 - unreleased
+
+- Fio banka confirmation backend (`fio`): certificate-free automatic
+  confirmations via the Fio token API (read-only token generated in
+  internetbanking, encrypted at rest). Polls the cursor endpoint every
+  60 s for stores with pending requests; matches by payer reference
+  (column27, SEPA end-to-end id), variable symbol or a QR-… id in the
+  payment message; dedup per movement id. Greenfield API: POST/DELETE
+  `fio-token`.
+- Merchant "Mark as paid" button directly in the checkout - explicit
+  per-store opt-in (`checkoutConfirmEnabled`, default OFF): the checkout
+  page is public, so this is for counter-top POS devices the merchant
+  controls, never e-commerce. Two-tap arming against accidental presses;
+  settles through the standard matching path.
+- Checkout shows the invoice currency instead of a hardcoded EUR (CZK
+  follow-up).
+
+
 ## 0.5.0 - unreleased
 
 - CZK invoices for the CZ profile: QR Platba is CZK-native, so the SPD

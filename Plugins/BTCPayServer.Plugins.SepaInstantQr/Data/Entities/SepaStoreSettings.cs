@@ -47,6 +47,14 @@ public class SepaStoreSettings
     public string ConfirmationBackend { get; set; } = "manual";
 
     /// <summary>
+    /// Merchant-facing "Mark as paid" button directly in the checkout.
+    /// Default OFF and deliberately opt-in: the checkout page runs on the
+    /// customer's device in e-commerce, where anyone could press it. Enable
+    /// only for counter-top POS devices the merchant controls.
+    /// </summary>
+    public bool CheckoutConfirmEnabled { get; set; }
+
+    /// <summary>
     /// Amount tolerance in EUR for automated matching (0 = exact). A payment
     /// below due - tolerance never auto-settles; it lands in manual review.
     /// </summary>

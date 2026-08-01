@@ -91,12 +91,18 @@ public class SepaApiController : ControllerBase
         settings.Message = string.IsNullOrWhiteSpace(request.Message) ? null : request.Message.Trim();
         settings.ConfirmationBackend = request.ConfirmationBackend;
         settings.SkQrVariant = request.SkQrVariant;
+        settings.CheckoutConfirmEnabled = request.CheckoutConfirmEnabled;
         settings.AmountTolerance = request.AmountTolerance;
 
         if (request.ConfirmationBackend.StartsWith("nop-", StringComparison.Ordinal)
             && string.IsNullOrEmpty(settings.NopVatsk))
             return Problem(statusCode: 400,
                 detail: "NOP backends need the eKasa cash-register certificate - upload it first (POST certificate).");
+
+        if (request.ConfirmationBackend == Services.Confirmation.Fio.FioSource.BackendId
+            && !_configService.GetCredentials(settings).HasFioToken)
+            return Problem(statusCode: 400,
+                detail: "The Fio backend needs an API token - store it first (POST fio-token).");
 
         // Environment changes without re-uploading material go through the
         // certificate service so the encrypted blob stays consistent; an
@@ -154,6 +160,40 @@ public class SepaApiController : ControllerBase
         // A NOP backend without a certificate cannot confirm anything -
         // fall back to manual so the store keeps working.
         if (settings.ConfirmationBackend.StartsWith("nop-", StringComparison.Ordinal))
+            settings.ConfirmationBackend = "manual";
+
+        await _configService.SaveSettingsAsync(settings, cancellationToken);
+        return Ok(Map(settings));
+    }
+
+    [HttpPost("fio-token")]
+    public async Task<IActionResult> SetFioToken(
+        string storeId, [FromBody] SepaFioTokenRequest request, CancellationToken cancellationToken)
+    {
+        if (!ModelState.IsValid)
+            return ValidationProblem(ModelState);
+
+        var settings = await _configService.GetSettingsAsync(storeId, cancellationToken);
+        if (settings is null)
+            return Problem(statusCode: 400, detail: "Save the settings first (PUT settings).");
+
+        var credentials = _configService.GetCredentials(settings);
+        _configService.ApplyCredentials(settings, credentials with { FioToken = request.Token.Trim() });
+        await _configService.SaveSettingsAsync(settings, cancellationToken);
+        return Ok(Map(settings));
+    }
+
+    [HttpDelete("fio-token")]
+    public async Task<IActionResult> ClearFioToken(string storeId, CancellationToken cancellationToken)
+    {
+        var settings = await _configService.GetSettingsAsync(storeId, cancellationToken);
+        if (settings is null)
+            return NotFound();
+
+        var credentials = _configService.GetCredentials(settings);
+        _configService.ApplyCredentials(settings, credentials with { FioToken = null });
+
+        if (settings.ConfirmationBackend == Services.Confirmation.Fio.FioSource.BackendId)
             settings.ConfirmationBackend = "manual";
 
         await _configService.SaveSettingsAsync(settings, cancellationToken);
@@ -267,6 +307,8 @@ public class SepaApiController : ControllerBase
             AmountTolerance = settings.AmountTolerance,
             NopEnvironment = credentials.NopEnvironment,
             NopCertSet = credentials.HasNopCertificate,
+            FioTokenSet = credentials.HasFioToken,
+            CheckoutConfirmEnabled = settings.CheckoutConfirmEnabled,
             NopVatsk = settings.NopVatsk,
             NopPokladnica = settings.NopPokladnica,
         };

@@ -48,6 +48,9 @@ public class SepaInstantQrPlugin : BaseBTCPayServerPlugin
 
         // Confirmation backends: manual + Slovak NOP (MQTT push, REST poll)
         services.AddSingleton<IPaymentConfirmationSource, ManualConfirmSource>();
+        services.AddSingleton<Services.Confirmation.Fio.FioApiClient>();
+        services.AddSingleton<Services.Confirmation.Fio.FioTransactionProcessor>();
+        services.AddSingleton<IPaymentConfirmationSource, Services.Confirmation.Fio.FioSource>();
         services.AddSingleton<NopNotificationProcessor>();
         services.AddSingleton<IPaymentConfirmationSource, NopMqttSource>();
         services.AddSingleton<IPaymentConfirmationSource, NopRestPollerSource>();
