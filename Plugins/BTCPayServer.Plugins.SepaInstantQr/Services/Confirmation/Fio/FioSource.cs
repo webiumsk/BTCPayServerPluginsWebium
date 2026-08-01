@@ -28,6 +28,9 @@ public class FioSource : IPaymentConfirmationSource
 
     public string Id => BackendId;
 
+    /// <summary>Test-call cap; internal so tests do not have to wait 20 s.</summary>
+    internal TimeSpan TestTimeout { get; set; } = TimeSpan.FromSeconds(20);
+
     public bool RequiresPolling => true;
 
     public async Task<ConfirmationTestResult> TestAsync(SepaStoreSettings settings, CancellationToken cancellationToken)
@@ -43,7 +46,7 @@ public class FioSource : IPaymentConfirmationSource
         // benign: a fresh token only becomes active ~5 minutes after its
         // authorization in internetbanking.
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(TimeSpan.FromSeconds(20));
+        timeout.CancelAfter(TestTimeout);
         try
         {
             using var document = await _client.GetTodayTransactionsAsync(credentials.FioToken!, timeout.Token);
@@ -57,7 +60,7 @@ public class FioSource : IPaymentConfirmationSource
         {
             throw;
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (timeout.IsCancellationRequested)
         {
             return new ConfirmationTestResult(false,
                 "Fio did not answer in time - this is how Fio reports an invalid or not-yet-active token. "
