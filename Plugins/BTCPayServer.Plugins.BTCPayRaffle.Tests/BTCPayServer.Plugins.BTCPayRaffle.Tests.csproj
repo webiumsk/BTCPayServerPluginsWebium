@@ -6,6 +6,7 @@
     <IsPackable>false</IsPackable>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="HtmlSanitizer" Version="9.0.892" />
     <PackageReference Include="Microsoft.AspNetCore.DataProtection" Version="10.0.4" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.1" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.4" />

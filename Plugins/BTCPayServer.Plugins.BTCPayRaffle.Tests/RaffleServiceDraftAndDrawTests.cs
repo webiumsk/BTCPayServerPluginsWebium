@@ -11,7 +11,9 @@ namespace BTCPayServer.Plugins.BTCPayRaffle.Tests;
 public class RaffleServiceDraftAndDrawTests
 {
     private static RaffleService CreateService() =>
-        new(new InMemoryRaffleDbFactory(), NullLogger<RaffleService>.Instance);
+        new(new InMemoryRaffleDbFactory(),
+            new RaffleDescriptionHtml(new Ganss.Xss.HtmlSanitizer()),
+            NullLogger<RaffleService>.Instance);
 
     [Fact]
     public async Task UpdateDraftRaffle_OnlyWhileDraft()
