@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using BTCPayServer.Plugins.SepaInstantQr.Data;
 using BTCPayServer.Plugins.SepaInstantQr.Data.Entities;
+using BTCPayServer.Plugins.SepaInstantQr.Services.Confirmation.Fio;
 using BTCPayServer.Plugins.SepaInstantQr.Services.Confirmation.Nop;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Hosting;
@@ -15,10 +16,10 @@ using Microsoft.Extensions.Logging;
 namespace BTCPayServer.Plugins.SepaInstantQr.Services;
 
 /// <summary>
-/// Generic polling loop for confirmation backends that need it. v0.2 drives
-/// the NOP Lite REST poller; a future aggregator backend plugs in the same
-/// way. Polls only stores that have at least one PENDING payment request -
-/// idle stores cost nothing.
+/// Generic polling loop for confirmation backends that need it: the NOP
+/// Lite REST poller (v0.2) and the Fio token API (v0.6); a future
+/// aggregator backend plugs in the same way. Polls only stores that have at
+/// least one PENDING payment request - idle stores cost nothing.
 /// </summary>
 public class SepaPollingHostedService : BackgroundService
 {
@@ -29,6 +30,8 @@ public class SepaPollingHostedService : BackgroundService
     private readonly SepaDbContextFactory _dbContextFactory;
     private readonly SepaConfigService _configService;
     private readonly NopNotificationProcessor _processor;
+    private readonly FioApiClient _fioClient;
+    private readonly FioTransactionProcessor _fioProcessor;
     private readonly SepaMatchingService _matchingService;
     private readonly ILogger<SepaPollingHostedService> _logger;
 
@@ -38,12 +41,16 @@ public class SepaPollingHostedService : BackgroundService
         SepaDbContextFactory dbContextFactory,
         SepaConfigService configService,
         NopNotificationProcessor processor,
+        FioApiClient fioClient,
+        FioTransactionProcessor fioProcessor,
         SepaMatchingService matchingService,
         ILogger<SepaPollingHostedService> logger)
     {
         _dbContextFactory = dbContextFactory;
         _configService = configService;
         _processor = processor;
+        _fioClient = fioClient;
+        _fioProcessor = fioProcessor;
         _matchingService = matchingService;
         _logger = logger;
     }
@@ -87,7 +94,8 @@ public class SepaPollingHostedService : BackgroundService
             stores = await ctx.SepaStoreSettings
                 .AsNoTracking()
                 .Where(s => s.Enabled
-                            && s.ConfirmationBackend == NopRestPollerSource.BackendId
+                            && (s.ConfirmationBackend == NopRestPollerSource.BackendId
+                                || s.ConfirmationBackend == FioSource.BackendId)
                             && storeIdsWithPending.Contains(s.StoreId))
                 .ToListAsync(ct);
         }
@@ -101,11 +109,15 @@ public class SepaPollingHostedService : BackgroundService
             ct.ThrowIfCancellationRequested();
             try
             {
-                await PollStoreAsync(settings, ct);
+                if (settings.ConfirmationBackend == FioSource.BackendId)
+                    await PollFioStoreAsync(settings, ct);
+                else
+                    await PollStoreAsync(settings, ct);
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "NOP REST poll failed for store {StoreId}", settings.StoreId);
+                _logger.LogWarning(ex, "Confirmation poll failed for store {StoreId} ({Backend})",
+                    settings.StoreId, settings.ConfirmationBackend);
             }
         }
     }
@@ -164,5 +176,66 @@ public class SepaPollingHostedService : BackgroundService
         // walked - a thrown fetch keeps the previous window so unprocessed
         // confirmations are retrieved again next tick.
         _lastSuccessfulPoll[settings.StoreId] = startedAt;
+    }
+
+    /// <summary>
+    /// Fio: the cursor ("zarážka") lives server-side per token and advances
+    /// automatically on every non-empty fetch, so there is no local
+    /// checkpoint to keep. Individual broken movements never sink the batch
+    /// - the dedup key (fio:movementId) makes re-deliveries harmless.
+    /// </summary>
+    private async Task PollFioStoreAsync(SepaStoreSettings settings, CancellationToken ct)
+    {
+        var credentials = _configService.GetCredentials(settings);
+        if (!credentials.HasFioToken)
+            return;
+
+        using var document = await _fioClient.GetLastTransactionsAsync(credentials.FioToken!, ct);
+        if (document is null)
+            return; // 30 s rate limit - next tick catches up
+
+        // At-least-once: the fetch advanced the bank-side cursor, so a
+        // movement that fails to process would otherwise be lost. Movements
+        // are processed in id order; on the first failure the cursor is
+        // rewound (documented set-last-id endpoint) to the last movement
+        // that succeeded - or to the pre-fetch cursor when none did - and
+        // the batch is re-delivered next tick. The fio:{movementId} dedup
+        // key makes re-deliveries harmless.
+        var previousCursor = FioTransactionProcessor.GetPreviousCursor(document);
+        long? lastProcessedId = null;
+        foreach (var movement in _fioProcessor.Parse(document))
+        {
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                await _matchingService.ProcessAsync(FioSource.BackendId, movement.Payment, settings.AmountTolerance, ct);
+                lastProcessedId = movement.MovementId;
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                var rewindTo = lastProcessedId ?? previousCursor;
+                _logger.LogWarning(ex,
+                    "Fio movement {MovementId} failed for store {StoreId}; rewinding cursor to {RewindTo}",
+                    movement.MovementId, settings.StoreId, rewindTo);
+                if (rewindTo is not null)
+                {
+                    try
+                    {
+                        await _fioClient.SetLastIdAsync(credentials.FioToken!, rewindTo.Value, ct);
+                    }
+                    catch (Exception rewindEx)
+                    {
+                        _logger.LogError(rewindEx,
+                            "Fio cursor rewind failed for store {StoreId} - movements after {RewindTo} may be lost",
+                            settings.StoreId, rewindTo);
+                    }
+                }
+                return;
+            }
+        }
     }
 }

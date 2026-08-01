@@ -47,6 +47,14 @@ public class SepaStoreSettings
     public string ConfirmationBackend { get; set; } = "manual";
 
     /// <summary>
+    /// Merchant-facing "Mark as paid" button directly in the checkout.
+    /// Default OFF and deliberately opt-in: the checkout page runs on the
+    /// customer's device in e-commerce, where anyone could press it. Enable
+    /// only for counter-top POS devices the merchant controls.
+    /// </summary>
+    public bool CheckoutConfirmEnabled { get; set; }
+
+    /// <summary>
     /// Amount tolerance in EUR for automated matching (0 = exact). A payment
     /// below due - tolerance never auto-settles; it lands in manual review.
     /// </summary>
@@ -57,6 +65,15 @@ public class SepaStoreSettings
     /// aggregator secrets). Encrypted at rest, never logged.
     /// </summary>
     public string? EncryptedCredentialsJson { get; set; }
+
+    /// <summary>
+    /// SHA-256 hex of the stored Fio token. The bank keeps the download
+    /// cursor per token, so one token must never serve two stores - a
+    /// unique index on this fingerprint enforces that without ever
+    /// comparing protected ciphertext.
+    /// </summary>
+    [MaxLength(64)]
+    public string? FioTokenFingerprint { get; set; }
 
     /// <summary>NOP identity cached from the uploaded eKasa certificate ("VATSK-1234567890").</summary>
     [MaxLength(20)]

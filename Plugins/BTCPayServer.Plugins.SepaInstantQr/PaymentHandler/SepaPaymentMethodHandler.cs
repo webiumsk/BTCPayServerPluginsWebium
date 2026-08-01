@@ -112,6 +112,8 @@ public class SepaPaymentMethodHandler : IPaymentMethodHandler
             Beneficiary = settings.Beneficiary,
             Amount = due,
             CountryProfile = settings.CountryProfile,
+            CheckoutConfirmEnabled = settings.CheckoutConfirmEnabled,
+            Currency = context.Prompt.Currency,
         }, Serializer);
 
         context.TrackedDestinations.Add(reference);

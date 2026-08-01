@@ -65,6 +65,8 @@ public class SepaConfigService
             existing.Message = settings.Message;
             existing.ConfirmationBackend = settings.ConfirmationBackend;
             existing.SkQrVariant = settings.SkQrVariant;
+            existing.CheckoutConfirmEnabled = settings.CheckoutConfirmEnabled;
+            existing.FioTokenFingerprint = settings.FioTokenFingerprint;
             existing.AmountTolerance = settings.AmountTolerance;
             // NOP identity travels with the certificate - persist both on
             // upload AND on clear (null overwrites stale values).
@@ -97,6 +99,42 @@ public class SepaConfigService
             // credentials instead of the plugin failing hard.
             return null;
         }
+    }
+
+    /// <summary>
+    /// Validates and stores the Fio token: trimmed, exactly 64 characters
+    /// (Fio API Bankovnictví v1.9), and not already used by another store -
+    /// the bank keeps the download cursor per token, so a shared token
+    /// would make stores steal each other's movements. Returns null on
+    /// success, otherwise a human-readable error. The unique index on the
+    /// fingerprint is the transaction-safe backstop for concurrent saves.
+    /// </summary>
+    public async Task<string?> TrySetFioTokenAsync(
+        SepaStoreSettings settings, string rawToken, CancellationToken cancellationToken = default)
+    {
+        var token = rawToken.Trim();
+        if (token.Length != 64)
+            return "The Fio API token must be exactly 64 characters.";
+
+        var fingerprint = Convert.ToHexStringLower(
+            System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(token)));
+
+        await using var ctx = _dbContextFactory.CreateContext();
+        var ownedElsewhere = await ctx.SepaStoreSettings
+            .AsNoTracking()
+            .AnyAsync(s => s.FioTokenFingerprint == fingerprint && s.StoreId != settings.StoreId, cancellationToken);
+        if (ownedElsewhere)
+            return "This Fio token is already used by another store - generate a separate token per store (the bank keeps the download cursor per token).";
+
+        ApplyCredentials(settings, GetCredentials(settings) with { FioToken = token });
+        settings.FioTokenFingerprint = fingerprint;
+        return null;
+    }
+
+    public void ClearFioToken(SepaStoreSettings settings)
+    {
+        ApplyCredentials(settings, GetCredentials(settings) with { FioToken = null });
+        settings.FioTokenFingerprint = null;
     }
 
     /// <summary>Decrypted backend credentials of a store (empty record when unset).</summary>

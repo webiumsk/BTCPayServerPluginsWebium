@@ -5,6 +5,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using BTCPayServer.Plugins.SepaInstantQr.Data;
 using BTCPayServer.Plugins.SepaInstantQr.Data.Entities;
+using BTCPayServer.Plugins.SepaInstantQr.Services;
+using BTCPayServer.Plugins.SepaInstantQr.Services.Confirmation;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -15,10 +17,17 @@ namespace BTCPayServer.Plugins.SepaInstantQr.Controllers;
 public class SepaCheckoutController : Controller
 {
     private readonly SepaDbContextFactory _dbContextFactory;
+    private readonly SepaConfigService _configService;
+    private readonly SepaMatchingService _matchingService;
 
-    public SepaCheckoutController(SepaDbContextFactory dbContextFactory)
+    public SepaCheckoutController(
+        SepaDbContextFactory dbContextFactory,
+        SepaConfigService configService,
+        SepaMatchingService matchingService)
     {
         _dbContextFactory = dbContextFactory;
+        _configService = configService;
+        _matchingService = matchingService;
     }
 
     /// <summary>
@@ -48,6 +57,58 @@ public class SepaCheckoutController : Controller
         {
             // Never 500-spam the checkout; report a soft failure.
             return Ok(new { paid = false, error = "Failed to check payment status" });
+        }
+    }
+
+    /// <summary>
+    /// Merchant "Mark as paid" button in the checkout. Anonymous like the
+    /// rest of the checkout page, but gated server-side by the store's
+    /// explicit CheckoutConfirmEnabled opt-in (default off) - designed for
+    /// counter-top POS devices the merchant controls, never for e-commerce.
+    /// Settles through the shared matching path (webhooks fire, POS flips
+    /// to paid), identical to the settings-page manual confirmation.
+    /// </summary>
+    [AllowAnonymous]
+    [IgnoreAntiforgeryToken]
+    [HttpPost("confirm-checkout/{reference}")]
+    public async Task<IActionResult> ConfirmFromCheckout(string reference, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(reference) || reference.Length > 35)
+            return BadRequest(new { ok = false, error = "Invalid reference" });
+
+        try
+        {
+            await using var ctx = _dbContextFactory.CreateContext();
+            var request = await ctx.SepaPaymentRequests
+                .AsNoTracking()
+                .FirstOrDefaultAsync(r => r.Reference == reference, cancellationToken);
+            if (request is null)
+                return NotFound(new { ok = false, error = "Unknown reference" });
+
+            // Enabled-settings lookup: a store that disabled SEPA entirely
+            // must not remain confirmable through a stale checkout page.
+            var settings = await _configService.GetEnabledSettingsAsync(request.StoreId, cancellationToken);
+            if (settings is null || !settings.CheckoutConfirmEnabled)
+                return NotFound(new { ok = false, error = "Checkout confirmation is not enabled" });
+
+            var outcome = await _matchingService.ProcessAsync(
+                "manual:checkout",
+                new ConfirmedPayment(reference, request.AmountDue, request.Currency, RawJson: null, DedupKey: null),
+                settings.AmountTolerance,
+                cancellationToken);
+
+            return outcome is MatchOutcome.Settled or MatchOutcome.Duplicate
+                ? Ok(new { ok = true })
+                : Ok(new { ok = false, error = $"Could not settle ({outcome})" });
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            // Same defensive contract as Poll - never 500-spam the checkout.
+            return Ok(new { ok = false, error = "Confirmation failed" });
         }
     }
 }

@@ -43,6 +43,8 @@ public class SepaCheckoutModelExtension : ICheckoutModelExtension
         context.Model.AdditionalData["sepaBeneficiary"] = JToken.FromObject(details.Beneficiary);
         context.Model.AdditionalData["sepaAmount"] = JToken.FromObject(details.Amount.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture));
         context.Model.AdditionalData["sepaProfile"] = JToken.FromObject(details.CountryProfile);
+        context.Model.AdditionalData["sepaCurrency"] = JToken.FromObject(string.IsNullOrEmpty(details.Currency) ? "EUR" : details.Currency);
+        context.Model.AdditionalData["sepaCheckoutConfirmEnabled"] = JToken.FromObject(details.CheckoutConfirmEnabled);
 
         context.Model.Address = details.Iban;
         context.Model.ShowRecommendedFee = false;

@@ -25,6 +25,14 @@ public record SepaBackendCredentials
     /// <summary>"INT" | "PROD".</summary>
     public string NopEnvironment { get; init; } = "INT";
 
+    // ── Fio banka (token API, read-only scope recommended) ──
+    /// <summary>64-char API token generated in Fio internetbanking. The
+    /// polling cursor ("zarážka") is per token, so it must be dedicated to
+    /// this plugin.</summary>
+    public string? FioToken { get; init; }
+
+    public bool HasFioToken => !string.IsNullOrWhiteSpace(FioToken);
+
     public bool HasNopCertificate =>
         (!string.IsNullOrEmpty(NopCertificatePem) && !string.IsNullOrEmpty(NopPrivateKeyPem))
         || !string.IsNullOrEmpty(NopPfxBase64);

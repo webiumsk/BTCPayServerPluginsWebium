@@ -98,10 +98,30 @@ public class UISepaController : Controller
         settings.Message = string.IsNullOrWhiteSpace(model.Message) ? null : model.Message.Trim();
         settings.ConfirmationBackend = model.ConfirmationBackend;
         settings.SkQrVariant = model.SkQrVariant;
+        settings.CheckoutConfirmEnabled = model.CheckoutConfirmEnabled;
         settings.AmountTolerance = model.AmountTolerance;
 
         if (!await ApplyNopCertificateAsync(settings, model))
         {
+            var page = await BuildPageModelAsync(storeId);
+            page.Settings = model;
+            return View(page);
+        }
+
+        var fioError = await ApplyFioTokenAsync(settings, model, cancellationToken: default);
+        if (fioError is not null)
+        {
+            ModelState.AddModelError($"Settings.{nameof(model.FioToken)}", fioError);
+            var fioPage = await BuildPageModelAsync(storeId);
+            fioPage.Settings = model;
+            return View(fioPage);
+        }
+
+        if (model.ConfirmationBackend == Services.Confirmation.Fio.FioSource.BackendId
+            && !_configService.GetCredentials(settings).HasFioToken)
+        {
+            ModelState.AddModelError($"Settings.{nameof(model.FioToken)}",
+                "The Fio backend needs an API token - generate one in Fio internetbanking (read-only scope) and paste it here.");
             var page = await BuildPageModelAsync(storeId);
             page.Settings = model;
             return View(page);
@@ -167,6 +187,26 @@ public class UISepaController : Controller
 
         ModelState.AddModelError(NopCertFieldKey, error);
         return false;
+    }
+
+    /// <summary>
+    /// Applies the write-only Fio token field: a pasted token overwrites the
+    /// stored one (validated + ownership-checked by the config service),
+    /// the clear checkbox removes it. Never rendered back.
+    /// </summary>
+    private async Task<string?> ApplyFioTokenAsync(
+        SepaStoreSettings settings, SepaSettingsViewModel model, CancellationToken cancellationToken)
+    {
+        if (model.ClearFioToken)
+        {
+            _configService.ClearFioToken(settings);
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(model.FioToken))
+            return null;
+
+        return await _configService.TrySetFioTokenAsync(settings, model.FioToken, cancellationToken);
     }
 
     private static async Task<string> ReadFormFileAsync(Microsoft.AspNetCore.Http.IFormFile file)
@@ -268,6 +308,8 @@ public class UISepaController : Controller
                     NopCertSet = _configService.GetCredentials(settings).HasNopCertificate,
                     NopVatsk = settings.NopVatsk,
                     NopPokladnica = settings.NopPokladnica,
+                    FioTokenSet = _configService.GetCredentials(settings).HasFioToken,
+                    CheckoutConfirmEnabled = settings.CheckoutConfirmEnabled,
                 },
         };
 

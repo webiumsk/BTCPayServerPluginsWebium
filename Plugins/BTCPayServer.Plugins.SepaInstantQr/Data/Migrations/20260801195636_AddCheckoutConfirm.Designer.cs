@@ -3,6 +3,7 @@ using System;
 using BTCPayServer.Plugins.SepaInstantQr.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace BTCPayServer.Plugins.SepaInstantQr.Data.Migrations
 {
     [DbContext(typeof(SepaDbContext))]
-    partial class SepaDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260801195636_AddCheckoutConfirm")]
+    partial class AddCheckoutConfirm
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -150,10 +153,6 @@ namespace BTCPayServer.Plugins.SepaInstantQr.Data.Migrations
                     b.Property<string>("EncryptedCredentialsJson")
                         .HasColumnType("text");
 
-                    b.Property<string>("FioTokenFingerprint")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
                     b.Property<string>("Iban")
                         .IsRequired()
                         .HasMaxLength(34)
@@ -180,10 +179,6 @@ namespace BTCPayServer.Plugins.SepaInstantQr.Data.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.HasKey("StoreId");
-
-                    b.HasIndex("FioTokenFingerprint")
-                        .IsUnique()
-                        .HasFilter("\"FioTokenFingerprint\" IS NOT NULL");
 
                     b.ToTable("SepaStoreSettings", "BTCPayServer.Plugins.SepaInstantQr");
                 });

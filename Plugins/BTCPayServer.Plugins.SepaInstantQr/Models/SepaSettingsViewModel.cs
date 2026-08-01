@@ -36,11 +36,23 @@ public class SepaSettingsViewModel : IValidatableObject
     public string? Message { get; set; }
 
     [Required]
-    [RegularExpression("manual|nop-mqtt|nop-rest", ErrorMessage = "Unknown confirmation backend.")]
+    [RegularExpression("manual|fio|nop-mqtt|nop-rest", ErrorMessage = "Unknown confirmation backend.")]
     public string ConfirmationBackend { get; set; } = "manual";
 
     [Range(typeof(decimal), "0", "10")]
     public decimal AmountTolerance { get; set; }
+
+    /// <summary>Merchant "Mark as paid" button in the checkout - POS only, default off.</summary>
+    public bool CheckoutConfirmEnabled { get; set; }
+
+    // ── Fio token (write-only; never rendered back) ──
+    [MaxLength(128)]
+    public string? FioToken { get; set; }
+
+    public bool ClearFioToken { get; set; }
+
+    /// <summary>Read-only display flag.</summary>
+    public bool FioTokenSet { get; set; }
 
     // ── NOP certificate upload (write-only; secrets never render back) ──
     [RegularExpression("INT|PROD")]

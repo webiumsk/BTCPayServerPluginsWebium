@@ -77,6 +77,7 @@
                 <label asp-for="Settings.ConfirmationBackend" class="form-label">Payment confirmation</label>
                 <select asp-for="Settings.ConfirmationBackend" class="form-select w-auto">
                     <option value="manual">Manual - I confirm payments in my banking app</option>
+                    <option value="fio">Fio banka - API token polling (no certificates)</option>
                     <option value="nop-mqtt">NOP - instant notifications (Slovakia, recommended)</option>
                     <option value="nop-rest">NOP - polling fallback (Slovakia)</option>
                 </select>
@@ -87,6 +88,33 @@
                     business account at your bank.
                 </div>
             </div>
+
+            <fieldset class="border rounded p-3 my-3">
+                <legend class="fs-6">Fio banka - API token</legend>
+                @if (Model.Settings.FioTokenSet)
+                {
+                    <p class="text-success mb-2">Fio API token stored.</p>
+                    <div class="form-group form-check">
+                        <input asp-for="Settings.ClearFioToken" type="checkbox" class="form-check-input" />
+                        <label asp-for="Settings.ClearFioToken" class="form-check-label">Remove the stored token</label>
+                    </div>
+                }
+                else
+                {
+                    <p class="text-muted small">
+                        Generate a token in Fio internetbanking (Settings → API, scope
+                        "watch the account only", validity up to 180 days with automatic
+                        renewal). The token must be dedicated to this plugin - the
+                        polling cursor is stored per token at the bank. Stored encrypted;
+                        never displayed again.
+                    </p>
+                }
+                <div class="form-group">
+                    <label asp-for="Settings.FioToken" class="form-label">API token</label>
+                    <input asp-for="Settings.FioToken" type="password" autocomplete="new-password" class="form-control font-monospace" />
+                    <span asp-validation-for="Settings.FioToken" class="text-danger"></span>
+                </div>
+            </fieldset>
 
             <fieldset class="border rounded p-3 my-3">
                 <legend class="fs-6">NOP - eKasa certificate</legend>
@@ -138,6 +166,18 @@
                     </select>
                 </div>
             </fieldset>
+
+            <div class="form-group form-check">
+                <input asp-for="Settings.CheckoutConfirmEnabled" type="checkbox" class="form-check-input" />
+                <label asp-for="Settings.CheckoutConfirmEnabled" class="form-check-label">
+                    Show a merchant "Mark as paid" button directly in the checkout
+                </label>
+                <div class="form-text text-warning">
+                    Counter-top POS only: anyone viewing the checkout page can press
+                    the button, so never enable this for e-commerce/online invoices.
+                    Off by default.
+                </div>
+            </div>
 
             <div class="form-group">
                 <label asp-for="Settings.AmountTolerance" class="form-label">Amount tolerance (invoice currency)</label>
