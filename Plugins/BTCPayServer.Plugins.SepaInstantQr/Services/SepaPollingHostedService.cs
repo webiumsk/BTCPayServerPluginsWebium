@@ -194,12 +194,22 @@ public class SepaPollingHostedService : BackgroundService
         if (document is null)
             return; // 30 s rate limit - next tick catches up
 
-        foreach (var confirmed in _fioProcessor.Parse(document))
+        // At-least-once: the fetch advanced the bank-side cursor, so a
+        // movement that fails to process would otherwise be lost. Movements
+        // are processed in id order; on the first failure the cursor is
+        // rewound (documented set-last-id endpoint) to the last movement
+        // that succeeded - or to the pre-fetch cursor when none did - and
+        // the batch is re-delivered next tick. The fio:{movementId} dedup
+        // key makes re-deliveries harmless.
+        var previousCursor = FioTransactionProcessor.GetPreviousCursor(document);
+        long? lastProcessedId = null;
+        foreach (var movement in _fioProcessor.Parse(document))
         {
             ct.ThrowIfCancellationRequested();
             try
             {
-                await _matchingService.ProcessAsync(FioSource.BackendId, confirmed, settings.AmountTolerance, ct);
+                await _matchingService.ProcessAsync(FioSource.BackendId, movement.Payment, settings.AmountTolerance, ct);
+                lastProcessedId = movement.MovementId;
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -207,9 +217,24 @@ public class SepaPollingHostedService : BackgroundService
             }
             catch (Exception ex)
             {
+                var rewindTo = lastProcessedId ?? previousCursor;
                 _logger.LogWarning(ex,
-                    "Fio movement processing failed for store {StoreId}; continuing with the batch",
-                    settings.StoreId);
+                    "Fio movement {MovementId} failed for store {StoreId}; rewinding cursor to {RewindTo}",
+                    movement.MovementId, settings.StoreId, rewindTo);
+                if (rewindTo is not null)
+                {
+                    try
+                    {
+                        await _fioClient.SetLastIdAsync(credentials.FioToken!, rewindTo.Value, ct);
+                    }
+                    catch (Exception rewindEx)
+                    {
+                        _logger.LogError(rewindEx,
+                            "Fio cursor rewind failed for store {StoreId} - movements after {RewindTo} may be lost",
+                            settings.StoreId, rewindTo);
+                    }
+                }
+                return;
             }
         }
     }

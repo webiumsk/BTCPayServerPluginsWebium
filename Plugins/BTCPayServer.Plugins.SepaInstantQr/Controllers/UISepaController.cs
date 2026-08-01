@@ -108,7 +108,14 @@ public class UISepaController : Controller
             return View(page);
         }
 
-        ApplyFioToken(settings, model);
+        var fioError = await ApplyFioTokenAsync(settings, model, cancellationToken: default);
+        if (fioError is not null)
+        {
+            ModelState.AddModelError($"Settings.{nameof(model.FioToken)}", fioError);
+            var fioPage = await BuildPageModelAsync(storeId);
+            fioPage.Settings = model;
+            return View(fioPage);
+        }
 
         if (model.ConfirmationBackend == Services.Confirmation.Fio.FioSource.BackendId
             && !_configService.GetCredentials(settings).HasFioToken)
@@ -184,15 +191,22 @@ public class UISepaController : Controller
 
     /// <summary>
     /// Applies the write-only Fio token field: a pasted token overwrites the
-    /// stored one, the clear checkbox removes it. Never rendered back.
+    /// stored one (validated + ownership-checked by the config service),
+    /// the clear checkbox removes it. Never rendered back.
     /// </summary>
-    private void ApplyFioToken(SepaStoreSettings settings, SepaSettingsViewModel model)
+    private async Task<string?> ApplyFioTokenAsync(
+        SepaStoreSettings settings, SepaSettingsViewModel model, CancellationToken cancellationToken)
     {
-        var credentials = _configService.GetCredentials(settings);
         if (model.ClearFioToken)
-            _configService.ApplyCredentials(settings, credentials with { FioToken = null });
-        else if (!string.IsNullOrWhiteSpace(model.FioToken))
-            _configService.ApplyCredentials(settings, credentials with { FioToken = model.FioToken.Trim() });
+        {
+            _configService.ClearFioToken(settings);
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(model.FioToken))
+            return null;
+
+        return await _configService.TrySetFioTokenAsync(settings, model.FioToken, cancellationToken);
     }
 
     private static async Task<string> ReadFormFileAsync(Microsoft.AspNetCore.Http.IFormFile file)

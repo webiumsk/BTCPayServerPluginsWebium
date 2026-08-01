@@ -177,8 +177,10 @@ public class SepaApiController : ControllerBase
         if (settings is null)
             return Problem(statusCode: 400, detail: "Save the settings first (PUT settings).");
 
-        var credentials = _configService.GetCredentials(settings);
-        _configService.ApplyCredentials(settings, credentials with { FioToken = request.Token.Trim() });
+        var error = await _configService.TrySetFioTokenAsync(settings, request.Token, cancellationToken);
+        if (error is not null)
+            return Problem(statusCode: 400, detail: error);
+
         await _configService.SaveSettingsAsync(settings, cancellationToken);
         return Ok(Map(settings));
     }
@@ -190,8 +192,7 @@ public class SepaApiController : ControllerBase
         if (settings is null)
             return NotFound();
 
-        var credentials = _configService.GetCredentials(settings);
-        _configService.ApplyCredentials(settings, credentials with { FioToken = null });
+        _configService.ClearFioToken(settings);
 
         if (settings.ConfirmationBackend == Services.Confirmation.Fio.FioSource.BackendId)
             settings.ConfirmationBackend = "manual";

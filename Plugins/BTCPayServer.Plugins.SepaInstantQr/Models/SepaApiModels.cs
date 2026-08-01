@@ -79,7 +79,9 @@ public class SepaUploadCertificateRequest
     public string? NopEnvironment { get; set; }
 }
 
-/// <summary>Write-only Fio token upload.</summary>
+/// <summary>Write-only Fio token upload. Fio tokens are exactly 64
+/// characters (API Bankovnictví v1.9) - the service trims before the
+/// length check, so surrounding whitespace is tolerated.</summary>
 public class SepaFioTokenRequest
 {
     [Required]

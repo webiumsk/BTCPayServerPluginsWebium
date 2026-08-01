@@ -66,6 +66,15 @@ public class SepaStoreSettings
     /// </summary>
     public string? EncryptedCredentialsJson { get; set; }
 
+    /// <summary>
+    /// SHA-256 hex of the stored Fio token. The bank keeps the download
+    /// cursor per token, so one token must never serve two stores - a
+    /// unique index on this fingerprint enforces that without ever
+    /// comparing protected ciphertext.
+    /// </summary>
+    [MaxLength(64)]
+    public string? FioTokenFingerprint { get; set; }
+
     /// <summary>NOP identity cached from the uploaded eKasa certificate ("VATSK-1234567890").</summary>
     [MaxLength(20)]
     public string? NopVatsk { get; set; }

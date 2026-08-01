@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Text.Json;
 using BTCPayServer.Plugins.SepaInstantQr.Services.Confirmation.Fio;
 using Xunit;
@@ -16,7 +17,9 @@ public class FioTransactionProcessorTests
 
     private static string Cell(string column, object value)
     {
-        var json = value is string s ? JsonSerializer.Serialize(s) : value.ToString();
+        // JsonSerializer for every value - ToString() would emit
+        // culture-sensitive decimals ("12,5") and break the JSON.
+        var json = JsonSerializer.Serialize(value);
         return $"\"{column}\":{{\"value\":{json},\"name\":\"x\",\"id\":1}}";
     }
 
@@ -38,9 +41,11 @@ public class FioTransactionProcessorTests
             Cell("column5", "1234567890"),
             Cell("column16", "lunch")));
 
-        var payments = Processor.Parse(doc);
+        var movements = Processor.Parse(doc);
 
-        var payment = Assert.Single(payments);
+        var movement = Assert.Single(movements);
+        Assert.Equal(1148734530L, movement.MovementId);
+        var payment = movement.Payment;
         Assert.Equal("QR-ab29e346f1d841c8a95a63d857490818", payment.Reference);
         Assert.Equal(12.50m, payment.Amount);
         Assert.Equal("EUR", payment.Currency);
@@ -57,7 +62,7 @@ public class FioTransactionProcessorTests
             Cell("column14", "CZK"),
             Cell("column5", "1234567890")));
 
-        var payment = Assert.Single(Processor.Parse(doc));
+        var payment = Assert.Single(Processor.Parse(doc)).Payment;
         Assert.Equal("1234567890", payment.Reference);
         Assert.Equal("CZK", payment.Currency);
     }
@@ -71,7 +76,7 @@ public class FioTransactionProcessorTests
             Cell("column14", "EUR"),
             Cell("column16", "Payment QR-ab29e346f1d841c8a95a63d857490818 thanks")));
 
-        var payment = Assert.Single(Processor.Parse(doc));
+        var payment = Assert.Single(Processor.Parse(doc)).Payment;
         Assert.Equal("QR-ab29e346f1d841c8a95a63d857490818", payment.Reference);
     }
 
@@ -92,6 +97,23 @@ public class FioTransactionProcessorTests
                 "\"column22\":null", "\"column1\":null", "\"column14\":null"));
 
         Assert.Empty(Processor.Parse(doc));
+    }
+
+    [Fact]
+    public void Orders_movements_by_id_and_exposes_the_previous_cursor()
+    {
+        using var doc = JsonDocument.Parse(
+            "{\"accountStatement\":{\"info\":{\"idLastDownload\":1150392361}," +
+            "\"transactionList\":{\"transaction\":[" +
+            Transaction(Cell("column22", 30), Cell("column1", 2), Cell("column14", "EUR"), Cell("column5", "3")) + "," +
+            Transaction(Cell("column22", 10), Cell("column1", 1), Cell("column14", "EUR"), Cell("column5", "1")) + "," +
+            Transaction(Cell("column22", 20), Cell("column1", 1.5), Cell("column14", "EUR"), Cell("column5", "2")) +
+            "]}}}");
+
+        var movements = Processor.Parse(doc);
+
+        Assert.Equal(new long[] { 10, 20, 30 }, movements.Select(m => m.MovementId));
+        Assert.Equal(1150392361L, FioTransactionProcessor.GetPreviousCursor(doc));
     }
 
     [Fact]

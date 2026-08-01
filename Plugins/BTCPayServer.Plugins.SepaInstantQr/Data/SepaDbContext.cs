@@ -21,6 +21,8 @@ public class SepaDbContext : DbContext
         modelBuilder.Entity<SepaStoreSettings>(entity =>
         {
             entity.Property(e => e.AmountTolerance).HasPrecision(18, 2);
+            entity.HasIndex(e => e.FioTokenFingerprint).IsUnique()
+                .HasFilter("\"FioTokenFingerprint\" IS NOT NULL");
         });
 
         modelBuilder.Entity<SepaPaymentRequest>(entity =>

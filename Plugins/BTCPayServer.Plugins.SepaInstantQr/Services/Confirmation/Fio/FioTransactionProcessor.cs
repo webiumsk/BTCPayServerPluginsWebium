@@ -3,9 +3,13 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text.Json;
+using System.Linq;
 using System.Text.RegularExpressions;
 
 namespace BTCPayServer.Plugins.SepaInstantQr.Services.Confirmation.Fio;
+
+/// <summary>A processable credit with its bank-side movement id (ordering + cursor rewind).</summary>
+public record FioMovement(long MovementId, ConfirmedPayment Payment);
 
 /// <summary>
 /// Turns Fio JSON movements (accountStatement.transactionList.transaction)
@@ -24,9 +28,30 @@ public partial class FioTransactionProcessor
     [GeneratedRegex("QR-[0-9a-fA-F]{32}")]
     private static partial Regex EndToEndInMessage();
 
-    public IReadOnlyList<ConfirmedPayment> Parse(JsonDocument document)
+    /// <summary>
+    /// The cursor value before this fetch (accountStatement.info
+    /// .idLastDownload) - the rewind target when even the first movement
+    /// fails to process.
+    /// </summary>
+    public static long? GetPreviousCursor(JsonDocument document)
     {
-        var results = new List<ConfirmedPayment>();
+        if (document.RootElement.TryGetProperty("accountStatement", out var statement)
+            && statement.TryGetProperty("info", out var info)
+            && info.TryGetProperty("idLastDownload", out var value))
+        {
+            if (value.ValueKind == JsonValueKind.Number)
+                return value.GetInt64();
+            if (value.ValueKind == JsonValueKind.String
+                && long.TryParse(value.GetString(), out var parsed))
+                return parsed;
+        }
+
+        return null;
+    }
+
+    public IReadOnlyList<FioMovement> Parse(JsonDocument document)
+    {
+        var results = new List<FioMovement>();
         if (!document.RootElement.TryGetProperty("accountStatement", out var statement)
             || !statement.TryGetProperty("transactionList", out var list)
             || list.ValueKind != JsonValueKind.Object
@@ -37,11 +62,15 @@ public partial class FioTransactionProcessor
         foreach (var transaction in transactions.EnumerateArray())
         {
             var payment = ToConfirmedPayment(transaction);
-            if (payment is not null)
-                results.Add(payment);
+            if (payment is null)
+                continue;
+            var movementId = long.Parse(payment.DedupKey!["fio:".Length..], CultureInfo.InvariantCulture);
+            results.Add(new FioMovement(movementId, payment));
         }
 
-        return results;
+        // Chronological processing lets the poller rewind the cursor to the
+        // last successfully processed movement on failure.
+        return results.OrderBy(m => m.MovementId).ToList();
     }
 
     public ConfirmedPayment? ToConfirmedPayment(JsonElement transaction)

@@ -46,6 +46,19 @@ public class FioApiClient
         return JsonDocument.Parse(payload);
     }
 
+    /// <summary>
+    /// Rewinds the server-side cursor to the given movement id (documented
+    /// recovery endpoint) so unprocessed movements are re-delivered on the
+    /// next tick.
+    /// </summary>
+    public async Task SetLastIdAsync(string token, long movementId, CancellationToken cancellationToken)
+    {
+        var client = _httpClientFactory.CreateClient(nameof(FioApiClient));
+        using var response = await client.GetAsync(
+            $"{BaseUrl}/set-last-id/{Uri.EscapeDataString(token)}/{movementId}/", cancellationToken);
+        response.EnsureSuccessStatusCode();
+    }
+
     /// <summary>Cursor-free probe for the settings Test button.</summary>
     public async Task<JsonDocument> GetTodayTransactionsAsync(string token, CancellationToken cancellationToken)
     {
