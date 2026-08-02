@@ -46,6 +46,28 @@ public class PluginMigrationRunner : IHostedService
                     THEN
                         ALTER SCHEMA "BTCPayServer.Plugins.SatoshiTickets" RENAME TO "BTCPayServer.Plugins.SatfluxTickets";
                     END IF;
+
+                    -- The settings table is the only one whose NAME carried the
+                    -- plugin name; the migration that created it is already
+                    -- recorded as applied, so it must be renamed here too.
+                    IF EXISTS (SELECT 1 FROM information_schema.tables
+                               WHERE table_schema = 'BTCPayServer.Plugins.SatfluxTickets' AND table_name = 'SatoshiTicketsSettings')
+                       AND NOT EXISTS (SELECT 1 FROM information_schema.tables
+                               WHERE table_schema = 'BTCPayServer.Plugins.SatfluxTickets' AND table_name = 'SatfluxTicketsSettings')
+                    THEN
+                        ALTER TABLE "BTCPayServer.Plugins.SatfluxTickets"."SatoshiTicketsSettings" RENAME TO "SatfluxTicketsSettings";
+                    END IF;
+
+                    IF EXISTS (SELECT 1 FROM pg_constraint c
+                               JOIN pg_class t ON c.conrelid = t.oid
+                               JOIN pg_namespace n ON t.relnamespace = n.oid
+                               WHERE n.nspname = 'BTCPayServer.Plugins.SatfluxTickets'
+                                 AND t.relname = 'SatfluxTicketsSettings'
+                                 AND c.conname = 'PK_SatoshiTicketsSettings')
+                    THEN
+                        ALTER TABLE "BTCPayServer.Plugins.SatfluxTickets"."SatfluxTicketsSettings"
+                            RENAME CONSTRAINT "PK_SatoshiTicketsSettings" TO "PK_SatfluxTicketsSettings";
+                    END IF;
                 END
                 $$;
                 """, cancellationToken);

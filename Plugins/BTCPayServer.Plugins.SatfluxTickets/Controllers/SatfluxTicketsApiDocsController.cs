@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace BTCPayServer.Plugins.SatfluxTickets.Controllers;
 
 [Route("~/plugins/{storeId}/satflux-tickets/api-docs")]
+[Route("~/plugins/{storeId}/satoshi-tickets/api-docs")] // legacy alias
 public class SatfluxTicketsApiDocsController : Controller
 {
     private static readonly Assembly Assembly = typeof(SatfluxTicketsApiDocsController).Assembly;
