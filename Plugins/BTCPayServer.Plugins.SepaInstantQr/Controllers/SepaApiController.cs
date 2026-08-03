@@ -274,6 +274,19 @@ public class SepaApiController : ControllerBase
         if (settings is null)
             return Problem(statusCode: 400, detail: "Save the settings first (PUT settings).");
 
+        // Tenant isolation: the matcher itself looks up by reference only,
+        // so verify the reference belongs to the route store before it runs
+        // (same scoped lookup as ConfirmManually). Unknown references are an
+        // EXPECTED case on this channel (the b-mail flow probes variable-
+        // symbol candidates), so they answer outcome=unknown, not 404 -
+        // matching is skipped either way, which is what isolation needs.
+        await using var ctx = _dbContextFactory.CreateContext();
+        var ownsReference = await ctx.SepaPaymentRequests
+            .AsNoTracking()
+            .AnyAsync(r => r.Reference == request.Reference && r.StoreId == storeId, cancellationToken);
+        if (!ownsReference)
+            return Ok(new { outcome = "unknown" });
+
         var outcome = await _matchingService.ProcessAsync(
             "bmail",
             new ConfirmedPayment(
