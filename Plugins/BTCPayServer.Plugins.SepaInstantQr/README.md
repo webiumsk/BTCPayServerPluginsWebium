@@ -174,6 +174,7 @@ never leave the server.
 | DELETE | `/fio-token` | Remove the token (a fio backend falls back to `manual`) |
 | POST | `/test` | Live test of the configured confirmation backend |
 | GET | `/payment-requests?state=pending\|review` | Awaiting/needs-review payments (newest 100) |
+| POST | `/payment-requests/report` | Amount-verified confirmation report: `{ "reference", "amount", "currency", "dedupKey"? }` - mismatches go to review |
 | POST | `/payment-requests/{reference}/confirm` | Manual confirmation through the normal invoice lifecycle |
 
 Notes for integrators: PUT `/settings` rejects a `nop-*` backend until a

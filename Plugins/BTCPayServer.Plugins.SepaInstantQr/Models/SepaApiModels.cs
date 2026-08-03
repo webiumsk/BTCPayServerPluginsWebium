@@ -89,6 +89,31 @@ public class SepaFioTokenRequest
     public string Token { get; set; } = string.Empty;
 }
 
+/// <summary>
+/// Amount-verified external confirmation (satflux b-mail channel): unlike
+/// the manual confirm endpoint, the reported amount/currency must match the
+/// pending request (within the store tolerance) or the payment lands in
+/// manual review instead of settling.
+/// </summary>
+public class SepaReportPaymentRequest
+{
+    [Required]
+    [MaxLength(35)]
+    [RegularExpression("[A-Za-z0-9_-]+")]
+    public string Reference { get; set; } = string.Empty;
+
+    [Range(typeof(decimal), "0.01", "79228162514264337593543950335")]
+    public decimal Amount { get; set; }
+
+    [Required]
+    [MaxLength(8)]
+    public string Currency { get; set; } = string.Empty;
+
+    /// <summary>Optional idempotency key of the delivery (e.g. inbound mail id).</summary>
+    [MaxLength(120)]
+    public string? DedupKey { get; set; }
+}
+
 public class SepaPaymentRequestData
 {
     public string Reference { get; set; } = string.Empty;

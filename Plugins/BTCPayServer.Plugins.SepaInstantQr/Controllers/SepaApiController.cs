@@ -258,6 +258,56 @@ public class SepaApiController : ControllerBase
     }
 
     /// <summary>
+    /// Amount-verified confirmation report from an external channel
+    /// (satflux b-mail): runs through the shared matching service, so a
+    /// mismatched amount or currency routes to manual review and never
+    /// settles - unlike the trusted manual confirm below.
+    /// </summary>
+    [HttpPost("payment-requests/report")]
+    public async Task<IActionResult> ReportPayment(
+        string storeId, [FromBody] SepaReportPaymentRequest request, CancellationToken cancellationToken)
+    {
+        if (!ModelState.IsValid)
+            return ValidationProblem(ModelState);
+
+        var settings = await _configService.GetSettingsAsync(storeId, cancellationToken);
+        if (settings is null)
+            return Problem(statusCode: 400, detail: "Save the settings first (PUT settings).");
+
+        // Tenant isolation: the matcher itself looks up by reference only,
+        // so verify the reference belongs to the route store before it runs
+        // (same scoped lookup as ConfirmManually). Unknown references are an
+        // EXPECTED case on this channel (the b-mail flow probes variable-
+        // symbol candidates), so they answer outcome=unknown, not 404 -
+        // matching is skipped either way, which is what isolation needs.
+        await using var ctx = _dbContextFactory.CreateContext();
+        var ownsReference = await ctx.SepaPaymentRequests
+            .AsNoTracking()
+            .AnyAsync(r => r.Reference == request.Reference && r.StoreId == storeId, cancellationToken);
+        if (!ownsReference)
+            return Ok(new { outcome = "unknown" });
+
+        var outcome = await _matchingService.ProcessAsync(
+            "bmail",
+            new ConfirmedPayment(
+                request.Reference,
+                request.Amount,
+                request.Currency.ToUpperInvariant(),
+                RawJson: null,
+                DedupKey: string.IsNullOrWhiteSpace(request.DedupKey) ? null : $"bmail:{request.DedupKey}"),
+            settings.AmountTolerance,
+            cancellationToken);
+
+        return Ok(new { outcome = outcome switch
+        {
+            MatchOutcome.Settled => "settled",
+            MatchOutcome.Duplicate => "duplicate",
+            MatchOutcome.ManualReview => "review",
+            _ => "unknown",
+        } });
+    }
+
+    /// <summary>
     /// Manual confirmation - same path as the settings UI: the shared
     /// matching service settles through BTCPay's normal invoice lifecycle
     /// (webhooks fire, POS flips to paid).
