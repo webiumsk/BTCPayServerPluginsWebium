@@ -23,7 +23,9 @@ namespace BTCPayServer.Plugins.SepaInstantQr.Services;
 /// </summary>
 public class SepaPollingHostedService : BackgroundService
 {
-    private static readonly TimeSpan TickInterval = TimeSpan.FromSeconds(60);
+    // 35 s: the Fio bank minimum is 30 s per token (+ margin); polling
+    // only runs for stores with pending requests, so load stays bounded.
+    private static readonly TimeSpan TickInterval = TimeSpan.FromSeconds(35);
     private static readonly TimeSpan InitialLookback = TimeSpan.FromHours(2); // NOP notification retention
     private static readonly TimeSpan Overlap = TimeSpan.FromMinutes(5);
 

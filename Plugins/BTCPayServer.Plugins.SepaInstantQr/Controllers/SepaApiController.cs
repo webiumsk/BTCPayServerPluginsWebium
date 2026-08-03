@@ -258,6 +258,43 @@ public class SepaApiController : ControllerBase
     }
 
     /// <summary>
+    /// Amount-verified confirmation report from an external channel
+    /// (satflux b-mail): runs through the shared matching service, so a
+    /// mismatched amount or currency routes to manual review and never
+    /// settles - unlike the trusted manual confirm below.
+    /// </summary>
+    [HttpPost("payment-requests/report")]
+    public async Task<IActionResult> ReportPayment(
+        string storeId, [FromBody] SepaReportPaymentRequest request, CancellationToken cancellationToken)
+    {
+        if (!ModelState.IsValid)
+            return ValidationProblem(ModelState);
+
+        var settings = await _configService.GetSettingsAsync(storeId, cancellationToken);
+        if (settings is null)
+            return Problem(statusCode: 400, detail: "Save the settings first (PUT settings).");
+
+        var outcome = await _matchingService.ProcessAsync(
+            "bmail",
+            new ConfirmedPayment(
+                request.Reference,
+                request.Amount,
+                request.Currency.ToUpperInvariant(),
+                RawJson: null,
+                DedupKey: string.IsNullOrWhiteSpace(request.DedupKey) ? null : $"bmail:{request.DedupKey}"),
+            settings.AmountTolerance,
+            cancellationToken);
+
+        return Ok(new { outcome = outcome switch
+        {
+            MatchOutcome.Settled => "settled",
+            MatchOutcome.Duplicate => "duplicate",
+            MatchOutcome.ManualReview => "review",
+            _ => "unknown",
+        } });
+    }
+
+    /// <summary>
     /// Manual confirmation - same path as the settings UI: the shared
     /// matching service settles through BTCPay's normal invoice lifecycle
     /// (webhooks fire, POS flips to paid).

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.7.0 - unreleased
+
+- Greenfield `POST payment-requests/report`: amount-verified confirmation
+  for external channels (satflux bank-email/b-mail). Runs through the
+  standard matching - mismatched amount/currency lands in manual review,
+  never auto-settles.
+- Confirmation polling tick lowered to 35 s (Fio bank minimum is 30 s per
+  token) - Fio confirmations arrive ~25 s sooner on average.
+
+
 ## 0.6.1 - unreleased
 
 - Friendly Fio diagnostics: the Test button now explains the documented
