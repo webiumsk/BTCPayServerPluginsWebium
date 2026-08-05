@@ -1,0 +1,48 @@
+@model BTCPayServer.Models.StoreViewModels.LightningNodeViewModel
+@{
+    if (Model.CryptoCode != "BTC")
+    {
+        return;
+    }
+}
+
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+        const customNodeAccordian = document.getElementById("CustomNodeSupport");
+        const template = document.getElementById("blitzwallet");
+        customNodeAccordian.appendChild(template.content.cloneNode(true));
+    });
+</script>
+
+<template id="blitzwallet">
+    <div class="accordion-item">
+        <h2 class="accordion-header" id="CustomBlitzHeader">
+            <button type="button" class="accordion-button collapsed" data-bs-toggle="collapse" data-bs-target="#CustomBlitzContent" aria-controls="CustomBlitzContent" aria-expanded="false">
+                <span><strong>Blitz Wallet</strong> lightning address</span>
+                <vc:icon symbol="caret-down"/>
+            </button>
+        </h2>
+        <div id="CustomBlitzContent" class="accordion-collapse collapse" aria-labelledby="CustomBlitzHeader" data-bs-parent="#CustomNodeSupport">
+            <div class="accordion-body">
+                <p class="my-2">
+                    Receive checkout payments straight into your self-custodial
+                    <a href="https://blitz-wallet.com/" target="_blank" rel="noreferrer noopener">Blitz Wallet</a> —
+                    no node, no API key. Enter a custom connection string with your Blitz username or full Lightning address:
+                </p>
+                <ul class="pb-2">
+                    <li>
+                        <code><b>type=</b>blitz;<b>ln-address=</b>you</code>
+                    </li>
+                    <li class="mt-2">
+                        <code><b>type=</b>blitz;<b>ln-address=</b>you@blitzwalletapp.com</code>
+                    </li>
+                </ul>
+                <p class="my-2 text-muted">
+                    Receive-only: invoices are minted by Blitz's server (Spark), so your phone does not need to be
+                    online to get paid, but BTCPay cannot send payments or refunds from this wallet. Settlement is
+                    detected via the LNURL LUD-21 <code>verify</code> endpoint.
+                </p>
+            </div>
+        </div>
+    </div>
+</template>
