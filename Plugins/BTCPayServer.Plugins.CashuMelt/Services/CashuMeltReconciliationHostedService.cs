@@ -99,6 +99,12 @@ public sealed class CashuMeltReconciliationHostedService : BackgroundService
                 await paymentService.CheckAndRecordPaymentAsync(quoteId, ct);
         }
 
+        // Sweep accumulated NUT-08 change proofs to the merchant Lightning address (~15 min cadence).
+        if (tick % 20 == 0)
+        {
+            await paymentService.SweepAvailableChangeAsync(ct);
+        }
+
         // Retry FAILED rows that still have stored proofs (can attempt re-melt).
         if (tick % 5 == 0)
         {

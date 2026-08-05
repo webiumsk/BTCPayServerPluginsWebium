@@ -12,6 +12,7 @@ public class CashuMeltDbContext : DbContext
 
     public DbSet<CashuMeltStoreSettings> CashuMeltStoreSettings { get; set; }
     public DbSet<CashuMeltPaymentRequest> CashuMeltPaymentRequests { get; set; }
+    public DbSet<CashuMeltChangeProof> CashuMeltChangeProofs { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -29,6 +30,12 @@ public class CashuMeltDbContext : DbContext
             entity.HasIndex(e => e.QuoteId).IsUnique();
             entity.HasIndex(e => e.InvoiceId);
             entity.HasIndex(e => e.StoreId);
+        });
+
+        modelBuilder.Entity<CashuMeltChangeProof>(entity =>
+        {
+            entity.HasIndex(e => e.Secret).IsUnique();
+            entity.HasIndex(e => new { e.StoreId, e.State });
         });
     }
 }

@@ -1,5 +1,29 @@
 # CashuMelt plugin — release notes
 
+## 1.3.0.0 (NUT-08 fee-reserve change, NUT-02 keyset fees, NUT-07 checkstate)
+
+Adopts the strongest techniques from the official cashubtc BTCNutServer plugin while keeping the CashuMelt design (no custodied customer ecash, LNURL payout, no wallet seed in the DB).
+
+### NUT-08: unused Lightning fee reserve is no longer lost
+
+- Every melt now sends blank outputs, so the mint returns the unused part of the fee reserve (previously ~1% of each payment was silently kept by the mint).
+- Blinding data is persisted before the melt (`BlankOutputsJson`), so change survives crashes and lost responses - it is recovered from `GET /v1/melt/quote/{id}` during reconciliation.
+- Change proofs accumulate per store (`CashuMeltChangeProofs` table) and a background sweep melts them to the merchant Lightning address once at least 100 sat is available (sat-unit only). Rows stuck in `SWEEPING` after a crash are reconciled via NUT-07. The settings page shows "awaiting sweep" and "swept" totals.
+
+### NUT-02: keyset input fees
+
+- `input_fee_ppk` is read from `GET /v1/keysets` and included in the forward amount and fee checks. Previously a fee-charging mint rejected every melt for insufficient inputs.
+
+### NUT-07: proof state as the source of truth
+
+- `POST /v1/checkstate` is consulted: before re-melting when the prior melt quote is gone (catches payments completed under a lost quote id), as confirmation of "already spent" (code 11001) before finalizing, and as fallback when the melt-quote state check keeps failing.
+
+### Upgrade
+
+Install **1.3.0.0**; the schema migrates automatically (new table + one column). No settings changes required.
+
+---
+
 ## 1.2.0.7 (melt settlement reliability: fee reserve, NUT-05 state, already-spent reconciliation)
 
 Three related fixes for payments that minted correctly but failed or hung during the melt to the merchant Lightning address.

@@ -14,6 +14,8 @@ internal static class CashuMeltObservability
     public const string TagMeltRetry = "cashumelt_forward_retry";
     public const string TagBtcpayRetry = "cashumelt_btcpay_accounting_retry";
     public const string TagSkippedOtherPayment = "cashumelt_skipped_invoice_finalized_elsewhere";
+    public const string TagChangeStored = "cashumelt_change_stored";
+    public const string TagChangeSwept = "cashumelt_change_swept";
 
     public const string PhaseMintPoll = "mint_poll";
     public const string PhaseMintProof = "mint_proof";

@@ -365,13 +365,22 @@ public class UICashuMeltController : Controller
                 r.FailureReasonCode))
             .ToList();
 
+        var pendingChangeSat = await ctx.CashuMeltChangeProofs.AsNoTracking()
+            .Where(p => p.StoreId == storeId && (p.State == "AVAILABLE" || p.State == "SWEEPING"))
+            .SumAsync(p => (long?)p.Amount) ?? 0;
+        var sweptChangeSat = await ctx.CashuMeltChangeProofs.AsNoTracking()
+            .Where(p => p.StoreId == storeId && p.State == "SWEPT")
+            .SumAsync(p => (long?)p.Amount) ?? 0;
+
         return new CashuMeltSettingsPageModel
         {
             Settings = settings,
             RecentPayments = recent,
             FilterSettlement = filterSettlement,
             FilterInvoice = filterInvoice,
-            MintBaseNormalized = mintBase
+            MintBaseNormalized = mintBase,
+            PendingChangeSat = pendingChangeSat,
+            SweptChangeSat = sweptChangeSat
         };
     }
 

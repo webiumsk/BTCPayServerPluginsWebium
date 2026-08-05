@@ -234,6 +234,137 @@ public sealed class CashuMeltMintClientPollTests
     }
 
     [Fact]
+    public async Task MeltTokensAsync_SendsBlankOutputs_AndParsesChangeSignatures()
+    {
+        string? capturedBody = null;
+        const string json = """
+            {"quote":"mq-c","amount":17878,"fee_reserve":180,"state":"PAID","payment_preimage":"aa",
+             "change":[{"amount":128,"id":"009a1f293253e41e","C_":"02abc0000000000000000000000000000000000000000000000000000000000001"}]}
+            """;
+        var handler = new StubHandler
+        {
+            OnSend = async (req, ctk) =>
+            {
+                capturedBody = await req.Content!.ReadAsStringAsync(ctk);
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(json, Encoding.UTF8, "application/json")
+                };
+            }
+        };
+        using var http = new HttpClient(handler);
+        var sut = new CashuMeltMintClient(http, NullLogger<CashuMeltMintClient>.Instance);
+
+        var outputs = new[]
+        {
+            new CashuMeltMintClient.BlindedMessage(1, "009a1f293253e41e",
+                "02def0000000000000000000000000000000000000000000000000000000000002")
+        };
+        var r = await sut.MeltTokensAsync("https://mint.example", "mq-c",
+            Array.Empty<CashuMeltMintClient.CashuMeltProof>(), outputs, default);
+
+        Assert.NotNull(capturedBody);
+        Assert.Contains("\"outputs\"", capturedBody);
+        Assert.Contains("\"B_\"", capturedBody);
+        Assert.NotNull(r?.Change);
+        Assert.Single(r!.Change!);
+        Assert.Equal(128, r.Change![0].Amount);
+        Assert.Equal("009a1f293253e41e", r.Change[0].Id);
+    }
+
+    [Fact]
+    public async Task MeltTokensAsync_OmitsOutputsFieldWhenNull()
+    {
+        string? capturedBody = null;
+        var handler = new StubHandler
+        {
+            OnSend = async (req, ctk) =>
+            {
+                capturedBody = await req.Content!.ReadAsStringAsync(ctk);
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""{"state":"PAID"}""", Encoding.UTF8, "application/json")
+                };
+            }
+        };
+        using var http = new HttpClient(handler);
+        var sut = new CashuMeltMintClient(http, NullLogger<CashuMeltMintClient>.Instance);
+
+        await sut.MeltTokensAsync("https://mint.example", "mq-n",
+            Array.Empty<CashuMeltMintClient.CashuMeltProof>(), null, default);
+
+        Assert.NotNull(capturedBody);
+        Assert.DoesNotContain("\"outputs\"", capturedBody);
+    }
+
+    [Fact]
+    public async Task CheckProofStatesAsync_UsesCapitalizedYsWireFormat()
+    {
+        string? capturedBody = null;
+        const string json = """
+            {"states":[
+              {"Y":"02aaa","state":"SPENT","witness":null},
+              {"Y":"02bbb","state":"UNSPENT","witness":null}
+            ]}
+            """;
+        var handler = new StubHandler
+        {
+            OnSend = async (req, ctk) =>
+            {
+                Assert.EndsWith("/v1/checkstate", req.RequestUri!.AbsolutePath);
+                capturedBody = await req.Content!.ReadAsStringAsync(ctk);
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(json, Encoding.UTF8, "application/json")
+                };
+            }
+        };
+        using var http = new HttpClient(handler);
+        var sut = new CashuMeltMintClient(http, NullLogger<CashuMeltMintClient>.Instance);
+
+        var r = await sut.CheckProofStatesAsync("https://mint.example", new[] { "02aaa", "02bbb" }, default);
+
+        Assert.NotNull(capturedBody);
+        Assert.Contains("\"Ys\"", capturedBody); // NUT-07 requires capitalized "Ys", not snake_case
+        Assert.NotNull(r);
+        Assert.Equal(2, r!.States.Length);
+        Assert.Equal("SPENT", r.States[0].State);
+        Assert.Equal("02bbb", r.States[1].Y);
+    }
+
+    [Fact]
+    public async Task GetKeysetsInfoAsync_ParsesInputFeePpk()
+    {
+        const string json = """
+            {"keysets":[
+              {"id":"009a1f293253e41e","unit":"sat","active":true,"input_fee_ppk":100},
+              {"id":"00legacy","unit":"sat","active":false}
+            ]}
+            """;
+        var handler = new StubHandler
+        {
+            OnSend = (req, _) =>
+            {
+                Assert.EndsWith("/v1/keysets", req.RequestUri!.AbsolutePath);
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(json, Encoding.UTF8, "application/json")
+                });
+            }
+        };
+        using var http = new HttpClient(handler);
+        var sut = new CashuMeltMintClient(http, NullLogger<CashuMeltMintClient>.Instance);
+
+        var r = await sut.GetKeysetsInfoAsync("https://mint.example", default);
+
+        Assert.NotNull(r);
+        Assert.Equal(2, r!.Keysets.Length);
+        Assert.Equal(100, r.Keysets[0].InputFeePpk);
+        Assert.True(r.Keysets[0].Active);
+        Assert.Null(r.Keysets[1].InputFeePpk);
+    }
+
+    [Fact]
     public async Task GetMeltQuoteAsync_404_ThrowsWithNotFoundStatus()
     {
         // MeltToMerchantAsync relies on the 404 status to fall through to a fresh melt.
