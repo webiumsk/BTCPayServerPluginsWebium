@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Text.Json;
 using System.Threading;
@@ -11,6 +12,7 @@ using BTCPayServer.Events;
 using BTCPayServer.Payments;
 using BTCPayServer.Plugins.CashuMelt.Data;
 using BTCPayServer.Plugins.CashuMelt.Data.Entities;
+using BTCPayServer.Plugins.CashuMelt.Errors;
 using BTCPayServer.Plugins.CashuMelt.PaymentHandler;
 using BTCPayServer.Services.Invoices;
 using Microsoft.EntityFrameworkCore;
@@ -533,7 +535,46 @@ public class CashuMeltPaymentService
     {
         var totalMintedSat = proofs.Sum(p => p.Amount);
 
-        long feeBuffer = FeeBuffer(totalMintedSat);
+        // Reconcile a previously created melt quote before paying again: if the mint already
+        // paid it (crash or misread melt response after a prior melt), the stored proofs are
+        // spent and a second melt must not be attempted.
+        if (!string.IsNullOrEmpty(req.MeltQuoteId))
+        {
+            MeltQuoteResponse? priorQuote;
+            try
+            {
+                priorQuote = await _mintClient.GetMeltQuoteAsync(settings.MintUrl, req.MeltQuoteId, ct);
+            }
+            catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+            {
+                priorQuote = null; // mint no longer knows the quote - safe to melt fresh
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "{Event} phase={Phase} invoice={InvoiceId} quote={QuoteId} meltQuote={MeltQuoteId} msg=melt_quote_state_check_failed",
+                    CashuMeltObservability.TagMeltRetry,
+                    CashuMeltObservability.PhaseForward,
+                    req.InvoiceId,
+                    req.QuoteId,
+                    req.MeltQuoteId);
+                return (false, null, true);
+            }
+
+            if (priorQuote is not null && MeltStatePaid(priorQuote.State))
+            {
+                _logger.LogInformation(
+                    "Prior melt quote {MeltQuoteId} already PAID for invoice {InvoiceId} - completing settlement without a second melt",
+                    req.MeltQuoteId, req.InvoiceId);
+                return await CompleteMeltAsync(req, ctx, priorQuote.PaymentPreimage, priorQuote.Amount, ct);
+            }
+
+            if (priorQuote is not null && MeltStatePending(priorQuote.State))
+                return (false, null, true);
+            // UNPAID / expired / unknown: proofs are unspent - proceed with a fresh melt.
+        }
+
+        long feeBuffer = CashuMeltFeePolicy.EstimateFeeBufferSat(totalMintedSat);
         long forwardSat = totalMintedSat - feeBuffer;
 
         if (forwardSat <= 0)
@@ -544,127 +585,150 @@ public class CashuMeltPaymentService
             return (false, req.SettlementError, false);
         }
 
+        // The mint reveals its actual Lightning fee reserve only in the melt quote, so the
+        // estimated buffer can undershoot. When it does, shrink the forwarded amount to
+        // totalMinted - actual reserve, fetch a fresh invoice and re-quote.
         string bolt11;
-        try
-        {
-            var lnResolver = new LightningAddressResolver(_httpClientFactory.CreateClient(nameof(LightningAddressResolver)));
-            var (resolvedBolt11, effectiveSat) = await lnResolver.ResolveInvoiceAsync(
-                settings.LightningAddress!.Trim(), forwardSat, totalMintedSat, ct);
-            bolt11 = resolvedBolt11;
-
-            if (effectiveSat != forwardSat)
-                _logger.LogInformation(
-                    "Forward amount adjusted from {Desired} to {Effective} sat (LNURL limits) for invoice {InvoiceId} quote {QuoteId}",
-                    forwardSat, effectiveSat, req.InvoiceId, req.QuoteId);
-
-            forwardSat = effectiveSat;
-        }
-        catch (Exception ex)
-        {
-            await MarkFailedAsync(ctx, req, CashuMeltObservability.PhaseForward,
-                $"Could not resolve Lightning address: {ex.Message}", ct,
-                CashuMeltFailureReasons.LightningAddressUnresolvable);
-            _logger.LogError(ex,
-                "{Event} phase={Phase} invoice={InvoiceId} quote={QuoteId} amountSat={AmountSat}",
-                CashuMeltObservability.TagSettlementFailed,
-                CashuMeltObservability.PhaseForward,
-                req.InvoiceId,
-                req.QuoteId,
-                totalMintedSat);
-            return (false, req.SettlementError, false);
-        }
-
-        if (req.ForwardBolt11 != bolt11)
-        {
-            req.ForwardBolt11 = bolt11;
-            await ctx.SaveChangesAsync(ct);
-        }
-
         MeltQuoteResponse? meltQuote;
-        try
+        const int maxFeeAdjustAttempts = 3;
+        for (var attempt = 1; ; attempt++)
         {
-            meltQuote = await _mintClient.RequestMeltQuoteAsync(settings.MintUrl, bolt11, req.Unit, ct);
-        }
-        catch (HttpRequestException ex)
-        {
-            _logger.LogWarning(ex,
-                "{Event} phase={Phase} invoice={InvoiceId} quote={QuoteId} amountSat={AmountSat}",
+            try
+            {
+                var lnResolver = new LightningAddressResolver(_httpClientFactory.CreateClient(nameof(LightningAddressResolver)));
+                var (resolvedBolt11, effectiveSat) = await lnResolver.ResolveInvoiceAsync(
+                    settings.LightningAddress!.Trim(), forwardSat, totalMintedSat, ct);
+                bolt11 = resolvedBolt11;
+
+                if (effectiveSat != forwardSat)
+                    _logger.LogInformation(
+                        "Forward amount adjusted from {Desired} to {Effective} sat (LNURL limits) for invoice {InvoiceId} quote {QuoteId}",
+                        forwardSat, effectiveSat, req.InvoiceId, req.QuoteId);
+
+                forwardSat = effectiveSat;
+            }
+            catch (Exception ex)
+            {
+                await MarkFailedAsync(ctx, req, CashuMeltObservability.PhaseForward,
+                    $"Could not resolve Lightning address: {ex.Message}", ct,
+                    CashuMeltFailureReasons.LightningAddressUnresolvable);
+                _logger.LogError(ex,
+                    "{Event} phase={Phase} invoice={InvoiceId} quote={QuoteId} amountSat={AmountSat}",
+                    CashuMeltObservability.TagSettlementFailed,
+                    CashuMeltObservability.PhaseForward,
+                    req.InvoiceId,
+                    req.QuoteId,
+                    totalMintedSat);
+                return (false, req.SettlementError, false);
+            }
+
+            if (req.ForwardBolt11 != bolt11)
+            {
+                req.ForwardBolt11 = bolt11;
+                await ctx.SaveChangesAsync(ct);
+            }
+
+            try
+            {
+                meltQuote = await _mintClient.RequestMeltQuoteAsync(settings.MintUrl, bolt11, req.Unit, ct);
+            }
+            catch (HttpRequestException ex)
+            {
+                _logger.LogWarning(ex,
+                    "{Event} phase={Phase} invoice={InvoiceId} quote={QuoteId} amountSat={AmountSat}",
+                    CashuMeltObservability.TagMeltRetry,
+                    CashuMeltObservability.PhaseForward,
+                    req.InvoiceId,
+                    req.QuoteId,
+                    totalMintedSat);
+                return (false, null, true);
+            }
+            catch (TaskCanceledException ex) when (!ct.IsCancellationRequested)
+            {
+                _logger.LogWarning(ex,
+                    "{Event} phase={Phase} invoice={InvoiceId} quote={QuoteId} amountSat={AmountSat}",
+                    CashuMeltObservability.TagMeltRetry,
+                    CashuMeltObservability.PhaseForward,
+                    req.InvoiceId,
+                    req.QuoteId,
+                    totalMintedSat);
+                return (false, null, true);
+            }
+            catch (Exception ex)
+            {
+                await MarkFailedAsync(ctx, req, CashuMeltObservability.PhaseForward,
+                    $"Melt quote request failed: {ex.Message}", ct,
+                    CashuMeltFailureReasons.MeltQuoteFailed);
+                _logger.LogError(ex,
+                    "{Event} phase={Phase} invoice={InvoiceId} quote={QuoteId} amountSat={AmountSat}",
+                    CashuMeltObservability.TagSettlementFailed,
+                    CashuMeltObservability.PhaseForward,
+                    req.InvoiceId,
+                    req.QuoteId,
+                    totalMintedSat);
+                return (false, req.SettlementError, false);
+            }
+
+            if (meltQuote is null)
+            {
+                await MarkFailedAsync(ctx, req, CashuMeltObservability.PhaseForward,
+                    "Mint returned no melt quote", ct,
+                    CashuMeltFailureReasons.MeltQuoteFailed);
+                return (false, req.SettlementError, false);
+            }
+
+            var feeCapErr = CashuMeltFeePolicy.ValidateMeltFeeReserve(
+                totalMintedSat,
+                meltQuote.FeeReserve,
+                settings.MaxMeltFeeReserveSats,
+                settings.MaxMeltFeeReservePercentOfMinted);
+            if (feeCapErr is not null)
+            {
+                await MarkFailedAsync(ctx, req, CashuMeltObservability.PhaseForward,
+                    feeCapErr, ct, CashuMeltFailureReasons.FeeTooHigh);
+                _logger.LogWarning(
+                    "{Event} phase={Phase} invoice={InvoiceId} quote={QuoteId} feeReserve={FeeReserve} msg=fee_cap",
+                    CashuMeltObservability.TagSettlementFailed,
+                    CashuMeltObservability.PhaseForward,
+                    req.InvoiceId,
+                    req.QuoteId,
+                    meltQuote.FeeReserve);
+                return (false, feeCapErr, false);
+            }
+
+            long totalNeeded = meltQuote.Amount + meltQuote.FeeReserve;
+            if (totalNeeded <= totalMintedSat)
+                break;
+
+            var reducedForwardSat = CashuMeltFeePolicy.ReducedForwardSat(totalMintedSat, meltQuote.FeeReserve, forwardSat);
+            if (attempt >= maxFeeAdjustAttempts || reducedForwardSat is null)
+            {
+                var feeErr =
+                    $"Lightning routing fee reserve ({meltQuote.FeeReserve} sat) is too high for this payment ({totalMintedSat} sat minted). " +
+                    "Try a slightly larger amount or adjust the merchant Lightning address limits.";
+                await MarkFailedAsync(ctx, req, CashuMeltObservability.PhaseForward,
+                    feeErr, ct, CashuMeltFailureReasons.FeeTooHigh);
+                _logger.LogWarning(
+                    "{Event} phase={Phase} invoice={InvoiceId} quote={QuoteId} feeReserve={FeeReserve} msg=fee_reserve_exceeds_minted",
+                    CashuMeltObservability.TagSettlementFailed,
+                    CashuMeltObservability.PhaseForward,
+                    req.InvoiceId,
+                    req.QuoteId,
+                    meltQuote.FeeReserve);
+                return (false, req.SettlementError, false);
+            }
+
+            _logger.LogInformation(
+                "{Event} phase={Phase} invoice={InvoiceId} quote={QuoteId} feeReserve={FeeReserve} forwardSat={ForwardSat} reducedTo={ReducedForwardSat} attempt={Attempt} msg=fee_reserve_adjust",
                 CashuMeltObservability.TagMeltRetry,
                 CashuMeltObservability.PhaseForward,
                 req.InvoiceId,
                 req.QuoteId,
-                totalMintedSat);
-            return (false, null, true);
-        }
-        catch (TaskCanceledException ex) when (!ct.IsCancellationRequested)
-        {
-            _logger.LogWarning(ex,
-                "{Event} phase={Phase} invoice={InvoiceId} quote={QuoteId} amountSat={AmountSat}",
-                CashuMeltObservability.TagMeltRetry,
-                CashuMeltObservability.PhaseForward,
-                req.InvoiceId,
-                req.QuoteId,
-                totalMintedSat);
-            return (false, null, true);
-        }
-        catch (Exception ex)
-        {
-            await MarkFailedAsync(ctx, req, CashuMeltObservability.PhaseForward,
-                $"Melt quote request failed: {ex.Message}", ct,
-                CashuMeltFailureReasons.MeltQuoteFailed);
-            _logger.LogError(ex,
-                "{Event} phase={Phase} invoice={InvoiceId} quote={QuoteId} amountSat={AmountSat}",
-                CashuMeltObservability.TagSettlementFailed,
-                CashuMeltObservability.PhaseForward,
-                req.InvoiceId,
-                req.QuoteId,
-                totalMintedSat);
-            return (false, req.SettlementError, false);
-        }
-
-        if (meltQuote is null)
-        {
-            await MarkFailedAsync(ctx, req, CashuMeltObservability.PhaseForward,
-                "Mint returned no melt quote", ct,
-                CashuMeltFailureReasons.MeltQuoteFailed);
-            return (false, req.SettlementError, false);
-        }
-
-        var feeCapErr = CashuMeltFeePolicy.ValidateMeltFeeReserve(
-            totalMintedSat,
-            meltQuote.FeeReserve,
-            settings.MaxMeltFeeReserveSats,
-            settings.MaxMeltFeeReservePercentOfMinted);
-        if (feeCapErr is not null)
-        {
-            await MarkFailedAsync(ctx, req, CashuMeltObservability.PhaseForward,
-                feeCapErr, ct, CashuMeltFailureReasons.FeeTooHigh);
-            _logger.LogWarning(
-                "{Event} phase={Phase} invoice={InvoiceId} quote={QuoteId} feeReserve={FeeReserve} msg=fee_cap",
-                CashuMeltObservability.TagSettlementFailed,
-                CashuMeltObservability.PhaseForward,
-                req.InvoiceId,
-                req.QuoteId,
-                meltQuote.FeeReserve);
-            return (false, feeCapErr, false);
-        }
-
-        long totalNeeded = meltQuote.Amount + meltQuote.FeeReserve;
-        if (totalNeeded > totalMintedSat)
-        {
-            var feeErr =
-                $"Lightning routing fee reserve ({meltQuote.FeeReserve} sat) is too high for this payment ({totalMintedSat} sat minted). " +
-                "Try a slightly larger amount or adjust the merchant Lightning address limits.";
-            await MarkFailedAsync(ctx, req, CashuMeltObservability.PhaseForward,
-                feeErr, ct, CashuMeltFailureReasons.FeeTooHigh);
-            _logger.LogWarning(
-                "{Event} phase={Phase} invoice={InvoiceId} quote={QuoteId} feeReserve={FeeReserve} msg=fee_reserve_exceeds_minted",
-                CashuMeltObservability.TagSettlementFailed,
-                CashuMeltObservability.PhaseForward,
-                req.InvoiceId,
-                req.QuoteId,
-                meltQuote.FeeReserve);
-            return (false, req.SettlementError, false);
+                meltQuote.FeeReserve,
+                forwardSat,
+                reducedForwardSat.Value,
+                attempt);
+            forwardSat = reducedForwardSat.Value;
         }
 
         req.MeltQuoteId = meltQuote.Quote;
@@ -675,6 +739,22 @@ public class CashuMeltPaymentService
         {
             meltResp = await _mintClient.MeltTokensAsync(settings.MintUrl, meltQuote.Quote, proofs, ct);
         }
+        catch (CashuMeltMintProtocolException ex) when (ex.MintErrorCode == CashuMeltMintProtocolException.TokenAlreadySpent)
+        {
+            // The mint redeems proofs exactly once and these proofs never left this plugin,
+            // so "already spent" means an earlier melt attempt succeeded and the merchant was
+            // paid - only the confirmation was lost (crash or misread response). Complete the
+            // settlement instead of retrying forever. The preimage is unrecoverable because
+            // the paid melt quote id was since overwritten by newer attempts.
+            _logger.LogWarning(
+                "{Event} phase={Phase} invoice={InvoiceId} quote={QuoteId} amountSat={AmountSat} msg=proofs_already_spent_reconciled",
+                CashuMeltObservability.TagForwardOk,
+                CashuMeltObservability.PhaseForward,
+                req.InvoiceId,
+                req.QuoteId,
+                totalMintedSat);
+            return await CompleteMeltAsync(req, ctx, preimage: null, forwardSat, ct);
+        }
         catch (HttpRequestException ex)
         {
             _logger.LogWarning(ex,
@@ -709,15 +789,46 @@ public class CashuMeltPaymentService
             return (false, null, true);
         }
 
-        if (meltResp is null || !meltResp.Paid)
+        if (meltResp is null)
         {
-            var err = meltResp is null ? "Mint returned empty melt response" : "Mint did not confirm Lightning payment";
+            await MarkFailedAsync(ctx, req, CashuMeltObservability.PhaseForward,
+                "Mint returned empty melt response", ct, CashuMeltFailureReasons.MeltFailed);
+            return (false, "Mint returned empty melt response", false);
+        }
+
+        if (MeltStatePending(meltResp.State))
+        {
+            // Lightning payment still in flight - poll again; MeltQuoteId is stored, so the
+            // next pass reconciles the quote state instead of melting a second time.
+            _logger.LogInformation(
+                "{Event} phase={Phase} invoice={InvoiceId} quote={QuoteId} msg=melt_pending",
+                CashuMeltObservability.TagMeltRetry,
+                CashuMeltObservability.PhaseForward,
+                req.InvoiceId,
+                req.QuoteId);
+            return (false, null, true);
+        }
+
+        if (!MeltStatePaid(meltResp.State) && !meltResp.Paid)
+        {
+            const string err = "Mint did not confirm Lightning payment";
             await MarkFailedAsync(ctx, req, CashuMeltObservability.PhaseForward, err, ct,
                 CashuMeltFailureReasons.MeltFailed);
             return (false, err, false);
         }
 
-        req.SettlementReference = meltResp.Proof;
+        return await CompleteMeltAsync(req, ctx, meltResp.PaymentPreimage ?? meltResp.Proof, forwardSat, ct);
+    }
+
+    /// <summary>Marks the melt as done: stores the preimage, clears spent proofs.</summary>
+    private async Task<(bool Ok, string? Error, bool TransientMelt)> CompleteMeltAsync(
+        CashuMeltPaymentRequest req,
+        CashuMeltDbContext ctx,
+        string? preimage,
+        long forwardSat,
+        CancellationToken ct)
+    {
+        req.SettlementReference = preimage;
         req.MintedProofsJson = null;
         await ctx.SaveChangesAsync(ct);
 
@@ -728,10 +839,16 @@ public class CashuMeltPaymentService
             req.InvoiceId,
             req.QuoteId,
             forwardSat,
-            !string.IsNullOrEmpty(meltResp.Proof));
+            !string.IsNullOrEmpty(preimage));
 
         return (true, null, false);
     }
+
+    private static bool MeltStatePaid(string? state) =>
+        string.Equals(state, "PAID", StringComparison.OrdinalIgnoreCase);
+
+    private static bool MeltStatePending(string? state) =>
+        string.Equals(state, "PENDING", StringComparison.OrdinalIgnoreCase);
 
     // ──────────────────────────────────────────────────────────────
     // Helpers
@@ -822,9 +939,6 @@ public class CashuMeltPaymentService
 
         return true;
     }
-
-    private static long FeeBuffer(long amountSat)
-        => Math.Min(100, Math.Max(2, (long)Math.Ceiling(amountSat * 0.01)));
 
     private async Task<CashuMeltDbContext> CreateReadyContextAsync(CancellationToken ct)
     {

@@ -10,6 +10,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
+using BTCPayServer.Plugins.CashuMelt.Errors;
 using Microsoft.Extensions.Logging;
 
 namespace BTCPayServer.Plugins.CashuMelt.Services;
@@ -248,6 +249,22 @@ public class CashuMeltMintClient
     }
 
     /// <summary>
+    /// GET /v1/melt/quote/bolt11/{quoteId} – poll melt quote state.
+    /// Used to reconcile a melt whose response was lost or ambiguous before paying again.
+    /// </summary>
+    public async Task<MeltQuoteResponse?> GetMeltQuoteAsync(
+        string mintBaseUrl, string quoteId, CancellationToken ct = default)
+    {
+        var url = Url(mintBaseUrl, $"/v1/melt/quote/bolt11/{Uri.EscapeDataString(quoteId)}");
+        var resp = await _httpClient.GetAsync(url, ct);
+        resp.EnsureSuccessStatusCode();
+        await using var stream = await resp.Content.ReadAsStreamAsync(ct);
+        var result = await JsonSerializer.DeserializeAsync<MeltQuoteResponse>(stream, JsonOptions, ct);
+        _logger.LogDebug("GetMeltQuote: {QuoteId} state={State}", result?.Quote, result?.State);
+        return result;
+    }
+
+    /// <summary>
     /// POST /v1/melt/bolt11 – pay a Lightning invoice using CashuMelt proofs.
     /// On success, returns payment preimage and any change proofs.
     /// </summary>
@@ -265,11 +282,14 @@ public class CashuMeltMintClient
                 var errorBody = await resp.Content.ReadAsStringAsync(ct);
                 _logger.LogWarning("MeltTokens {Status} for melt quote {MeltQuoteId}: {Body}",
                     (int)resp.StatusCode, meltQuoteId, errorBody);
+                if (TryParseMintError(errorBody) is { } mintError)
+                    throw new CashuMeltMintProtocolException(mintError.Code, mintError.Detail, resp.StatusCode);
                 resp.EnsureSuccessStatusCode(); // throw with status code
             }
             await using var stream = await resp.Content.ReadAsStreamAsync(ct);
             var result = await JsonSerializer.DeserializeAsync<MeltTokensResponse>(stream, JsonOptions, ct);
-            _logger.LogInformation("MeltTokens: paid={Paid} proof={Proof}", result?.Paid, result?.Proof);
+            _logger.LogInformation("MeltTokens: state={State} paid={Paid} preimage={HasPreimage}",
+                result?.State, result?.Paid, !string.IsNullOrEmpty(result?.PaymentPreimage ?? result?.Proof));
             return result;
         }
         catch (HttpRequestException ex)
@@ -285,6 +305,29 @@ public class CashuMeltMintClient
 
     private static string Url(string baseUrl, string path = "") =>
         baseUrl.TrimEnd('/') + path;
+
+    /// <summary>Parses a NUT-00 mint error body {"detail": ..., "code": ...}; null if the body is not one.</summary>
+    private static (int Code, string? Detail)? TryParseMintError(string body)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            if (doc.RootElement.ValueKind == JsonValueKind.Object &&
+                doc.RootElement.TryGetProperty("code", out var codeEl) &&
+                codeEl.ValueKind == JsonValueKind.Number &&
+                codeEl.TryGetInt32(out var code))
+            {
+                var detail = doc.RootElement.TryGetProperty("detail", out var d) && d.ValueKind == JsonValueKind.String
+                    ? d.GetString()
+                    : null;
+                return (code, detail);
+            }
+        }
+        catch (JsonException)
+        {
+        }
+        return null;
+    }
 
     // ──────────────────────────────────────────────────────────────
     // Data transfer objects
@@ -339,15 +382,18 @@ public class CashuMeltMintClient
         long Amount,
         long FeeReserve,
         string State,
-        long? Expiry);
+        long? Expiry,
+        string? PaymentPreimage);
 
     public record MeltTokensRequest(
         [property: JsonPropertyName("quote")]  string Quote,
         [property: JsonPropertyName("inputs")] CashuMeltProof[] Inputs);
 
     public record MeltTokensResponse(
-        bool Paid,
-        string? Proof,       // Lightning payment preimage
+        bool Paid,                 // legacy field; newer NUT-05 mints omit it and send "state" instead
+        string? Proof,             // legacy preimage field
+        string? State,             // NUT-05: UNPAID | PENDING | PAID
+        string? PaymentPreimage,   // NUT-05 preimage ("payment_preimage")
         CashuMeltProof[]? Change); // leftover change proofs
 
     /// <summary>

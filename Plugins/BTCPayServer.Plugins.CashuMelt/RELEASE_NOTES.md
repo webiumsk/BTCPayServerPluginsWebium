@@ -1,5 +1,47 @@
 # CashuMelt plugin — release notes
 
+## 1.2.0.7 (melt settlement reliability: fee reserve, NUT-05 state, already-spent reconciliation)
+
+Three related fixes for payments that minted correctly but failed or hung during the melt to the merchant Lightning address.
+
+### Fee reserve exceeded the buffered amount (payments above ~10 000 sat failed)
+
+- **Cause:** The routing fee buffer withheld before resolving the merchant invoice was hard-capped at 100 sat, while mints typically reserve max(2 sat, 1% of amount). For any payment above ~10 000 sat the quoted reserve exceeded the buffer and settlement failed hard.
+- **Fix:** The buffer estimate is now max(2 sat, 1%) uncapped (`CashuMeltFeePolicy.EstimateFeeBufferSat`). If the quoted reserve still exceeds it, the forward amount shrinks to `minted - reserve` and a fresh invoice + melt quote is requested (up to 3 attempts) instead of failing.
+- **Symptom:** `Lightning routing fee reserve (N sat) is too high for this payment (M sat minted)` on amounts over ~10 000 sat.
+
+### Successful melt reported as failed (NUT-05 state not parsed)
+
+- **Cause:** The melt response DTO only read the legacy `paid` bool and `proof` preimage field. Newer mints send `state` (`UNPAID | PENDING | PAID`) and `payment_preimage`, so a successful melt deserialized as unpaid.
+- **Fix:** `state`/`payment_preimage` are parsed and authoritative (legacy `paid` still honored). `PENDING` is treated as in-flight (poll again), not as failure. A stored melt quote id is reconciled via `GET /v1/melt/quote/bolt11/{id}` before any repeated melt.
+- **Symptom:** Merchant received the Lightning payment but the plugin showed `Mint did not confirm Lightning payment` and the invoice never settled.
+
+### Endless retry on "proofs already spent" (code 11001)
+
+- **Cause:** After a lost melt confirmation, every retry created a fresh melt quote and re-sent the same proofs; the mint's `400 {"code": 11001}` was treated as a transient HTTP error, so settlement looped forever.
+- **Fix:** Mint protocol errors are parsed into a typed exception. Code 11001 is treated as proof that an earlier melt succeeded (proofs are single-use and never leave the plugin), so the settlement completes and the payment is recorded in BTCPay. The preimage cannot be recovered in this path and is left empty.
+- **Symptom:** `Retry ran but settlement is still in progress` on every retry, with `proofs already spent` in the server log.
+
+### Upgrade
+
+Install **1.2.0.7** and use **Retry settlement** on any stuck payment: reconciliation now completes it instead of re-melting.
+
+---
+
+## 1.2.0.5 (fix Greenfield PUT /settings body binding)
+
+### Satflux / API: `Request body must be a JSON object`
+
+- **Cause:** Since 1.1.0.0, `PUT /api/v1/stores/{storeId}/plugins/cashumelt/settings` used `[FromBody] JsonElement`, which did not bind on PUT in plugin controllers (body arrived as `Undefined` even with valid JSON).
+- **Fix:** Read and parse `Request.Body` explicitly with `JsonSerializer.DeserializeAsync<JsonElement>`.
+- **Symptom:** GET settings worked; PUT always returned 400 with `{ "error": "Request body must be a JSON object" }`. Other Greenfield PUT endpoints (e.g. store update) were unaffected.
+
+### Upgrade
+
+Install **1.2.0.5** on BTCPay Server, then retry saving Cashu settings from Satflux or any Greenfield client.
+
+---
+
 ## 1.2.0.4 (quieter mint poll logs for network errors)
 
 ### Checkout poll when the mint is unreachable

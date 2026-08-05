@@ -108,4 +108,128 @@ public sealed class CashuMeltMintClientPollTests
         Assert.Equal("PAID", r.Quote!.State);
         Assert.Equal("q1", r.Quote.Quote);
     }
+
+    [Fact]
+    public async Task MeltTokensAsync_ModernNut05Payload_ParsesStateAndPreimage()
+    {
+        // Regression: newer mints omit the legacy "paid" bool and send "state" +
+        // "payment_preimage"; a successful melt was misread as unpaid.
+        const string json = """
+            {"quote":"mq1","amount":17878,"fee_reserve":180,"state":"PAID",
+             "expiry":1754400000,"payment_preimage":"abcd1234","change":[]}
+            """;
+        var handler = new StubHandler
+        {
+            OnSend = (_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(json, Encoding.UTF8, "application/json")
+            })
+        };
+        using var http = new HttpClient(handler);
+        var sut = new CashuMeltMintClient(http, NullLogger<CashuMeltMintClient>.Instance);
+
+        var r = await sut.MeltTokensAsync("https://mint.example", "mq1",
+            Array.Empty<CashuMeltMintClient.CashuMeltProof>(), default);
+
+        Assert.NotNull(r);
+        Assert.Equal("PAID", r!.State);
+        Assert.Equal("abcd1234", r.PaymentPreimage);
+        Assert.False(r.Paid); // legacy field absent - state must be authoritative
+    }
+
+    [Fact]
+    public async Task MeltTokensAsync_LegacyPaidPayload_StillParses()
+    {
+        const string json = """{"paid":true,"proof":"ef567890"}""";
+        var handler = new StubHandler
+        {
+            OnSend = (_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(json, Encoding.UTF8, "application/json")
+            })
+        };
+        using var http = new HttpClient(handler);
+        var sut = new CashuMeltMintClient(http, NullLogger<CashuMeltMintClient>.Instance);
+
+        var r = await sut.MeltTokensAsync("https://mint.example", "mq1",
+            Array.Empty<CashuMeltMintClient.CashuMeltProof>(), default);
+
+        Assert.NotNull(r);
+        Assert.True(r!.Paid);
+        Assert.Equal("ef567890", r.Proof);
+        Assert.Null(r.State);
+    }
+
+    [Fact]
+    public async Task MeltTokensAsync_AlreadySpent400_ThrowsTypedProtocolException()
+    {
+        // Regression: "proofs already spent" (11001) surfaced as a generic transient HTTP
+        // error, so the settlement retried a doomed melt forever instead of reconciling.
+        const string json = """{"detail":"proofs already spent","code":11001}""";
+        var handler = new StubHandler
+        {
+            OnSend = (_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.BadRequest)
+            {
+                Content = new StringContent(json, Encoding.UTF8, "application/json")
+            })
+        };
+        using var http = new HttpClient(handler);
+        var sut = new CashuMeltMintClient(http, NullLogger<CashuMeltMintClient>.Instance);
+
+        var ex = await Assert.ThrowsAsync<BTCPayServer.Plugins.CashuMelt.Errors.CashuMeltMintProtocolException>(
+            () => sut.MeltTokensAsync("https://mint.example", "mq1",
+                Array.Empty<CashuMeltMintClient.CashuMeltProof>(), default));
+
+        Assert.Equal(11001, ex.MintErrorCode);
+        Assert.Equal("proofs already spent", ex.Detail);
+    }
+
+    [Fact]
+    public async Task MeltTokensAsync_NonMintError400_ThrowsPlainHttpRequestException()
+    {
+        var handler = new StubHandler
+        {
+            OnSend = (_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.BadRequest)
+            {
+                Content = new StringContent("not json", Encoding.UTF8, "text/plain")
+            })
+        };
+        using var http = new HttpClient(handler);
+        var sut = new CashuMeltMintClient(http, NullLogger<CashuMeltMintClient>.Instance);
+
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(
+            () => sut.MeltTokensAsync("https://mint.example", "mq1",
+                Array.Empty<CashuMeltMintClient.CashuMeltProof>(), default));
+
+        Assert.IsNotType<BTCPayServer.Plugins.CashuMelt.Errors.CashuMeltMintProtocolException>(ex);
+    }
+
+    [Fact]
+    public async Task GetMeltQuoteAsync_ReturnsStateAndPreimage()
+    {
+        const string json = """
+            {"quote":"mq2","amount":17878,"fee_reserve":180,"state":"PAID",
+             "expiry":1754400000,"payment_preimage":"beef"}
+            """;
+        var handler = new StubHandler
+        {
+            OnSend = (req, _) =>
+            {
+                Assert.EndsWith("/v1/melt/quote/bolt11/mq2", req.RequestUri!.AbsolutePath);
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(json, Encoding.UTF8, "application/json")
+                });
+            }
+        };
+        using var http = new HttpClient(handler);
+        var sut = new CashuMeltMintClient(http, NullLogger<CashuMeltMintClient>.Instance);
+
+        var r = await sut.GetMeltQuoteAsync("https://mint.example", "mq2", default);
+
+        Assert.NotNull(r);
+        Assert.Equal("PAID", r!.State);
+        Assert.Equal("beef", r.PaymentPreimage);
+        Assert.Equal(17878, r.Amount);
+    }
 }
