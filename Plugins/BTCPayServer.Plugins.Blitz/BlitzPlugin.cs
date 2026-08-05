@@ -17,6 +17,10 @@ public class BlitzPlugin : BaseBTCPayServerPlugin
 
     public override void Execute(IServiceCollection services)
     {
+        // All plugin outbound HTTP goes through this named client: redirects disabled, every
+        // connect DNS-filtered against private/loopback/reserved ranges (SSRF/rebinding guard).
+        services.AddHttpClient(BlitzHttp.ClientName)
+            .ConfigurePrimaryHttpMessageHandler(BlitzHttp.CreateSafeHandler);
         services.AddUIExtension("ln-payment-method-setup-tab", "Blitz/LNPaymentMethodSetupTab");
         services.AddSingleton<BlitzConnectionStringHandler>();
         services.AddSingleton<ILightningConnectionStringHandler>(sp =>

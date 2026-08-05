@@ -1,5 +1,6 @@
 #nullable enable
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Net.Http;
 using System.Threading;
@@ -69,13 +70,16 @@ public class BlitzLnurlRequestFilter : PluginHookFilter<LNURLPayRequest>
 
             var (username, domain) = BlitzResolver.ParseLightningAddress(lnAddress!);
             var metadataUri = new Uri($"https://{domain}/.well-known/lnurlp/{Uri.EscapeDataString(username)}");
-
-            using var httpClient = _httpClientFactory.CreateClient();
-            httpClient.Timeout = TimeSpan.FromSeconds(10);
-            using var resp = await httpClient.GetAsync(metadataUri, CancellationToken.None);
-            if (!resp.IsSuccessStatusCode)
+            // The domain comes from store configuration — apply the same SSRF policy as everywhere else
+            // (this hook runs on every LNURL-pay request, so it must never become an internal-probe relay).
+            if (!BlitzHttp.IsSafeUrl(metadataUri, out _))
                 return arg;
-            var json = JObject.Parse(await resp.Content.ReadAsStringAsync());
+
+            using var httpClient = _httpClientFactory.CreateClient(BlitzHttp.ClientName);
+            httpClient.Timeout = TimeSpan.FromSeconds(10);
+            var json = await FetchMetadataCached(httpClient, metadataUri, CancellationToken.None);
+            if (json is null)
+                return arg;
 
             ApplyBlitzParameters(arg, json);
             return arg;
@@ -87,6 +91,29 @@ public class BlitzLnurlRequestFilter : PluginHookFilter<LNURLPayRequest>
             _logger.LogWarning(e, "Failed to align LNURL-pay parameters with Blitz; leaving BTCPay defaults.");
             return arg;
         }
+    }
+
+    // The hook fires on every LNURL-pay request during checkout; a short-TTL cache keeps that from
+    // turning into one outbound fetch per request while still tracking upstream metadata changes.
+    private static readonly ConcurrentDictionary<string, (JObject Json, DateTimeOffset Expiry)> _metadataCache = new();
+    private static readonly TimeSpan MetadataCacheTtl = TimeSpan.FromSeconds(60);
+
+    internal static async Task<JObject?> FetchMetadataCached(HttpClient http, Uri metadataUri, CancellationToken ct)
+    {
+        var key = metadataUri.ToString();
+        var now = DateTimeOffset.UtcNow;
+        foreach (var kv in _metadataCache)
+            if (kv.Value.Expiry <= now)
+                _metadataCache.TryRemove(kv.Key, out _);
+        if (_metadataCache.TryGetValue(key, out var hit) && hit.Expiry > now)
+            return hit.Json;
+
+        using var resp = await http.GetAsync(metadataUri, ct);
+        if (!resp.IsSuccessStatusCode)
+            return null;
+        var json = JObject.Parse(await resp.Content.ReadAsStringAsync(ct));
+        _metadataCache[key] = (json, now.Add(MetadataCacheTtl));
+        return json;
     }
 
     /// <summary>Detects a Blitz connection string and extracts its lightning address (bare usernames

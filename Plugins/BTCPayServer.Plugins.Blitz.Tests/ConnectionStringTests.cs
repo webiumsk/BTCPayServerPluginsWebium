@@ -61,4 +61,23 @@ public class ConnectionStringTests
         Assert.Single(fake.Requests);
         Assert.Contains("blitzwalletapp.com", fake.Requests[0]);
     }
+
+    [Fact]
+    public async Task Concurrent_cache_misses_share_one_resolution()
+    {
+        var user = "flight" + Guid.NewGuid().ToString("N").Substring(0, 8);
+        var fake = new FakeHttp().Map(
+            $"https://blitzwalletapp.com/.well-known/lnurlp/{user}", PayTemplate.Replace("{U}", user));
+        var h = new BlitzConnectionStringHandler(new FakeHttpClientFactory(fake), NullLoggerFactory.Instance);
+
+        var results = await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => Task.Run(() =>
+        {
+            var client = h.Create($"type=blitz;ln-address={user}", Network.Main, out var error);
+            return (client, error);
+        })));
+
+        Assert.All(results, r => { Assert.NotNull(r.client); Assert.Null(r.error); });
+        // Single-flight: the 8 concurrent misses collapsed into one network resolution.
+        Assert.Single(fake.Requests);
+    }
 }

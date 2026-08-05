@@ -105,7 +105,7 @@ public sealed class BlitzPollerService : IHostedService
                     {
                         // One client per cycle, shared across the concurrent polls (HttpClient is
                         // thread-safe for concurrent GETs); bound the timeout (factory default is 100s).
-                        http = _httpClientFactory.CreateClient(nameof(BlitzPollerService));
+                        http = _httpClientFactory.CreateClient(BlitzHttp.ClientName);
                         http.Timeout = TimeSpan.FromSeconds(30);
                     }
                     using var gate = new SemaphoreSlim(MaxConcurrencyPerCycle);

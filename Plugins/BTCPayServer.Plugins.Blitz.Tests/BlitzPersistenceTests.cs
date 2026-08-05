@@ -40,6 +40,28 @@ public class BlitzPersistenceTests
     }
 
     [Fact]
+    public async Task Load_skips_invoices_with_unsafe_verify_urls()
+    {
+        var settings = new FakeSettings();
+        var unsafe1 = Uniq("punsafe1_");
+        var unsafe2 = Uniq("punsafe2_");
+        var snapshot = new PersistedTrackedInvoices
+        {
+            Invoices = new()
+            {
+                new PersistedInvoice { PaymentHash = unsafe1, Bolt11 = "lnbc1", VerifyUrl = "http://127.0.0.1/verify/x", VerifyHost = "127.0.0.1", PayEndpoint = "https://h.example/pay", ExpiresAtUnix = DateTimeOffset.UtcNow.AddHours(1).ToUnixTimeSeconds() },
+                new PersistedInvoice { PaymentHash = unsafe2, Bolt11 = "lnbc1", VerifyUrl = "https://192.168.1.1/verify/x", VerifyHost = "192.168.1.1", PayEndpoint = "https://h.example/pay", ExpiresAtUnix = DateTimeOffset.UtcNow.AddHours(1).ToUnixTimeSeconds() },
+            }
+        };
+        await settings.UpdateSetting(snapshot, BlitzPersistence.SettingName);
+
+        await new BlitzPersistence(settings).LoadAsync();
+
+        Assert.False(TrackedInvoiceRegistry.TryGet(unsafe1, out _)); // http -> not re-armed
+        Assert.False(TrackedInvoiceRegistry.TryGet(unsafe2, out _)); // IP literal -> not re-armed
+    }
+
+    [Fact]
     public async Task Save_writes_the_tracked_invoice_to_settings()
     {
         var settings = new FakeSettings();

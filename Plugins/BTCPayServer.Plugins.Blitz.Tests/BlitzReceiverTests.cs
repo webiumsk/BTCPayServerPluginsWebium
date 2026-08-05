@@ -169,6 +169,43 @@ public class BlitzReceiverTests
     }
 
     [Fact]
+    public async Task CreateInvoice_rejects_unsafe_verify_url()
+    {
+        // A malicious/compromised LNURL server hands back a verify URL pointing at an internal
+        // service — it must be refused at accept time, never tracked or polled.
+        var host = "ssrf.example";
+        var cb = $"https://{host}/.well-known/lnurlp/alice/";
+        var http = new FakeHttp()
+            .Map($"https://{host}/.well-known/lnurlp/alice", PayMeta.Replace("{CB}", cb))
+            .Map($"{cb}?amount=250000000", $"{{\"pr\":\"{SpecBolt11}\",\"verify\":\"http://169.254.169.254/latest/meta-data\"}}");
+        var rx = Rx(host, http);
+
+        var ex = await Assert.ThrowsAsync<NotSupportedException>(() =>
+            rx.CreateInvoice(LightMoney.MilliSatoshis(250_000_000), null, null, TestContext.Current.CancellationToken));
+        Assert.Contains("not an allowed destination", ex.Message);
+    }
+
+    [Fact]
+    public async Task GetInvoice_drops_tracked_invoice_with_unsafe_verify_url()
+    {
+        // Defense in depth: an unsafe URL that somehow reached the registry (e.g. an old persisted
+        // blob) is never polled — the invoice is dropped instead.
+        var host = "ssrf2.example";
+        var hash = new string('f', 64);
+        TrackedInvoiceRegistry.Add(new TrackedInvoice(
+            hash, "lnbc1", "http://127.0.0.1:8080/verify/x", host, $"https://{host}/.well-known/lnurlp/alice",
+            DateTimeOffset.UtcNow.AddHours(1)));
+        var http = new FakeHttp();
+        var rx = Rx(host, http);
+
+        var inv = await rx.GetInvoice(hash, TestContext.Current.CancellationToken);
+
+        Assert.Null(inv);
+        Assert.False(TrackedInvoiceRegistry.TryGet(hash, out _)); // removed, not left to poll forever
+        Assert.Empty(http.Requests);                              // and never fetched
+    }
+
+    [Fact]
     public async Task CreateInvoice_truncates_comment_to_commentAllowed()
     {
         var host = "cm.example";

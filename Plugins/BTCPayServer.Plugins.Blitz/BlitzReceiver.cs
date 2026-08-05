@@ -52,14 +52,18 @@ public sealed class BlitzReceiver
         if (q.Length > 0) q.Append('&');
         q.Append("amount=").Append(min);
         cb.Query = q.ToString();
+        if (!BlitzHttp.IsSafeUrl(cb.Uri, out var cbReason))
+            return $"The LNURL callback URL is not an allowed destination: {cbReason}.";
 
         JObject json;
         try { json = await BlitzResolver.GetJson(_http, cb.Uri, ct); }
         catch (Exception e) { return $"Could not request a probe invoice: {e.Message}"; }
 
         var verify = json["verify"]?.Value<string>();
-        if (string.IsNullOrEmpty(verify) || !Uri.TryCreate(verify, UriKind.Absolute, out _))
+        if (string.IsNullOrEmpty(verify) || !Uri.TryCreate(verify, UriKind.Absolute, out var verifyUri))
             return VerifyUnsupportedMessage;
+        if (!BlitzHttp.IsSafeUrl(verifyUri, out var vReason))
+            return $"The LUD-21 verify URL is not an allowed destination: {vReason}.";
         return null;
     }
 
@@ -90,6 +94,8 @@ public sealed class BlitzReceiver
             q.Append("&comment=").Append(Uri.EscapeDataString(c));
         }
         cb.Query = q.ToString();
+        if (!BlitzHttp.IsSafeUrl(cb.Uri, out var cbReason))
+            throw new Exception($"The LNURL callback URL is not an allowed destination: {cbReason}.");
 
         var json = await BlitzResolver.GetJson(_http, cb.Uri, ct);
         var pr = json["pr"]?.Value<string>() ?? throw new Exception("LNURL callback did not return an invoice.");
@@ -108,6 +114,10 @@ public sealed class BlitzReceiver
         var verifyUrl = json["verify"]?.Value<string>();
         if (string.IsNullOrEmpty(verifyUrl) || !Uri.TryCreate(verifyUrl, UriKind.Absolute, out var verifyUri))
             throw new NotSupportedException(VerifyUnsupportedMessage);
+        // The verify URL is attacker-influenced input (remote JSON) that we will poll for hours and
+        // persist across restarts — refuse anything but a public https destination (SSRF guard).
+        if (!BlitzHttp.IsSafeUrl(verifyUri, out var verifyReason))
+            throw new NotSupportedException($"The LUD-21 verify URL is not an allowed destination: {verifyReason}.");
         var verifyHost = verifyUri.Host;
 
         TrackedInvoiceRegistry.Add(new TrackedInvoice(
@@ -146,6 +156,15 @@ public sealed class BlitzReceiver
     /// </summary>
     public static async Task<LightningInvoice?> PollAndBuild(TrackedInvoice t, HttpClient http, CancellationToken ct)
     {
+        // Defense in depth for URLs re-armed from persistence (or any path that bypassed the
+        // accept-time check): never poll a non-public destination; drop the invoice instead.
+        if (!Uri.TryCreate(t.VerifyUrl, UriKind.Absolute, out var verifyUri) ||
+            !BlitzHttp.IsSafeUrl(verifyUri, out _))
+        {
+            TrackedInvoiceRegistry.Remove(t.PaymentHash);
+            return null;
+        }
+
         JObject? json = null;
         bool transportError = false;
         try

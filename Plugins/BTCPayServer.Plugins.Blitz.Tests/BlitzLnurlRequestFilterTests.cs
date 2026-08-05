@@ -90,4 +90,36 @@ public class BlitzLnurlRequestFilterTests
         Assert.False(BlitzLnurlRequestFilter.TryGetBlitzLnAddress(null, out _));
         Assert.False(BlitzLnurlRequestFilter.TryGetBlitzLnAddress("complete garbage", out _));
     }
+
+    [Fact]
+    public async Task Metadata_fetch_is_cached_within_ttl()
+    {
+        // The hook runs on every LNURL-pay request during checkout; repeated calls within the TTL
+        // must not produce one outbound fetch each.
+        var user = "cachef" + System.Guid.NewGuid().ToString("N").Substring(0, 8);
+        var uri = new System.Uri($"https://blitzwalletapp.com/.well-known/lnurlp/{user}");
+        var fake = new FakeHttp().Map(uri.ToString(), BlitzMeta().ToString());
+
+        var j1 = await BlitzLnurlRequestFilter.FetchMetadataCached(fake.Client(), uri, TestContext.Current.CancellationToken);
+        var j2 = await BlitzLnurlRequestFilter.FetchMetadataCached(fake.Client(), uri, TestContext.Current.CancellationToken);
+
+        Assert.NotNull(j1);
+        Assert.NotNull(j2);
+        Assert.Single(fake.Requests);
+    }
+
+    [Fact]
+    public async Task Failed_metadata_fetch_is_not_cached()
+    {
+        var user = "cachee" + System.Guid.NewGuid().ToString("N").Substring(0, 8);
+        var uri = new System.Uri($"https://blitzwalletapp.com/.well-known/lnurlp/{user}");
+        var fake = new FakeHttp(); // unmapped -> 404
+
+        var j1 = await BlitzLnurlRequestFilter.FetchMetadataCached(fake.Client(), uri, TestContext.Current.CancellationToken);
+        var j2 = await BlitzLnurlRequestFilter.FetchMetadataCached(fake.Client(), uri, TestContext.Current.CancellationToken);
+
+        Assert.Null(j1);
+        Assert.Null(j2);
+        Assert.Equal(2, fake.Requests.Count); // errors are retried, not cached
+    }
 }

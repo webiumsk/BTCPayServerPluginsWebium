@@ -38,6 +38,8 @@ public static class BlitzResolver
     {
         lnAddress = NormalizeAddress(lnAddress);
         var endpoint = LNURL.LNURL.ExtractUriFromInternetIdentifier(lnAddress);
+        if (!BlitzHttp.IsSafeUrl(endpoint, out var reason))
+            throw new FormatException($"'{lnAddress}' resolves to a disallowed endpoint: {reason}.");
 
         var root = await GetJson(http, endpoint, ct);
         var tag = root["tag"]?.Value<string>();

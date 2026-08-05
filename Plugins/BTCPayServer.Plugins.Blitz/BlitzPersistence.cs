@@ -47,6 +47,10 @@ public sealed class BlitzPersistence
             var expiresAt = DateTimeOffset.FromUnixTimeSeconds(p.ExpiresAtUnix);
             if (expiresAt <= now) continue; // don't re-arm invoices that already expired while down
             if (string.IsNullOrEmpty(p.PaymentHash) || string.IsNullOrEmpty(p.VerifyUrl)) continue;
+            // Same SSRF policy as at accept time — never re-arm a verify URL we would not accept now
+            // (the persisted blob is not more trustworthy than the JSON it came from).
+            if (!Uri.TryCreate(p.VerifyUrl, UriKind.Absolute, out var verifyUri) ||
+                !BlitzHttp.IsSafeUrl(verifyUri, out _)) continue;
             TrackedInvoiceRegistry.Add(new TrackedInvoice(
                 p.PaymentHash, p.Bolt11, p.VerifyUrl, p.VerifyHost, p.PayEndpoint, expiresAt));
         }
