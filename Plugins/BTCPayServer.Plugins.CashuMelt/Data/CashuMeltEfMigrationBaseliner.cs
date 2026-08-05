@@ -73,6 +73,9 @@ internal static class CashuMeltEfMigrationBaseliner
                 await ColumnExistsAsync(ctx, "CashuMeltStoreSettings", "TrustedMintUrls", ct),
             "20260517000000_AddRetryTracking" =>
                 await ColumnExistsAsync(ctx, "CashuMeltPaymentRequests", "RetryCount", ct),
+            "20260805000000_AddNut08Change" =>
+                await TableExistsAsync(ctx, "CashuMeltChangeProofs", ct)
+                && await ColumnExistsAsync(ctx, "CashuMeltPaymentRequests", "BlankOutputsJson", ct),
             _ => false
         };
 

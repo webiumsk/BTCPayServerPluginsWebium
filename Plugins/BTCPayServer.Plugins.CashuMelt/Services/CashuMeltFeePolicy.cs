@@ -40,7 +40,13 @@ public static class CashuMeltFeePolicy
     {
         if (proofCount <= 0 || inputFeePpk <= 0)
             return 0;
-        return (proofCount * inputFeePpk + 999) / 1000;
+        // input_fee_ppk is mint-controlled - keep the ceiling math overflow-safe so an
+        // absurd value cannot wrap negative and corrupt the spendable amount. A clamped
+        // huge fee simply fails the melt feasibility checks downstream.
+        if (inputFeePpk > (long.MaxValue - 999) / proofCount)
+            return long.MaxValue / 1000;
+        var totalPpk = proofCount * inputFeePpk;
+        return totalPpk / 1000 + (totalPpk % 1000 == 0 ? 0 : 1);
     }
 
     /// <summary>

@@ -136,6 +136,17 @@ public class CashuMeltPolicyTests
         Assert.Equal(expected, CashuMeltFeePolicy.KeysetInputFeeSat(proofCount, ppk));
     }
 
+    [Fact]
+    public void KeysetInputFeeSat_OverflowSafeForMintControlledPpk()
+    {
+        // input_fee_ppk comes from the mint - an absurd value must clamp, never wrap negative.
+        var clamped = CashuMeltFeePolicy.KeysetInputFeeSat(1_000_000, long.MaxValue);
+        Assert.Equal(long.MaxValue / 1000, clamped);
+
+        var nearLimit = CashuMeltFeePolicy.KeysetInputFeeSat(2, long.MaxValue / 2);
+        Assert.True(nearLimit > 0);
+    }
+
     [Theory]
     [InlineData(0, 0)]
     [InlineData(1, 1)]     // max(ceil(log2 1), 1) = 1

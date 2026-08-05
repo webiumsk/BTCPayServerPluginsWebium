@@ -616,19 +616,10 @@ public class CashuMeltPaymentService
 
         // NUT-02: keyset input fee for spending the minted proofs - without it a
         // fee-charging mint rejects the melt for insufficient inputs.
-        long keysetInputFeeSat;
-        try
+        var maxPpk = await TryGetMaxInputFeePpkAsync(settings.MintUrl, proofs, ct);
+        if (maxPpk is null)
         {
-            var keysetsInfo = await _mintClient.GetKeysetsInfoAsync(settings.MintUrl, ct);
-            var usedKeysetIds = proofs.Select(p => p.Id).Distinct().ToHashSet();
-            var maxPpk = keysetsInfo?.Keysets?
-                .Where(k => usedKeysetIds.Contains(k.Id))
-                .Max(k => (long?)(k.InputFeePpk ?? 0)) ?? 0;
-            keysetInputFeeSat = CashuMeltFeePolicy.KeysetInputFeeSat(proofs.Length, maxPpk);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex,
+            _logger.LogWarning(
                 "{Event} phase={Phase} invoice={InvoiceId} quote={QuoteId} msg=keysets_info_unavailable",
                 CashuMeltObservability.TagMeltRetry,
                 CashuMeltObservability.PhaseForward,
@@ -636,6 +627,7 @@ public class CashuMeltPaymentService
                 req.QuoteId);
             return (false, null, true);
         }
+        var keysetInputFeeSat = CashuMeltFeePolicy.KeysetInputFeeSat(proofs.Length, maxPpk.Value);
 
         var spendableSat = totalMintedSat - keysetInputFeeSat;
         long feeBuffer = CashuMeltFeePolicy.EstimateFeeBufferSat(spendableSat);
@@ -661,7 +653,7 @@ public class CashuMeltPaymentService
             try
             {
                 var (resolvedBolt11, effectiveSat) = await lnResolver.ResolveInvoiceAsync(
-                    settings.LightningAddress!.Trim(), forwardSat, totalMintedSat, ct);
+                    settings.LightningAddress!.Trim(), forwardSat, spendableSat, ct);
                 bolt11 = resolvedBolt11;
 
                 if (effectiveSat != forwardSat)
@@ -1007,6 +999,9 @@ public class CashuMeltPaymentService
     private static (BlindedMessage[] Outputs, BlankOutputBlinding[] Blinding) CreateBlankOutputs(
         long feeReserve, CashuMeltProof[] proofs)
     {
+        if (proofs.Length == 0)
+            throw new InvalidOperationException("Cannot create blank outputs without input proofs (keyset unknown).");
+
         var count = CashuMeltFeePolicy.BlankOutputCount(feeReserve);
         var keysetId = proofs[0].Id;
         var outputs = new BlindedMessage[count];
@@ -1043,6 +1038,8 @@ public class CashuMeltPaymentService
             return;                      // caller's save persists the clear
         }
 
+        var originalBlankOutputsJson = req.BlankOutputsJson;
+        List<CashuMeltChangeProof>? rows = null;
         try
         {
             var blinding = JsonSerializer.Deserialize<BlankOutputBlinding[]>(req.BlankOutputsJson, ProofJsonOptions);
@@ -1053,7 +1050,7 @@ public class CashuMeltPaymentService
             }
 
             var keysResp = await _mintClient.GetKeysAsync(settings.MintUrl, ct);
-            var rows = UnblindChangeToRows(
+            rows = UnblindChangeToRows(
                 req.StoreId, CashuMeltMintPolicy.NormalizeMintUrl(settings.MintUrl), req.Unit,
                 req.QuoteId, change, blinding, keysResp);
             ctx.CashuMeltChangeProofs.AddRange(rows);
@@ -1075,10 +1072,13 @@ public class CashuMeltPaymentService
             _logger.LogWarning(ex,
                 "Failed to store NUT-08 change for invoice {InvoiceId} quote {QuoteId}; blinding data retained for manual recovery",
                 req.InvoiceId, req.QuoteId);
-            // Detach any staged change rows so a failed insert (e.g. duplicate secret)
-            // cannot poison the settlement save that follows.
-            foreach (var entry in ctx.ChangeTracker.Entries<CashuMeltChangeProof>().ToList())
-                entry.State = EntityState.Detached;
+            // Keep the blinding data recoverable and detach only the rows staged here, so a
+            // failed insert (e.g. duplicate secret) cannot poison the settlement save that
+            // follows or discard unrelated tracked entities.
+            req.BlankOutputsJson = originalBlankOutputsJson;
+            if (rows is not null)
+                foreach (var row in rows)
+                    ctx.Entry(row).State = EntityState.Detached;
         }
     }
 
@@ -1164,7 +1164,12 @@ public class CashuMeltPaymentService
         }
     }
 
-    /// <summary>SWEEPING rows at tick start are always stale (sweeps are sequential) - reconcile via NUT-07.</summary>
+    /// <summary>
+    /// SWEEPING rows at tick start are always stale (sweeps run sequentially in the single
+    /// reconciliation hosted service) - reconcile them via NUT-07. Note: this assumes a
+    /// single BTCPay instance; running multiple instances against one database would need
+    /// a lease on the SWEEPING transition.
+    /// </summary>
     private async Task RecoverStuckSweepsAsync(CashuMeltDbContext ctx, CancellationToken ct)
     {
         var stuck = await ctx.CashuMeltChangeProofs
@@ -1206,23 +1211,32 @@ public class CashuMeltPaymentService
         if (CashuMeltMintPolicy.NormalizeMintUrl(settings.MintUrl) != mintUrl)
             return; // store switched mints - keep the proofs until reconfigured back
 
-        var rows = await ctx.CashuMeltChangeProofs
+        var candidates = await ctx.CashuMeltChangeProofs
             .Where(p => p.StoreId == storeId && p.MintUrl == mintUrl && p.State == "AVAILABLE" && p.Unit == "sat")
             .OrderBy(p => p.Id)
             .Take(200)
             .ToListAsync(ct);
+        if (candidates.Count == 0)
+            return;
+
+        // One keyset per sweep: NUT-08 blank outputs are pinned to a single keyset, and a
+        // batch mixing rotated keysets would make them invalid. Sweep the largest keyset
+        // group now; the rest goes in later ticks.
+        var rows = candidates
+            .GroupBy(p => p.KeysetId)
+            .OrderByDescending(g => g.Sum(x => x.Amount))
+            .First()
+            .ToList();
         var totalSat = rows.Sum(r => r.Amount);
         if (totalSat < MinChangeSweepSat)
             return;
 
         var proofs = rows.Select(r => new CashuMeltProof(r.Amount, r.KeysetId, r.Secret, r.C)).ToArray();
 
-        var keysetsInfo = await _mintClient.GetKeysetsInfoAsync(mintUrl, ct);
-        var usedKeysetIds = proofs.Select(p => p.Id).Distinct().ToHashSet();
-        var maxPpk = keysetsInfo?.Keysets?
-            .Where(k => usedKeysetIds.Contains(k.Id))
-            .Max(k => (long?)(k.InputFeePpk ?? 0)) ?? 0;
-        var spendableSat = totalSat - CashuMeltFeePolicy.KeysetInputFeeSat(proofs.Length, maxPpk);
+        var maxPpk = await TryGetMaxInputFeePpkAsync(mintUrl, proofs, ct);
+        if (maxPpk is null)
+            return; // keyset metadata unavailable - try again next tick
+        var spendableSat = totalSat - CashuMeltFeePolicy.KeysetInputFeeSat(proofs.Length, maxPpk.Value);
 
         var forwardSat = spendableSat - CashuMeltFeePolicy.EstimateFeeBufferSat(spendableSat);
         if (forwardSat <= 0)
@@ -1284,12 +1298,16 @@ public class CashuMeltPaymentService
             return; // rows stay SWEEPING; RecoverStuckSweepsAsync reconciles next tick
         }
 
-        if (resp is not null && MeltStatePending(resp.State))
+        if (resp is null)
+            return; // unknown outcome - rows stay SWEEPING; NUT-07 recovery reconciles next tick
+
+        if (MeltStatePending(resp.State))
             return; // leave SWEEPING; recovery resolves once the payment lands
 
-        var paid = resp is not null && (MeltStatePaid(resp.State) || resp.Paid);
+        var paid = MeltStatePaid(resp.State) || resp.Paid;
         if (!paid)
         {
+            // Explicit UNPAID from the mint - the proofs were not consumed.
             foreach (var r in rows)
             {
                 r.State = "AVAILABLE";
@@ -1299,21 +1317,33 @@ public class CashuMeltPaymentService
             return;
         }
 
-        var preimage = resp!.PaymentPreimage ?? resp.Proof;
+        var preimage = resp.PaymentPreimage ?? resp.Proof;
         foreach (var r in rows)
         {
             r.State = "SWEPT";
             r.SweptAt = DateTimeOffset.UtcNow;
             r.SweepReference = preimage ?? quote.Quote;
         }
+        // Commit SWEPT before touching change-of-change: a key-fetch failure below must not
+        // roll back the settlement of the swept rows.
+        await ctx.SaveChangesAsync(ct);
 
         if (resp.Change is { Length: > 0 } && blinding is not null)
         {
-            var keysResp = await _mintClient.GetKeysAsync(mintUrl, ct);
-            ctx.CashuMeltChangeProofs.AddRange(
-                UnblindChangeToRows(storeId, mintUrl, "sat", null, resp.Change, blinding, keysResp));
+            // Best-effort: sweep change-of-change is a few sats (reserve of a ~100-200 sat
+            // melt); its blinding data is not persisted, so a crash here forfeits only that.
+            try
+            {
+                var keysResp = await _mintClient.GetKeysAsync(mintUrl, ct);
+                ctx.CashuMeltChangeProofs.AddRange(
+                    UnblindChangeToRows(storeId, mintUrl, "sat", null, resp.Change, blinding, keysResp));
+                await ctx.SaveChangesAsync(ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not store sweep change-of-change for store {StoreId}", storeId);
+            }
         }
-        await ctx.SaveChangesAsync(ct);
 
         _logger.LogInformation(
             "{Event} store={StoreId} sweptSat={SweptSat} forwardSat={ForwardSat} proofCount={ProofCount} preimage={HasPreimage}",
@@ -1323,6 +1353,34 @@ public class CashuMeltPaymentService
             forwardSat,
             rows.Count,
             !string.IsNullOrEmpty(preimage));
+    }
+
+    /// <summary>
+    /// NUT-02: highest input_fee_ppk among the keysets the proofs belong to.
+    /// Returns 0 when the mint does not expose keyset metadata (pre-NUT-02 mints:
+    /// 404/501/405 - no input fees exist), null on transient failures (retry later).
+    /// </summary>
+    private async Task<long?> TryGetMaxInputFeePpkAsync(
+        string mintUrl, CashuMeltProof[] proofs, CancellationToken ct)
+    {
+        try
+        {
+            var keysetsInfo = await _mintClient.GetKeysetsInfoAsync(mintUrl, ct);
+            var usedKeysetIds = proofs.Select(p => p.Id).Distinct().ToHashSet();
+            return keysetsInfo?.Keysets?
+                .Where(k => usedKeysetIds.Contains(k.Id))
+                .Max(k => (long?)(k.InputFeePpk ?? 0)) ?? 0;
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.NotFound
+            or HttpStatusCode.NotImplemented or HttpStatusCode.MethodNotAllowed)
+        {
+            return 0; // mint predates NUT-02 keyset metadata - it charges no input fees
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "GET /v1/keysets unavailable at {MintUrl}", mintUrl);
+            return null;
+        }
     }
 
     /// <summary>
@@ -1339,7 +1397,9 @@ public class CashuMeltPaymentService
                 .ToArray();
             var resp = await _mintClient.CheckProofStatesAsync(mintUrl, ys, ct);
             var states = resp?.States;
-            if (states is null || states.Length == 0)
+            // A partial response must not be aggregated - every requested Y needs a state,
+            // otherwise "all spent"/"all unspent" conclusions would be drawn from a subset.
+            if (states is null || states.Length != ys.Length)
                 return null;
 
             var spent = states.Count(s => string.Equals(s.State, "SPENT", StringComparison.OrdinalIgnoreCase));

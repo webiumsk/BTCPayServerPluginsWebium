@@ -19,10 +19,13 @@ public class CashuMeltSettingsPageModel
     /// <summary>Normalized mint base for NUT-23 poll URL hints.</summary>
     public string MintBaseNormalized { get; init; } = "";
 
-    /// <summary>Accumulated NUT-08 change (sat) awaiting the background sweep to the Lightning address.</summary>
+    /// <summary>Accumulated sat-unit NUT-08 change awaiting the background sweep to the Lightning address.</summary>
     public long PendingChangeSat { get; init; }
 
-    /// <summary>Total NUT-08 change (sat) already swept to the merchant Lightning address.</summary>
+    /// <summary>
+    /// Gross ecash value (sat) of NUT-08 change already consumed by sweeps. The Lightning
+    /// payout is slightly lower: sweep routing/keyset fees are deducted at melt time.
+    /// </summary>
     public long SweptChangeSat { get; init; }
 }
 

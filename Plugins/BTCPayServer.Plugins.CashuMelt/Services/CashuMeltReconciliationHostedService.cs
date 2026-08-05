@@ -99,10 +99,21 @@ public sealed class CashuMeltReconciliationHostedService : BackgroundService
                 await paymentService.CheckAndRecordPaymentAsync(quoteId, ct);
         }
 
-        // Sweep accumulated NUT-08 change proofs to the merchant Lightning address (~15 min cadence).
+        // Sweep accumulated NUT-08 change proofs to the merchant Lightning address (~15 min
+        // cadence). Bounded by its own deadline so a slow mint cannot starve the FAILED-row
+        // retries below; an interrupted sweep resumes safely on the next tick.
         if (tick % 20 == 0)
         {
-            await paymentService.SweepAvailableChangeAsync(ct);
+            using var sweepCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            sweepCts.CancelAfter(TimeSpan.FromMinutes(5));
+            try
+            {
+                await paymentService.SweepAvailableChangeAsync(sweepCts.Token);
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                _logger.LogWarning("CashuMelt change sweep exceeded its 5 minute budget; continuing with the tick");
+            }
         }
 
         // Retry FAILED rows that still have stored proofs (can attempt re-melt).
