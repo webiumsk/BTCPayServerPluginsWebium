@@ -117,6 +117,13 @@ public static class CashuMeltCrypto
     }
 
     /// <summary>
+    /// NUT-07: Y = hash_to_curve(secret) as compressed hex - identifies a proof
+    /// for POST /v1/checkstate without revealing the unblinded signature.
+    /// </summary>
+    public static string ComputeYHex(byte[] secretBytes)
+        => EncodeCompressed(HashToCurve(secretBytes));
+
+    /// <summary>
     /// Decomposes an amount into its power-of-2 representation.
     /// E.g. 100 → [4, 32, 64]
     /// </summary>

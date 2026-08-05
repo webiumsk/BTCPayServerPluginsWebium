@@ -32,6 +32,41 @@ public static class CashuMeltFeePolicy
         return reduced;
     }
 
+    /// <summary>
+    /// NUT-02 input fee for spending proofs: ceil(proofCount * input_fee_ppk / 1000).
+    /// Zero for mints without keyset fees (the common case).
+    /// </summary>
+    public static long KeysetInputFeeSat(int proofCount, long inputFeePpk)
+    {
+        if (proofCount <= 0 || inputFeePpk <= 0)
+            return 0;
+        // input_fee_ppk is mint-controlled - keep the ceiling math overflow-safe so an
+        // absurd value cannot wrap negative and corrupt the spendable amount. A clamped
+        // huge fee simply fails the melt feasibility checks downstream.
+        if (inputFeePpk > (long.MaxValue - 999) / proofCount)
+            return long.MaxValue / 1000;
+        var totalPpk = proofCount * inputFeePpk;
+        return totalPpk / 1000 + (totalPpk % 1000 == 0 ? 0 : 1);
+    }
+
+    /// <summary>
+    /// NUT-08 blank output count: max(ceil(log2(feeReserve)), 1); 0 when there is no reserve.
+    /// Integer bit-length math to avoid floating-point boundary errors.
+    /// </summary>
+    public static int BlankOutputCount(long feeReserve)
+    {
+        if (feeReserve <= 0)
+            return 0;
+        var v = (ulong)(feeReserve - 1);
+        var bits = 0;
+        while (v > 0)
+        {
+            bits++;
+            v >>= 1;
+        }
+        return Math.Max(1, bits);
+    }
+
     /// <returns>Error message or null if OK.</returns>
     public static string? ValidateMeltFeeReserve(
         long totalMintedSat,

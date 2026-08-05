@@ -171,6 +171,33 @@ public class CashuMeltMintClient
     // NUT-06: Keyset info – get mint's public keys per denomination
     // ──────────────────────────────────────────────────────────────
 
+    /// <summary>GET /v1/keysets – keyset metadata incl. NUT-02 input_fee_ppk.</summary>
+    public async Task<KeysetsInfoResponse?> GetKeysetsInfoAsync(
+        string mintBaseUrl, CancellationToken ct = default)
+    {
+        var url = Url(mintBaseUrl, "/v1/keysets");
+        var resp = await _httpClient.GetAsync(url, ct);
+        resp.EnsureSuccessStatusCode();
+        await using var stream = await resp.Content.ReadAsStreamAsync(ct);
+        return await JsonSerializer.DeserializeAsync<KeysetsInfoResponse>(stream, JsonOptions, ct);
+    }
+
+    /// <summary>
+    /// POST /v1/checkstate (NUT-07) – proof states (UNSPENT | PENDING | SPENT) by Y point.
+    /// Authoritative signal for whether a melt actually consumed the proofs.
+    /// </summary>
+    public async Task<CheckStateResponse?> CheckProofStatesAsync(
+        string mintBaseUrl, string[] ys, CancellationToken ct = default)
+    {
+        var url = Url(mintBaseUrl, "/v1/checkstate");
+        var body = new CheckStateRequest(ys);
+        using var content = JsonContent.Create(body, options: JsonOptions);
+        var resp = await _httpClient.PostAsync(url, content, ct);
+        resp.EnsureSuccessStatusCode();
+        await using var stream = await resp.Content.ReadAsStreamAsync(ct);
+        return await JsonSerializer.DeserializeAsync<CheckStateResponse>(stream, JsonOptions, ct);
+    }
+
     /// <summary>GET /v1/keys – active keyset public keys, indexed by denomination.</summary>
     public async Task<MintKeysResponse?> GetKeysAsync(
         string mintBaseUrl, CancellationToken ct = default)
@@ -269,10 +296,11 @@ public class CashuMeltMintClient
     /// On success, returns payment preimage and any change proofs.
     /// </summary>
     public async Task<MeltTokensResponse?> MeltTokensAsync(
-        string mintBaseUrl, string meltQuoteId, CashuMeltProof[] inputs, CancellationToken ct = default)
+        string mintBaseUrl, string meltQuoteId, CashuMeltProof[] inputs,
+        BlindedMessage[]? blankOutputs = null, CancellationToken ct = default)
     {
         var url = Url(mintBaseUrl, "/v1/melt/bolt11");
-        var body = new MeltTokensRequest(meltQuoteId, inputs);
+        var body = new MeltTokensRequest(meltQuoteId, inputs, blankOutputs);
         try
         {
             using var content = JsonContent.Create(body, options: JsonOptions);
@@ -354,6 +382,27 @@ public class CashuMeltMintClient
 
     public record MintKeysResponse(MintKeyset[] Keysets);
 
+    /// <summary>NUT-02 keyset metadata from GET /v1/keysets.</summary>
+    public record KeysetsInfoResponse(KeysetInfo[] Keysets);
+
+    public record KeysetInfo(
+        string Id,
+        string Unit,
+        bool Active,
+        long? InputFeePpk);   // snake_case: input_fee_ppk
+
+    // NUT-07 uses capitalized "Ys"/"Y" field names - explicit overrides required.
+    public record CheckStateRequest(
+        [property: JsonPropertyName("Ys")] string[] Ys);
+
+    public record CheckStateResponse(
+        [property: JsonPropertyName("states")] ProofStateInfo[] States);
+
+    public record ProofStateInfo(
+        [property: JsonPropertyName("Y")]       string Y,
+        [property: JsonPropertyName("state")]   string State,
+        [property: JsonPropertyName("witness")] string? Witness);
+
     public record MintKeyset(
         string Id,
         string Unit,
@@ -384,18 +433,21 @@ public class CashuMeltMintClient
         long FeeReserve,
         string State,
         long? Expiry,
-        string? PaymentPreimage);
+        string? PaymentPreimage,
+        BlindSignature[]? Change); // NUT-08: returned on GET for paid quotes with blank outputs
 
     public record MeltTokensRequest(
         [property: JsonPropertyName("quote")]  string Quote,
-        [property: JsonPropertyName("inputs")] CashuMeltProof[] Inputs);
+        [property: JsonPropertyName("inputs")] CashuMeltProof[] Inputs,
+        [property: JsonPropertyName("outputs"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        BlindedMessage[]? Outputs);  // NUT-08 blank outputs for fee-reserve change
 
     public record MeltTokensResponse(
         bool Paid,                 // legacy field; newer NUT-05 mints omit it and send "state" instead
         string? Proof,             // legacy preimage field
         string? State,             // NUT-05: UNPAID | PENDING | PAID
         string? PaymentPreimage,   // NUT-05 preimage ("payment_preimage")
-        CashuMeltProof[]? Change); // leftover change proofs
+        BlindSignature[]? Change); // NUT-08 change: blind signatures over the blank outputs
 
     /// <summary>
     /// CashuMelt proof (unblinded token). C is the unblinded EC point.

@@ -365,13 +365,24 @@ public class UICashuMeltController : Controller
                 r.FailureReasonCode))
             .ToList();
 
+        // Sat-only, matching the sweep (non-sat change is never swept and would skew totals).
+        var pendingChangeSat = await ctx.CashuMeltChangeProofs.AsNoTracking()
+            .Where(p => p.StoreId == storeId && p.Unit == "sat"
+                        && (p.State == "AVAILABLE" || p.State == "SWEEPING"))
+            .SumAsync(p => (long?)p.Amount) ?? 0;
+        var sweptChangeSat = await ctx.CashuMeltChangeProofs.AsNoTracking()
+            .Where(p => p.StoreId == storeId && p.Unit == "sat" && p.State == "SWEPT")
+            .SumAsync(p => (long?)p.Amount) ?? 0;
+
         return new CashuMeltSettingsPageModel
         {
             Settings = settings,
             RecentPayments = recent,
             FilterSettlement = filterSettlement,
             FilterInvoice = filterInvoice,
-            MintBaseNormalized = mintBase
+            MintBaseNormalized = mintBase,
+            PendingChangeSat = pendingChangeSat,
+            SweptChangeSat = sweptChangeSat
         };
     }
 

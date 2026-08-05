@@ -119,8 +119,66 @@ public class CashuMeltPolicyTests
     {
         var quote = state is null
             ? null
-            : new CashuMeltMintClient.MeltQuoteResponse("mq", 1000, 10, state, null, null);
+            : new CashuMeltMintClient.MeltQuoteResponse("mq", 1000, 10, state, null, null, null);
         Assert.Equal(expected, CashuMeltPaymentService.ClassifyPriorMeltQuote(quote));
+    }
+
+    [Theory]
+    [InlineData(0, 0, 0)]
+    [InlineData(5, 0, 0)]      // free keyset
+    [InlineData(0, 1000, 0)]   // no proofs
+    [InlineData(5, 100, 1)]    // 500 ppk → ceil = 1 sat
+    [InlineData(3, 1000, 3)]   // exactly 3 sat
+    [InlineData(1, 999, 1)]    // 999 ppk → ceil = 1 sat
+    [InlineData(10, 1001, 11)] // 10010 ppk → ceil = 11 sat
+    public void KeysetInputFeeSat_CeilsPerThousand(int proofCount, long ppk, long expected)
+    {
+        Assert.Equal(expected, CashuMeltFeePolicy.KeysetInputFeeSat(proofCount, ppk));
+    }
+
+    [Fact]
+    public void KeysetInputFeeSat_OverflowSafeForMintControlledPpk()
+    {
+        // input_fee_ppk comes from the mint - an absurd value must clamp, never wrap negative.
+        var clamped = CashuMeltFeePolicy.KeysetInputFeeSat(1_000_000, long.MaxValue);
+        Assert.Equal(long.MaxValue / 1000, clamped);
+
+        var nearLimit = CashuMeltFeePolicy.KeysetInputFeeSat(2, long.MaxValue / 2);
+        Assert.True(nearLimit > 0);
+    }
+
+    [Theory]
+    [InlineData(0, 0)]
+    [InlineData(1, 1)]     // max(ceil(log2 1), 1) = 1
+    [InlineData(2, 1)]     // ceil(log2 2) = 1
+    [InlineData(3, 2)]
+    [InlineData(180, 8)]   // real incident reserve: 2^7 < 180 <= 2^8
+    [InlineData(1024, 10)]
+    [InlineData(1025, 11)]
+    public void BlankOutputCount_MatchesNut08Formula(long feeReserve, int expected)
+    {
+        Assert.Equal(expected, CashuMeltFeePolicy.BlankOutputCount(feeReserve));
+    }
+
+    [Theory]
+    // Official NUT-00 hash_to_curve test vectors (message bytes → compressed point).
+    [InlineData("0000000000000000000000000000000000000000000000000000000000000000",
+        "024cce997d3b518f739663b757deaec95bcd9473c30a14ac2fd04023a739d1a725")]
+    [InlineData("0000000000000000000000000000000000000000000000000000000000000001",
+        "022e7158e11c9506f1aa4248bf531298daa7febd6194f003edcd9b93ade6253acf")]
+    public void ComputeYHex_MatchesNut00Vectors(string messageHex, string expectedY)
+    {
+        Assert.Equal(expectedY, CashuMeltCrypto.ComputeYHex(Convert.FromHexString(messageHex)));
+    }
+
+    [Fact]
+    public void ComputeYHex_Utf8SecretConvention()
+    {
+        // Same convention the melt flow uses: Y over the UTF-8 bytes of the secret string.
+        // Expected value independently computed with a reference implementation.
+        Assert.Equal(
+            "02992871637ec60a342e135ddac364f71932005d7ca6b7148981f0b7afc2005da4",
+            CashuMeltCrypto.ComputeYHex(System.Text.Encoding.UTF8.GetBytes("abc123def456")));
     }
 
     [Fact]

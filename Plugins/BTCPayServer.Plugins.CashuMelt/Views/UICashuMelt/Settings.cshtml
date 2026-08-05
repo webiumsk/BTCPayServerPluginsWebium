@@ -74,6 +74,22 @@
     <button type="submit" name="command" value="save" class="btn btn-primary mt-3">Save</button>
 </form>
 
+<h3 class="mt-5 mb-3">Fee reserve change (NUT-08)</h3>
+<p class="text-muted small">
+    Unused Lightning fee reserve is returned by the mint as ecash change and swept to your
+    Lightning address automatically once at least 100 sat accumulates.
+</p>
+<div class="d-flex gap-4">
+    <div>
+        <span class="text-muted small d-block">Awaiting sweep</span>
+        <strong>@Model.PendingChangeSat sat</strong>
+    </div>
+    <div>
+        <span class="text-muted small d-block">Change swept (gross, before sweep fees)</span>
+        <strong>@Model.SweptChangeSat sat</strong>
+    </div>
+</div>
+
 <h3 class="mt-5 mb-3">Recent CashuMelt payments</h3>
 <p class="text-muted small">
     Background reconciliation retries <code>MELT_COMPLETE</code> and stale <code>PENDING</code> rows so checkout does not need to stay open.

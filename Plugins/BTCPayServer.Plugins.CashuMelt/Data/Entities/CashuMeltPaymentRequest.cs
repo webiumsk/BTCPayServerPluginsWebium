@@ -51,6 +51,14 @@ public class CashuMeltPaymentRequest
     [MaxLength(200)]
     public string? MeltQuoteId { get; set; }
 
+    /// <summary>
+    /// JSON-serialized blinding data (secret + r + keyset) for the NUT-08 blank outputs
+    /// sent with the melt. Persisted before the melt POST so change signatures can be
+    /// unblinded after a crash (GET melt quote returns them for paid quotes);
+    /// cleared once change proofs are stored.
+    /// </summary>
+    public string? BlankOutputsJson { get; set; }
+
     /// <summary>The BOLT11 invoice resolved for the merchant's Lightning address.</summary>
     public string? ForwardBolt11 { get; set; }
 
