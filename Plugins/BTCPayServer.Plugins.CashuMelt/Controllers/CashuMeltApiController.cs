@@ -73,9 +73,20 @@ public class CashuMeltApiController : ControllerBase
     [HttpPut("settings")]
     public async Task<IActionResult> UpdateSettings(
         string storeId,
-        [FromBody] JsonElement body,
         CancellationToken ct = default)
     {
+        // Read JSON manually: [FromBody] JsonElement does not bind reliably on PUT for plugin
+        // controllers (ValueKind stays Undefined even when the client sends a valid object).
+        JsonElement body;
+        try
+        {
+            body = await JsonSerializer.DeserializeAsync<JsonElement>(Request.Body, cancellationToken: ct);
+        }
+        catch (JsonException)
+        {
+            return BadRequest(new { error = "Request body must be valid JSON" });
+        }
+
         if (body.ValueKind is not JsonValueKind.Object)
             return BadRequest(new { error = "Request body must be a JSON object" });
 
