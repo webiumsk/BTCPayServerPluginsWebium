@@ -10,13 +10,16 @@ namespace BTCPayServer.Plugins.Blitz;
 
 /// <param name="PayEndpoint">The connection's LNURL-pay endpoint (its identity for Listen() filtering).</param>
 /// <param name="VerifyHost">The host of the verify URL — the registry's grouping key for batched polling.</param>
+/// <param name="AmountMsat">Invoice amount captured at creation, so status polling never has to
+/// re-parse the BOLT11 (0 = unknown, e.g. re-armed from an older persisted blob).</param>
 public sealed record TrackedInvoice(
     string PaymentHash,
     string Bolt11,
     string VerifyUrl,
     string VerifyHost,
     string PayEndpoint,
-    DateTimeOffset ExpiresAt);
+    DateTimeOffset ExpiresAt,
+    long AmountMsat = 0);
 
 /// <summary>
 /// Static, verify-host-keyed registry shared across every client instance BTCPay creates for a

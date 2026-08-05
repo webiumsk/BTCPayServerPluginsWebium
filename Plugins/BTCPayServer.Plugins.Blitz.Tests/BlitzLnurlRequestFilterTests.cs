@@ -73,6 +73,29 @@ public class BlitzLnurlRequestFilterTests
     }
 
     [Fact]
+    public void Negative_send_limits_are_treated_as_absent()
+    {
+        var arg = new LNURLPayRequest
+        {
+            MinSendable = LightMoney.MilliSatoshis(1000),
+            MaxSendable = LightMoney.MilliSatoshis(50_000)
+        };
+
+        BlitzLnurlRequestFilter.ApplyBlitzParameters(arg, BlitzMeta(min: -1, max: -5));
+
+        Assert.Equal(LightMoney.MilliSatoshis(1000), arg.MinSendable);
+        Assert.Equal(LightMoney.MilliSatoshis(50_000), arg.MaxSendable);
+    }
+
+    [Fact]
+    public void Negative_commentAllowed_is_ignored()
+    {
+        var arg = new LNURLPayRequest { CommentAllowed = 2000 };
+        BlitzLnurlRequestFilter.ApplyBlitzParameters(arg, BlitzMeta(comment: -1));
+        Assert.Equal(2000, arg.CommentAllowed);
+    }
+
+    [Fact]
     public void Detects_blitz_connection_strings_and_expands_bare_usernames()
     {
         Assert.True(BlitzLnurlRequestFilter.TryGetBlitzLnAddress("type=blitz;ln-address=alice", out var a));

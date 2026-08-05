@@ -128,6 +128,33 @@ public class BlitzReceiverTests
 
         Assert.NotNull(inv);
         Assert.Equal(LightningInvoiceStatus.Paid, inv!.Status);
+
+        // Purge the settled entry so it can't leak into other tests via the static registry.
+        TrackedInvoiceRegistry.MarkSettled(hash, paid, DateTimeOffset.UtcNow.AddMilliseconds(-1));
+        TrackedInvoiceRegistry.PruneSettled(DateTimeOffset.UtcNow);
+    }
+
+    [Fact]
+    public async Task GetInvoice_settled_verify_reports_paid_with_stored_amount()
+    {
+        // Exercises BuildInvoice on a settled verify response: status Paid, amount taken from the
+        // tracked entry (captured at creation) without re-parsing the BOLT11.
+        var host = "paidrx.example";
+        var hash = new string('e', 64);
+        TrackedInvoiceRegistry.Add(new TrackedInvoice(
+            hash, SpecBolt11, $"https://{host}/verify/{hash}", host, $"https://{host}/.well-known/lnurlp/alice",
+            DateTimeOffset.UtcNow.AddHours(1), 250_000_000));
+        var http = new FakeHttp().Map($"https://{host}/verify/{hash}", "{\"settled\":true,\"preimage\":null}");
+        var rx = Rx(host, http);
+
+        var inv = await rx.GetInvoice(hash, TestContext.Current.CancellationToken);
+
+        Assert.NotNull(inv);
+        Assert.Equal(LightningInvoiceStatus.Paid, inv!.Status);
+        Assert.Equal(LightMoney.MilliSatoshis(250_000_000), inv.Amount);
+        Assert.Equal(LightMoney.MilliSatoshis(250_000_000), inv.AmountReceived);
+        Assert.Null(inv.Preimage); // preimage absent -> not fabricated
+        TrackedInvoiceRegistry.Remove(hash);
     }
 
     [Fact]

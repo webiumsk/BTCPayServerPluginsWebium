@@ -121,7 +121,8 @@ public sealed class BlitzReceiver
         var verifyHost = verifyUri.Host;
 
         TrackedInvoiceRegistry.Add(new TrackedInvoice(
-            paymentHash, pr, verifyUrl, verifyHost, _resolved.PayEndpoint.ToString(), bolt11.ExpiryDate));
+            paymentHash, pr, verifyUrl, verifyHost, _resolved.PayEndpoint.ToString(), bolt11.ExpiryDate,
+            bolt11.MinimumAmount.MilliSatoshi));
 
         return new LightningInvoice
         {
@@ -194,7 +195,9 @@ public sealed class BlitzReceiver
 
     private static LightningInvoice BuildInvoice(TrackedInvoice t, bool settled, string? preimage)
     {
-        var bolt11 = BOLT11PaymentRequest.Parse(t.Bolt11, InferNetwork(t.Bolt11));
+        // Amount was captured at creation — re-parsing the BOLT11 here could throw on a corrupted
+        // tracked/persisted entry and take down the whole poll cycle for that invoice.
+        var amount = t.AmountMsat > 0 ? LightMoney.MilliSatoshis(t.AmountMsat) : null;
         var status = settled ? LightningInvoiceStatus.Paid
             : t.ExpiresAt < DateTimeOffset.UtcNow ? LightningInvoiceStatus.Expired
             : LightningInvoiceStatus.Unpaid;
@@ -204,8 +207,8 @@ public sealed class BlitzReceiver
             Id = t.PaymentHash,
             PaymentHash = t.PaymentHash,
             BOLT11 = t.Bolt11,
-            Amount = bolt11.MinimumAmount,
-            AmountReceived = settled ? bolt11.MinimumAmount : null,
+            Amount = amount,
+            AmountReceived = settled ? amount : null,
             Status = status,
             Preimage = valid,
             PaidAt = settled ? DateTimeOffset.UtcNow : null,
@@ -228,8 +231,4 @@ public sealed class BlitzReceiver
         catch { return false; }
     }
 
-    public static Network InferNetwork(string bolt11) =>
-        bolt11.StartsWith("lnbcrt", StringComparison.OrdinalIgnoreCase) ? Network.RegTest
-        : bolt11.StartsWith("lntb", StringComparison.OrdinalIgnoreCase) ? Network.TestNet
-        : Network.Main;
 }

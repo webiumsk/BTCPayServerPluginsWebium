@@ -50,4 +50,8 @@ dotnet build -c Release      # requires BTCPay Server ≥ 2.3.7 sources (see csp
 ./build-plugin.sh            # packages ../../packaged/BTCPayServer.Plugins.Blitz/<version>/*.btcpay
 ```
 
+Packaging uses the `BTCPayServer.PluginPacker` tool, expected by default in a sibling
+`BTCPayServerPluginsKukks/submodules/btcpayserver/` checkout; set the `PLUGIN_PACKER` environment
+variable to point at any other checkout containing the tool.
+
 Tests: `Plugins/BTCPayServer.Plugins.Blitz.Tests/`.

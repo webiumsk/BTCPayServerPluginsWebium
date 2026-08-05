@@ -51,6 +51,7 @@ public sealed class BlitzLightningClient : IExtendedLightningClient
 
     public Task<LightningInvoice[]> ListInvoices(ListInvoicesParams request, CancellationToken cancellation = default)
     {
+        var now = DateTimeOffset.UtcNow;
         var mine = TrackedInvoiceRegistry.All()
             .Where(t => t.PayEndpoint == _resolved.PayEndpoint.ToString())
             .Select(t => new LightningInvoice
@@ -58,7 +59,9 @@ public sealed class BlitzLightningClient : IExtendedLightningClient
                 Id = t.PaymentHash,
                 PaymentHash = t.PaymentHash,
                 BOLT11 = t.Bolt11,
-                Status = LightningInvoiceStatus.Unpaid,
+                // Same expiry logic as BlitzReceiver.BuildInvoice, so both read paths agree for
+                // invoices the poller has not swept out yet.
+                Status = t.ExpiresAt < now ? LightningInvoiceStatus.Expired : LightningInvoiceStatus.Unpaid,
                 ExpiresAt = t.ExpiresAt
             })
             .Where(i => request?.PendingOnly is not true || i.Status == LightningInvoiceStatus.Unpaid)

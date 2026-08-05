@@ -31,7 +31,8 @@ public sealed class BlitzPersistence
                 VerifyUrl = t.VerifyUrl,
                 VerifyHost = t.VerifyHost,
                 PayEndpoint = t.PayEndpoint,
-                ExpiresAtUnix = t.ExpiresAt.ToUnixTimeSeconds()
+                ExpiresAtUnix = t.ExpiresAt.ToUnixTimeSeconds(),
+                AmountMsat = t.AmountMsat
             }).ToList()
         };
         await _settings.UpdateSetting(snapshot, SettingName);
@@ -44,7 +45,10 @@ public sealed class BlitzPersistence
         var now = DateTimeOffset.UtcNow;
         foreach (var p in persisted.Invoices)
         {
-            var expiresAt = DateTimeOffset.FromUnixTimeSeconds(p.ExpiresAtUnix);
+            // A corrupted record (e.g. an out-of-range timestamp) must not abort recovery of the rest.
+            DateTimeOffset expiresAt;
+            try { expiresAt = DateTimeOffset.FromUnixTimeSeconds(p.ExpiresAtUnix); }
+            catch (ArgumentOutOfRangeException) { continue; }
             if (expiresAt <= now) continue; // don't re-arm invoices that already expired while down
             if (string.IsNullOrEmpty(p.PaymentHash) || string.IsNullOrEmpty(p.VerifyUrl)) continue;
             // Same SSRF policy as at accept time — never re-arm a verify URL we would not accept now
@@ -52,7 +56,7 @@ public sealed class BlitzPersistence
             if (!Uri.TryCreate(p.VerifyUrl, UriKind.Absolute, out var verifyUri) ||
                 !BlitzHttp.IsSafeUrl(verifyUri, out _)) continue;
             TrackedInvoiceRegistry.Add(new TrackedInvoice(
-                p.PaymentHash, p.Bolt11, p.VerifyUrl, p.VerifyHost, p.PayEndpoint, expiresAt));
+                p.PaymentHash, p.Bolt11, p.VerifyUrl, p.VerifyHost, p.PayEndpoint, expiresAt, p.AmountMsat));
         }
     }
 }
@@ -70,4 +74,5 @@ public class PersistedInvoice
     public string VerifyHost { get; set; } = "";
     public string PayEndpoint { get; set; } = "";
     public long ExpiresAtUnix { get; set; }
+    public long AmountMsat { get; set; }
 }

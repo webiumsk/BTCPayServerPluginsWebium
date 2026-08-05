@@ -10,6 +10,10 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
         <IsPackable>false</IsPackable>
+        <!-- The plugin builds BTCPayServer with static web assets disabled;
+             disable them here too so the transitive content-copy step does not
+             look for asset manifests the referenced build never produced. -->
+        <StaticWebAssetsEnabled>false</StaticWebAssetsEnabled>
     </PropertyGroup>
 
     <ItemGroup>
@@ -23,10 +27,20 @@
 
     <ItemGroup>
         <ProjectReference Include="..\BTCPayServer.Plugins.Blitz\BTCPayServer.Plugins.Blitz.csproj" />
-        <!-- StaticWebAssetsEnabled=false matches the plugin's own BTCPayServer reference, so BTCPayServer
-             builds once with a single, consistent config (no staticwebassets manifest-copy MSB3030
-             flip-flop). Unit tests don't serve static assets, so this is safe. -->
-        <ProjectReference Include="..\..\submodules\btcpayserver\BTCPayServer\BTCPayServer.csproj">
+        <!-- BTCPayServer reference mirrors the plugin csproj's fallback layouts (plugin-builder
+             submodule, sibling btcpayserver, BTCPayServerPluginsKukks sibling). Each builds
+             BTCPayServer with StaticWebAssetsEnabled=false so it is configured identically to the
+             plugin's own reference (a second config would flip-flop the staticwebassets manifest). -->
+        <ProjectReference Include="..\..\submodules\btcpayserver\BTCPayServer\BTCPayServer.csproj"
+                          Condition="Exists('..\..\submodules\btcpayserver\BTCPayServer\BTCPayServer.csproj')">
+            <Properties>StaticWebAssetsEnabled=false</Properties>
+        </ProjectReference>
+        <ProjectReference Include="..\..\..\btcpayserver\BTCPayServer\BTCPayServer.csproj"
+                          Condition="!Exists('..\..\submodules\btcpayserver\BTCPayServer\BTCPayServer.csproj') And Exists('..\..\..\btcpayserver\BTCPayServer\BTCPayServer.csproj')">
+            <Properties>StaticWebAssetsEnabled=false</Properties>
+        </ProjectReference>
+        <ProjectReference Include="..\..\..\BTCPayServerPluginsKukks\submodules\btcpayserver\BTCPayServer\BTCPayServer.csproj"
+                          Condition="!Exists('..\..\submodules\btcpayserver\BTCPayServer\BTCPayServer.csproj') And !Exists('..\..\..\btcpayserver\BTCPayServer\BTCPayServer.csproj')">
             <Properties>StaticWebAssetsEnabled=false</Properties>
         </ProjectReference>
     </ItemGroup>

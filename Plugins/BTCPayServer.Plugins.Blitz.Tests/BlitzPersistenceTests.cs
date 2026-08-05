@@ -40,6 +40,31 @@ public class BlitzPersistenceTests
     }
 
     [Fact]
+    public async Task Load_skips_record_with_invalid_timestamp_but_restores_the_rest()
+    {
+        var settings = new FakeSettings();
+        var corrupt = Uniq("pcorrupt_");
+        var live = Uniq("pok_");
+        var snapshot = new PersistedTrackedInvoices
+        {
+            Invoices = new()
+            {
+                // Out-of-range unix timestamp: DateTimeOffset.FromUnixTimeSeconds would throw — the
+                // record must be skipped without aborting recovery of the records after it.
+                new PersistedInvoice { PaymentHash = corrupt, Bolt11 = "lnbc1", VerifyUrl = $"https://h.example/verify/{corrupt}", VerifyHost = "h.example", PayEndpoint = "https://h.example/pay", ExpiresAtUnix = long.MaxValue },
+                new PersistedInvoice { PaymentHash = live, Bolt11 = "lnbc1", VerifyUrl = $"https://h.example/verify/{live}", VerifyHost = "h.example", PayEndpoint = "https://h.example/pay", ExpiresAtUnix = DateTimeOffset.UtcNow.AddHours(1).ToUnixTimeSeconds() },
+            }
+        };
+        await settings.UpdateSetting(snapshot, BlitzPersistence.SettingName);
+
+        await new BlitzPersistence(settings).LoadAsync();
+
+        Assert.False(TrackedInvoiceRegistry.TryGet(corrupt, out _));
+        Assert.True(TrackedInvoiceRegistry.TryGet(live, out _));
+        TrackedInvoiceRegistry.Remove(live);
+    }
+
+    [Fact]
     public async Task Load_skips_invoices_with_unsafe_verify_urls()
     {
         var settings = new FakeSettings();

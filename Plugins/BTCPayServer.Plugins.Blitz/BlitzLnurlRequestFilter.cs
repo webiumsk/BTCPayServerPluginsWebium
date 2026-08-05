@@ -155,8 +155,10 @@ public class BlitzLnurlRequestFilter : PluginHookFilter<LNURLPayRequest>
         if (!string.IsNullOrEmpty(metadata))
             arg.Metadata = metadata;
 
-        var blitzMin = blitzMetadata["minSendable"]?.Value<long>() is { } bmin ? new LightMoney(bmin) : null;
-        var blitzMax = blitzMetadata["maxSendable"]?.Value<long>() is { } bmax ? new LightMoney(bmax) : null;
+        // Remote-supplied numbers: treat negative limits as absent rather than letting them poison
+        // the served bounds or comment length.
+        var blitzMin = blitzMetadata["minSendable"]?.Value<long>() is { } bmin and >= 0 ? new LightMoney(bmin) : null;
+        var blitzMax = blitzMetadata["maxSendable"]?.Value<long>() is { } bmax and >= 0 ? new LightMoney(bmax) : null;
 
         // Compute the intersection of [BTCPay.Min, BTCPay.Max] and [Blitz.Min, Blitz.Max]. If the two
         // ranges are DISJOINT (Blitz's min exceeds BTCPay's max, or vice versa) there is no valid
@@ -173,7 +175,7 @@ public class BlitzLnurlRequestFilter : PluginHookFilter<LNURLPayRequest>
                 arg.MaxSendable = newMax;
         }
 
-        if (blitzMetadata["commentAllowed"]?.Value<int>() is { } blitzComment &&
+        if (blitzMetadata["commentAllowed"]?.Value<int>() is { } blitzComment and >= 0 &&
             arg.CommentAllowed > blitzComment)
             arg.CommentAllowed = blitzComment;
     }
