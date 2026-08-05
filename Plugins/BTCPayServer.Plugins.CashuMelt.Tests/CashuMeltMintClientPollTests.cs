@@ -232,4 +232,44 @@ public sealed class CashuMeltMintClientPollTests
         Assert.Equal("beef", r.PaymentPreimage);
         Assert.Equal(17878, r.Amount);
     }
+
+    [Fact]
+    public async Task GetMeltQuoteAsync_404_ThrowsWithNotFoundStatus()
+    {
+        // MeltToMerchantAsync relies on the 404 status to fall through to a fresh melt.
+        var handler = new StubHandler
+        {
+            OnSend = (_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound))
+        };
+        using var http = new HttpClient(handler);
+        var sut = new CashuMeltMintClient(http, NullLogger<CashuMeltMintClient>.Instance);
+
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(
+            () => sut.GetMeltQuoteAsync("https://mint.example", "unknown", default));
+
+        Assert.Equal(HttpStatusCode.NotFound, ex.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetMeltQuoteAsync_PendingQuote_ParsesWithoutPreimage()
+    {
+        const string json = """
+            {"quote":"mq3","amount":17878,"fee_reserve":180,"state":"PENDING","expiry":1754400000}
+            """;
+        var handler = new StubHandler
+        {
+            OnSend = (_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(json, Encoding.UTF8, "application/json")
+            })
+        };
+        using var http = new HttpClient(handler);
+        var sut = new CashuMeltMintClient(http, NullLogger<CashuMeltMintClient>.Instance);
+
+        var r = await sut.GetMeltQuoteAsync("https://mint.example", "mq3", default);
+
+        Assert.NotNull(r);
+        Assert.Equal("PENDING", r!.State);
+        Assert.Null(r.PaymentPreimage);
+    }
 }

@@ -551,6 +551,9 @@ public class CashuMeltPaymentService
             }
             catch (Exception ex)
             {
+                // Row stays PENDING (no MarkFailed), but do not schedule another checkout
+                // poll for a state check the mint keeps refusing - background reconciliation
+                // picks the row up later.
                 _logger.LogWarning(ex,
                     "{Event} phase={Phase} invoice={InvoiceId} quote={QuoteId} meltQuote={MeltQuoteId} msg=melt_quote_state_check_failed",
                     CashuMeltObservability.TagMeltRetry,
@@ -558,20 +561,20 @@ public class CashuMeltPaymentService
                     req.InvoiceId,
                     req.QuoteId,
                     req.MeltQuoteId);
-                return (false, null, true);
+                return (false, null, false);
             }
 
-            if (priorQuote is not null && MeltStatePaid(priorQuote.State))
+            switch (ClassifyPriorMeltQuote(priorQuote))
             {
-                _logger.LogInformation(
-                    "Prior melt quote {MeltQuoteId} already PAID for invoice {InvoiceId} - completing settlement without a second melt",
-                    req.MeltQuoteId, req.InvoiceId);
-                return await CompleteMeltAsync(req, ctx, priorQuote.PaymentPreimage, priorQuote.Amount, ct);
+                case PriorMeltQuoteDecision.CompleteSettlement:
+                    _logger.LogInformation(
+                        "Prior melt quote {MeltQuoteId} already PAID for invoice {InvoiceId} - completing settlement without a second melt",
+                        req.MeltQuoteId, req.InvoiceId);
+                    return await CompleteMeltAsync(req, ctx, priorQuote!.PaymentPreimage, priorQuote.Amount, ct);
+                case PriorMeltQuoteDecision.WaitPending:
+                    return (false, null, true);
             }
-
-            if (priorQuote is not null && MeltStatePending(priorQuote.State))
-                return (false, null, true);
-            // UNPAID / expired / unknown: proofs are unspent - proceed with a fresh melt.
+            // FreshMelt: quote unknown / UNPAID / expired - proofs are unspent, melt again.
         }
 
         long feeBuffer = CashuMeltFeePolicy.EstimateFeeBufferSat(totalMintedSat);
@@ -588,14 +591,14 @@ public class CashuMeltPaymentService
         // The mint reveals its actual Lightning fee reserve only in the melt quote, so the
         // estimated buffer can undershoot. When it does, shrink the forwarded amount to
         // totalMinted - actual reserve, fetch a fresh invoice and re-quote.
-        string bolt11;
-        MeltQuoteResponse? meltQuote;
+        MeltQuoteResponse? meltQuote = null;
         const int maxFeeAdjustAttempts = 3;
-        for (var attempt = 1; ; attempt++)
+        var lnResolver = new LightningAddressResolver(_httpClientFactory.CreateClient(nameof(LightningAddressResolver)));
+        for (var attempt = 1; attempt <= maxFeeAdjustAttempts; attempt++)
         {
+            string bolt11;
             try
             {
-                var lnResolver = new LightningAddressResolver(_httpClientFactory.CreateClient(nameof(LightningAddressResolver)));
                 var (resolvedBolt11, effectiveSat) = await lnResolver.ResolveInvoiceAsync(
                     settings.LightningAddress!.Trim(), forwardSat, totalMintedSat, ct);
                 bolt11 = resolvedBolt11;
@@ -731,6 +734,14 @@ public class CashuMeltPaymentService
             forwardSat = reducedForwardSat.Value;
         }
 
+        if (meltQuote is null)
+        {
+            // Unreachable: the final loop iteration either breaks or returns. Kept for safety.
+            await MarkFailedAsync(ctx, req, CashuMeltObservability.PhaseForward,
+                "Melt quote fee adjustment did not converge", ct, CashuMeltFailureReasons.FeeTooHigh);
+            return (false, req.SettlementError, false);
+        }
+
         req.MeltQuoteId = meltQuote.Quote;
         await ctx.SaveChangesAsync(ct);
 
@@ -745,15 +756,18 @@ public class CashuMeltPaymentService
             // so "already spent" means an earlier melt attempt succeeded and the merchant was
             // paid - only the confirmation was lost (crash or misread response). Complete the
             // settlement instead of retrying forever. The preimage is unrecoverable because
-            // the paid melt quote id was since overwritten by newer attempts.
+            // the paid melt quote id was since overwritten by newer attempts, and the settled
+            // amount belongs to that prior melt - this attempt's forwardSat is only logged as
+            // the attempted amount, not as the confirmed one.
             _logger.LogWarning(
-                "{Event} phase={Phase} invoice={InvoiceId} quote={QuoteId} amountSat={AmountSat} msg=proofs_already_spent_reconciled",
+                "{Event} phase={Phase} invoice={InvoiceId} quote={QuoteId} amountSat={AmountSat} attemptedForwardSat={AttemptedForwardSat} msg=proofs_already_spent_reconciled",
                 CashuMeltObservability.TagForwardOk,
                 CashuMeltObservability.PhaseForward,
                 req.InvoiceId,
                 req.QuoteId,
-                totalMintedSat);
-            return await CompleteMeltAsync(req, ctx, preimage: null, forwardSat, ct);
+                totalMintedSat,
+                forwardSat);
+            return await CompleteMeltAsync(req, ctx, preimage: null, forwardSat: null, ct);
         }
         catch (HttpRequestException ex)
         {
@@ -791,9 +805,15 @@ public class CashuMeltPaymentService
 
         if (meltResp is null)
         {
-            await MarkFailedAsync(ctx, req, CashuMeltObservability.PhaseForward,
-                "Mint returned empty melt response", ct, CashuMeltFailureReasons.MeltFailed);
-            return (false, "Mint returned empty melt response", false);
+            // Unknown outcome - the melt POST may have succeeded at the mint. MeltQuoteId is
+            // stored, so the next poll reconciles the quote state instead of failing hard.
+            _logger.LogWarning(
+                "{Event} phase={Phase} invoice={InvoiceId} quote={QuoteId} msg=empty_melt_response",
+                CashuMeltObservability.TagMeltRetry,
+                CashuMeltObservability.PhaseForward,
+                req.InvoiceId,
+                req.QuoteId);
+            return (false, null, true);
         }
 
         if (MeltStatePending(meltResp.State))
@@ -825,11 +845,14 @@ public class CashuMeltPaymentService
         CashuMeltPaymentRequest req,
         CashuMeltDbContext ctx,
         string? preimage,
-        long forwardSat,
+        long? forwardSat,
         CancellationToken ct)
     {
         req.SettlementReference = preimage;
         req.MintedProofsJson = null;
+        // Same save as the proof clear: a crash before BTCPay accounting must not leave a
+        // PENDING row without proofs (the next poll would try to re-mint against the quote).
+        req.SettlementState = "MELT_COMPLETE";
         await ctx.SaveChangesAsync(ct);
 
         _logger.LogInformation(
@@ -842,6 +865,29 @@ public class CashuMeltPaymentService
             !string.IsNullOrEmpty(preimage));
 
         return (true, null, false);
+    }
+
+    /// <summary>Outcome of reconciling a previously stored melt quote against the mint.</summary>
+    public enum PriorMeltQuoteDecision
+    {
+        /// <summary>Quote unknown, UNPAID, or expired - proofs are unspent, melt again.</summary>
+        FreshMelt,
+        /// <summary>Quote PAID - the merchant already received the payment; do not melt again.</summary>
+        CompleteSettlement,
+        /// <summary>Quote PENDING - Lightning payment in flight; poll again later.</summary>
+        WaitPending
+    }
+
+    /// <summary>Pure decision for a reconciled prior melt quote (null = mint no longer knows it).</summary>
+    public static PriorMeltQuoteDecision ClassifyPriorMeltQuote(MeltQuoteResponse? priorQuote)
+    {
+        if (priorQuote is null)
+            return PriorMeltQuoteDecision.FreshMelt;
+        if (MeltStatePaid(priorQuote.State))
+            return PriorMeltQuoteDecision.CompleteSettlement;
+        if (MeltStatePending(priorQuote.State))
+            return PriorMeltQuoteDecision.WaitPending;
+        return PriorMeltQuoteDecision.FreshMelt;
     }
 
     private static bool MeltStatePaid(string? state) =>

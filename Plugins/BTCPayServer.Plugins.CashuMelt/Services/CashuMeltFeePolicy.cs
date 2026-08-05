@@ -13,7 +13,11 @@ public static class CashuMeltFeePolicy
     /// above cap/1% fail against mints with a percentage-based reserve.
     /// </summary>
     public static long EstimateFeeBufferSat(long amountSat)
-        => Math.Max(2, (long)Math.Ceiling(amountSat * 0.01));
+    {
+        if (amountSat <= 0)
+            return 2;
+        return Math.Max(2, (amountSat + 99) / 100); // integer ceil(amountSat / 100)
+    }
 
     /// <summary>
     /// Forward amount to retry with when the quoted reserve exceeds the buffer:

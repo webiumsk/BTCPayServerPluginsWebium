@@ -281,7 +281,8 @@ public class CashuMeltMintClient
             {
                 var errorBody = await resp.Content.ReadAsStringAsync(ct);
                 _logger.LogWarning("MeltTokens {Status} for melt quote {MeltQuoteId}: {Body}",
-                    (int)resp.StatusCode, meltQuoteId, errorBody);
+                    (int)resp.StatusCode, meltQuoteId,
+                    errorBody.Length > 400 ? errorBody[..400] : errorBody);
                 if (TryParseMintError(errorBody) is { } mintError)
                     throw new CashuMeltMintProtocolException(mintError.Code, mintError.Detail, resp.StatusCode);
                 resp.EnsureSuccessStatusCode(); // throw with status code

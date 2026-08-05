@@ -107,6 +107,22 @@ public class CashuMeltPolicyTests
         Assert.Equal(17_878, reduced);
     }
 
+    [Theory]
+    [InlineData(null, CashuMeltPaymentService.PriorMeltQuoteDecision.FreshMelt)]
+    [InlineData("UNPAID", CashuMeltPaymentService.PriorMeltQuoteDecision.FreshMelt)]
+    [InlineData("EXPIRED", CashuMeltPaymentService.PriorMeltQuoteDecision.FreshMelt)]
+    [InlineData("PAID", CashuMeltPaymentService.PriorMeltQuoteDecision.CompleteSettlement)]
+    [InlineData("paid", CashuMeltPaymentService.PriorMeltQuoteDecision.CompleteSettlement)]
+    [InlineData("PENDING", CashuMeltPaymentService.PriorMeltQuoteDecision.WaitPending)]
+    public void ClassifyPriorMeltQuote_MapsStateToDecision(
+        string? state, CashuMeltPaymentService.PriorMeltQuoteDecision expected)
+    {
+        var quote = state is null
+            ? null
+            : new CashuMeltMintClient.MeltQuoteResponse("mq", 1000, 10, state, null, null);
+        Assert.Equal(expected, CashuMeltPaymentService.ClassifyPriorMeltQuote(quote));
+    }
+
     [Fact]
     public void ReducedForwardSat_NullWhenNotConverging()
     {
