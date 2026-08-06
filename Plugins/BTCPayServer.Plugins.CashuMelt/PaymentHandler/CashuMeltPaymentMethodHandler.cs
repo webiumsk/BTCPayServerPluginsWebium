@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using BTCPayServer.Data;
 using BTCPayServer.Payments;
 using BTCPayServer.Plugins.CashuMelt.Data;
+using BTCPayServer.Services.Invoices;
 using BTCPayServer.Plugins.CashuMelt.Services;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
@@ -53,23 +54,36 @@ public class CashuMeltPaymentMethodHandler : IPaymentMethodHandler
         // are then created only if the Cashu method actually activates in checkout -
         // the Lightning prompt failed to create, or the customer picked the Cashu tab.
         // Without this, every Lightning-paid invoice leaves an orphaned PENDING quote.
-        // Never defer during activation itself (the invoice already carries our prompt,
-        // and the fresh activation context must be allowed to configure it).
-        if (context.InvoiceEntity.GetPaymentPrompt(PaymentMethodId) is null
-            && ShouldDeferBehindLightning(context.Store))
+        if (ShouldDeferPrompt(context.InvoiceEntity, context.Store))
         {
             context.Prompt.Inactive = true;
         }
     }
 
-    /// <summary>BTC Lightning is configured on the store and not excluded from checkout.</summary>
+    /// <summary>
+    /// Whether the prompt being built should wait for checkout activation. Never true
+    /// during activation itself - the invoice already carries our prompt, and the fresh
+    /// activation context must be allowed to configure it.
+    /// </summary>
+    public static bool ShouldDeferPrompt(InvoiceEntity invoice, StoreData store)
+        => invoice.GetPaymentPrompt(CashuMeltPlugin.CashuMeltPaymentMethodId) is null
+           && ShouldDeferBehindLightning(store);
+
+    /// <summary>A BTC Lightning method (LN or LNURL) is configured on the store and not excluded from checkout.</summary>
     public static bool ShouldDeferBehindLightning(StoreData store)
     {
-        var lnPmId = PaymentTypes.LN.GetPaymentMethodId("BTC");
-        if (!store.GetPaymentMethodConfigs().ContainsKey(lnPmId))
-            return false;
+        var configs = store.GetPaymentMethodConfigs();
+        var excluded = store.GetStoreBlob().GetExcludedPaymentMethods();
 
-        return !store.GetStoreBlob().GetExcludedPaymentMethods().Match(lnPmId);
+        // Checkout treats both BTC-LN and BTC-LNURL as Lightning - a store can exclude
+        // one while still offering the other, so either counts as "Lightning available".
+        foreach (var pmId in new[] { PaymentTypes.LN.GetPaymentMethodId("BTC"), PaymentTypes.LNURL.GetPaymentMethodId("BTC") })
+        {
+            if (configs.ContainsKey(pmId) && !excluded.Match(pmId))
+                return true;
+        }
+
+        return false;
     }
 
     public async Task ConfigurePrompt(PaymentMethodContext context)
