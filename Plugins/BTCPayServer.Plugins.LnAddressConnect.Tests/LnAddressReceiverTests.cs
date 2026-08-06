@@ -2,12 +2,12 @@ using System;
 using System.Net;
 using System.Threading.Tasks;
 using BTCPayServer.Lightning;
-using BTCPayServer.Plugins.LnAddress;
+using BTCPayServer.Plugins.LnAddressConnect;
 using Microsoft.Extensions.Logging.Abstractions;
 using NBitcoin;
 using Xunit;
 
-namespace BTCPayServer.Plugins.LnAddress.Tests;
+namespace BTCPayServer.Plugins.LnAddressConnect.Tests;
 
 public class LnAddressReceiverTests
 {
@@ -135,7 +135,6 @@ public class LnAddressReceiverTests
 
         // Purge the settled entry so it can't leak into other tests via the static registry.
         TrackedInvoiceRegistry.MarkSettled(hash, paid, DateTimeOffset.UtcNow.AddMilliseconds(-1));
-        TrackedInvoiceRegistry.PruneSettled(DateTimeOffset.UtcNow);
     }
 
     [Fact]
@@ -254,4 +253,16 @@ public class LnAddressReceiverTests
         var expectedComment = Uri.EscapeDataString(new string('x', 140));
         Assert.Equal($"{cb}?amount=250000000&comment={expectedComment}", http.Requests[1]);
     }
+    [Fact]
+    public void Comment_truncation_counts_text_elements_and_never_splits_surrogate_pairs()
+    {
+        Assert.Equal("abc", LnAddressReceiver.TruncateByTextElements("abcdef", 3));
+        Assert.Equal("abcdef", LnAddressReceiver.TruncateByTextElements("abcdef", 10));
+        // Each emoji is one text element but two UTF-16 code units - a code-unit cut at 3
+        // would split the second emoji into a lone surrogate.
+        Assert.Equal("\U0001F600\U0001F601", LnAddressReceiver.TruncateByTextElements("\U0001F600\U0001F601\U0001F602", 2));
+        // Combining sequence (e + U+0301) stays intact as one text element.
+        Assert.Equal("e\u0301", LnAddressReceiver.TruncateByTextElements("e\u0301x", 1));
+    }
+
 }

@@ -12,7 +12,7 @@ using BTCPayServer.Lightning;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
-namespace BTCPayServer.Plugins.LnAddress;
+namespace BTCPayServer.Plugins.LnAddressConnect;
 
 /// <summary>
 /// The single shared verify poller for every LnAddress connection. One loop iterates all tracked
@@ -153,7 +153,7 @@ public sealed class LnAddressPollerService : IHostedService
         {
             var inv = PollOverride is not null
                 ? await PollOverride(t, ct)
-                : await LnAddressReceiver.PollAndBuild(t, http!, ct);
+                : await LnAddressReceiver.PollAndBuild(t, http!, _logger, ct);
 
             _backoff.TryRemove(t.PaymentHash, out _); // success resets backoff
             if (inv is null) return;

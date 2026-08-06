@@ -1,9 +1,9 @@
 using System;
 using BTCPayServer.Lightning;
-using BTCPayServer.Plugins.LnAddress;
+using BTCPayServer.Plugins.LnAddressConnect;
 using Xunit;
 
-namespace BTCPayServer.Plugins.LnAddress.Tests;
+namespace BTCPayServer.Plugins.LnAddressConnect.Tests;
 
 public class TrackedInvoiceRegistryTests
 {
@@ -55,6 +55,5 @@ public class TrackedInvoiceRegistryTests
         // long since recorded the payment).
         TrackedInvoiceRegistry.MarkSettled(hash, paid, DateTimeOffset.UtcNow.AddMilliseconds(-1));
         Assert.False(TrackedInvoiceRegistry.TryGetSettled(hash, out _));
-        TrackedInvoiceRegistry.PruneSettled(DateTimeOffset.UtcNow);
     }
 }

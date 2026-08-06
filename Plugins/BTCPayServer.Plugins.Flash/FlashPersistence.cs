@@ -55,8 +55,11 @@ public sealed class FlashPersistence
             // (the persisted blob is not more trustworthy than the JSON it came from).
             if (!Uri.TryCreate(p.VerifyUrl, UriKind.Absolute, out var verifyUri) ||
                 !FlashHttp.IsSafeUrl(verifyUri, out _)) continue;
+            // Normalize nullable JSON fields: VerifyHost keys the registry (null would throw),
+            // so fall back to the verify URL's host; Bolt11/PayEndpoint may be absent in old blobs.
+            var verifyHost = string.IsNullOrEmpty(p.VerifyHost) ? verifyUri.Host : p.VerifyHost;
             TrackedInvoiceRegistry.Add(new TrackedInvoice(
-                p.PaymentHash, p.Bolt11, p.VerifyUrl, p.VerifyHost, p.PayEndpoint, expiresAt, p.AmountMsat));
+                p.PaymentHash, p.Bolt11 ?? "", p.VerifyUrl, verifyHost, p.PayEndpoint ?? "", expiresAt, p.AmountMsat));
         }
     }
 }

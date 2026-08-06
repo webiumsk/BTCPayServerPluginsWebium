@@ -1,11 +1,11 @@
 using System;
 using System.Threading.Tasks;
-using BTCPayServer.Plugins.LnAddress;
+using BTCPayServer.Plugins.LnAddressConnect;
 using Microsoft.Extensions.Logging.Abstractions;
 using NBitcoin;
 using Xunit;
 
-namespace BTCPayServer.Plugins.LnAddress.Tests;
+namespace BTCPayServer.Plugins.LnAddressConnect.Tests;
 
 public class LnAddressClientTests
 {

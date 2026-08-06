@@ -1,8 +1,8 @@
 using System.Threading.Tasks;
-using BTCPayServer.Plugins.LnAddress;
+using BTCPayServer.Plugins.LnAddressConnect;
 using Xunit;
 
-namespace BTCPayServer.Plugins.LnAddress.Tests;
+namespace BTCPayServer.Plugins.LnAddressConnect.Tests;
 
 public class LnAddressResolverTests
 {

@@ -6,7 +6,7 @@ using BTCPayServer.Lightning;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
-namespace BTCPayServer.Plugins.LnAddress;
+namespace BTCPayServer.Plugins.LnAddressConnect;
 
 public class LnAddressPlugin : BaseBTCPayServerPlugin
 {
@@ -21,7 +21,7 @@ public class LnAddressPlugin : BaseBTCPayServerPlugin
         // connect DNS-filtered against private/loopback/reserved ranges (SSRF/rebinding guard).
         services.AddHttpClient(LnAddressHttp.ClientName)
             .ConfigurePrimaryHttpMessageHandler(LnAddressHttp.CreateSafeHandler);
-        services.AddUIExtension("ln-payment-method-setup-tab", "LnAddress/LNPaymentMethodSetupTab");
+        services.AddUIExtension("ln-payment-method-setup-tab", "LnAddressConnect/LNPaymentMethodSetupTab");
         services.AddSingleton<LnAddressConnectionStringHandler>();
         services.AddSingleton<ILightningConnectionStringHandler>(sp =>
             sp.GetRequiredService<LnAddressConnectionStringHandler>());

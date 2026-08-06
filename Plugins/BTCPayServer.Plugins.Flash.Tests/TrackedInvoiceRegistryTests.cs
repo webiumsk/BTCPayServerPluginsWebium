@@ -55,6 +55,5 @@ public class TrackedInvoiceRegistryTests
         // long since recorded the payment).
         TrackedInvoiceRegistry.MarkSettled(hash, paid, DateTimeOffset.UtcNow.AddMilliseconds(-1));
         Assert.False(TrackedInvoiceRegistry.TryGetSettled(hash, out _));
-        TrackedInvoiceRegistry.PruneSettled(DateTimeOffset.UtcNow);
     }
 }

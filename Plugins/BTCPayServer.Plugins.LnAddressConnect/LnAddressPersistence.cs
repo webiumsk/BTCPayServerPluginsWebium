@@ -5,7 +5,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using BTCPayServer.Abstractions.Contracts;
 
-namespace BTCPayServer.Plugins.LnAddress;
+namespace BTCPayServer.Plugins.LnAddressConnect;
 
 /// <summary>
 /// Persists the (in-memory) tracked-invoice registry to BTCPay settings so payment detection survives a
@@ -15,7 +15,7 @@ namespace BTCPayServer.Plugins.LnAddress;
 /// </summary>
 public sealed class LnAddressPersistence
 {
-    public const string SettingName = "LnAddress.TrackedInvoices";
+    public const string SettingName = "LnAddressConnect.TrackedInvoices";
 
     /// <summary>Settings keys of the superseded Blitz/Flash plugins - read once on load so
     /// in-flight invoices survive the upgrade. Never written to (an old plugin still installed
@@ -46,7 +46,15 @@ public sealed class LnAddressPersistence
 
     public async Task LoadAsync()
     {
-        Seed(await _settings.GetSettingAsync<PersistedTrackedInvoices>(SettingName));
+        try
+        {
+            Seed(await _settings.GetSettingAsync<PersistedTrackedInvoices>(SettingName));
+        }
+        catch
+        {
+            // A malformed own blob must not abort loading - the legacy migration below
+            // (and the next SaveAsync, which rewrites the blob) still run.
+        }
 
         // One-time upgrade path: re-arm invoices tracked by the superseded Blitz/Flash plugins.
         // The registry dedupes by payment hash, so repeated loads are harmless.
@@ -79,8 +87,11 @@ public sealed class LnAddressPersistence
             // (the persisted blob is not more trustworthy than the JSON it came from).
             if (!Uri.TryCreate(p.VerifyUrl, UriKind.Absolute, out var verifyUri) ||
                 !LnAddressHttp.IsSafeUrl(verifyUri, out _)) continue;
+            // Normalize nullable JSON fields: VerifyHost keys the registry (null would throw),
+            // so fall back to the verify URL's host; Bolt11/PayEndpoint may be absent in old blobs.
+            var verifyHost = string.IsNullOrEmpty(p.VerifyHost) ? verifyUri.Host : p.VerifyHost;
             TrackedInvoiceRegistry.Add(new TrackedInvoice(
-                p.PaymentHash, p.Bolt11, p.VerifyUrl, p.VerifyHost, p.PayEndpoint, expiresAt, p.AmountMsat));
+                p.PaymentHash, p.Bolt11 ?? "", p.VerifyUrl, verifyHost, p.PayEndpoint ?? "", expiresAt, p.AmountMsat));
         }
     }
 }

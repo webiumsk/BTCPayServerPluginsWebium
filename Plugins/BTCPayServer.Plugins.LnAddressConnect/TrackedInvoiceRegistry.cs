@@ -6,7 +6,7 @@ using System.Linq;
 using System.Threading;
 using BTCPayServer.Lightning;
 
-namespace BTCPayServer.Plugins.LnAddress;
+namespace BTCPayServer.Plugins.LnAddressConnect;
 
 /// <param name="PayEndpoint">The connection's LNURL-pay endpoint (its identity for Listen() filtering).</param>
 /// <param name="VerifyHost">The host of the verify URL — the registry's grouping key for batched polling.</param>

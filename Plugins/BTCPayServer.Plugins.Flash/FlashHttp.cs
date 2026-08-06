@@ -54,7 +54,22 @@ internal static class FlashHttp
         }
         if (ip.AddressFamily == AddressFamily.InterNetworkV6)
         {
-            return ip.IsIPv6LinkLocal || ip.IsIPv6SiteLocal || ip.IsIPv6Multicast || ip.IsIPv6UniqueLocal;
+            if (ip.IsIPv6LinkLocal || ip.IsIPv6SiteLocal || ip.IsIPv6Multicast || ip.IsIPv6UniqueLocal
+                || ip.IsIPv6Teredo)
+                return true;
+
+            // IPv6 transition prefixes embed an IPv4 address - re-validate it so
+            // e.g. 64:ff9b::7f00:1 (NAT64 loopback) or 2002:c0a8:101:: (6to4 RFC1918)
+            // cannot bypass the IPv4 checks above.
+            var v6 = ip.GetAddressBytes();
+            if (v6[0] == 0x20 && v6[1] == 0x02) // 6to4 2002::/16 - IPv4 in bytes 2..5
+                return IsBlockedAddress(new IPAddress(new[] { v6[2], v6[3], v6[4], v6[5] }));
+            if (v6[0] == 0x00 && v6[1] == 0x64 && v6[2] == 0xff && v6[3] == 0x9b
+                && v6[4] == 0 && v6[5] == 0 && v6[6] == 0 && v6[7] == 0
+                && v6[8] == 0 && v6[9] == 0 && v6[10] == 0 && v6[11] == 0) // NAT64 64:ff9b::/96 - IPv4 in bytes 12..15
+                return IsBlockedAddress(new IPAddress(new[] { v6[12], v6[13], v6[14], v6[15] }));
+
+            return false;
         }
         return true; // unknown address family: block
     }

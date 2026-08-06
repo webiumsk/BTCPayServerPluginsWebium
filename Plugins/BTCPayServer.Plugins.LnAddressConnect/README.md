@@ -1,4 +1,4 @@
-# Satflux LN Address (BTCPayServer.Plugins.LnAddress)
+# LN Address Connect (BTCPayServer.Plugins.LnAddressConnect)
 
 Receive-only Lightning backend for BTCPay Server driven by nothing but a Lightning
 address. Works with **any wallet whose LNURL server supports LUD-21 `verify`** -
@@ -7,23 +7,24 @@ work too: support is probed when the connection is saved.
 
 ## Connection strings
 
-```
+```text
 type=lnaddress;ln-address=you@yourwallet.com
 ```
 
 Legacy strings from the superseded Blitz and Flash plugins keep working
 (including bare usernames, which expand to the wallet's historical domain):
 
-```
+```text
 type=blitz;ln-address=you           -> you@blitzwalletapp.com
 type=flash;ln-address=you           -> you@flashapp.me
 ```
 
 ## Upgrading from the Blitz / Flash plugins
 
-**Uninstall both plugins before installing this one.** Running the old plugins side by
-side causes non-deterministic connection-string dispatch, duplicate pollers and
-settings churn. Tracked in-flight invoices are migrated automatically on first load
+**Uninstall both plugins before installing this one.** As a safety net, while a
+legacy plugin is still installed this plugin does not claim its `type=` value (the
+old plugin keeps handling it), so dispatch stays deterministic - but the duplicate
+setup-tab entry and settings churn remain until the old plugin is removed. Tracked in-flight invoices are migrated automatically on first load
 (read-only) from the legacy `Blitz.TrackedInvoices` / `Flash.TrackedInvoices` settings.
 Store configuration needs no changes - the legacy `type=` values stay valid.
 

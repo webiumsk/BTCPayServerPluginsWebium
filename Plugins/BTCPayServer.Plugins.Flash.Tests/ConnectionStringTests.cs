@@ -68,13 +68,26 @@ public class ConnectionStringTests
         var user = "flight" + Guid.NewGuid().ToString("N").Substring(0, 8);
         var fake = new FakeHttp().Map(
             $"https://flashapp.me/.well-known/lnurlp/{user}", PayTemplate.Replace("{U}", user));
+        // Park the resolution response so the 8 callers demonstrably overlap instead of
+        // resolving synchronously one after another.
+        fake.HoldResponses();
         var h = new FlashConnectionStringHandler(new FakeHttpClientFactory(fake), NullLoggerFactory.Instance);
 
-        var results = await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => Task.Run(() =>
+        var tasks = Enumerable.Range(0, 8).Select(_ => Task.Run(() =>
         {
             var client = h.Create($"type=flash;ln-address={user}", Network.Main, out var error);
             return (client, error);
-        })));
+        })).ToArray();
+
+        // Exactly one resolution reaches the network while it is held; the other callers
+        // queue behind the shared in-flight task and none completes early.
+        for (int i = 0; i < 500 && fake.WaitingCount == 0; i++)
+            await Task.Delay(10);
+        Assert.Equal(1, fake.WaitingCount);
+        Assert.All(tasks, t => Assert.False(t.IsCompleted));
+
+        fake.ReleaseResponses();
+        var results = await Task.WhenAll(tasks);
 
         Assert.All(results, r => { Assert.NotNull(r.client); Assert.Null(r.error); });
         // Single-flight: the 8 concurrent misses collapsed into one network resolution.

@@ -16,7 +16,7 @@ using LNURL;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json.Linq;
 
-namespace BTCPayServer.Plugins.LnAddress;
+namespace BTCPayServer.Plugins.LnAddressConnect;
 
 /// <summary>
 /// Aligns BTCPay's served LNURL-pay parameters with LnAddress's when a store's BTC lightning backend is
@@ -98,6 +98,10 @@ public class LnAddressLnurlRequestFilter : PluginHookFilter<LNURLPayRequest>
     private static readonly ConcurrentDictionary<string, (JObject Json, DateTimeOffset Expiry)> _metadataCache = new();
     private static readonly TimeSpan MetadataCacheTtl = TimeSpan.FromSeconds(60);
 
+    // Per-URI single-flight: N concurrent checkout requests on a cold/expired entry share one
+    // fetch instead of each firing its own GET (same pattern as the connection-string handler).
+    private static readonly ConcurrentDictionary<string, Lazy<Task<JObject?>>> _metadataFetching = new();
+
     internal static async Task<JObject?> FetchMetadataCached(HttpClient http, Uri metadataUri, CancellationToken ct)
     {
         var key = metadataUri.ToString();
@@ -108,12 +112,24 @@ public class LnAddressLnurlRequestFilter : PluginHookFilter<LNURLPayRequest>
         if (_metadataCache.TryGetValue(key, out var hit) && hit.Expiry > now)
             return hit.Json;
 
-        using var resp = await http.GetAsync(metadataUri, ct);
-        if (!resp.IsSuccessStatusCode)
-            return null;
-        var json = JObject.Parse(await resp.Content.ReadAsStringAsync(ct));
-        _metadataCache[key] = (json, now.Add(MetadataCacheTtl));
-        return json;
+        var lazy = _metadataFetching.GetOrAdd(key, _ => new Lazy<Task<JObject?>>(async () =>
+        {
+            using var resp = await http.GetAsync(metadataUri, CancellationToken.None);
+            if (!resp.IsSuccessStatusCode)
+                return null;
+            var json = JObject.Parse(await resp.Content.ReadAsStringAsync(CancellationToken.None));
+            _metadataCache[key] = (json, DateTimeOffset.UtcNow.Add(MetadataCacheTtl));
+            return json;
+        }));
+        try
+        {
+            // The shared fetch is not cancelled by one caller's token; each caller only stops waiting.
+            return await lazy.Value.WaitAsync(ct);
+        }
+        finally
+        {
+            _metadataFetching.TryRemove(key, out _);
+        }
     }
 
     /// <summary>Detects a LnAddress connection string and extracts its lightning address (bare usernames

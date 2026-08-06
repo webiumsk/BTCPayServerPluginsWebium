@@ -11,12 +11,12 @@ using Microsoft.Extensions.Logging;
 using NBitcoin;
 using Network = NBitcoin.Network;
 
-namespace BTCPayServer.Plugins.LnAddress;
+namespace BTCPayServer.Plugins.LnAddressConnect;
 
 /// <summary>
-/// The per-connection BTCPay Lightning backend for a LnAddress Wallet Lightning address. Strictly
-/// receive-only: the keys live in the merchant's LnAddress app (Spark), so sending, balance and channel
-/// operations are unsupported by design.
+/// The per-connection BTCPay Lightning backend for a Lightning address (any LUD-21 verify
+/// wallet). Strictly receive-only: the keys live in the merchant's own wallet, so sending,
+/// balance and channel operations are unsupported by design.
 /// </summary>
 public sealed class LnAddressLightningClient : IExtendedLightningClient
 {

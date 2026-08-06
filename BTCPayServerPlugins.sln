@@ -40,9 +40,9 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BTCPayServer.Plugins.Flash"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BTCPayServer.Plugins.Flash.Tests", "Plugins\BTCPayServer.Plugins.Flash.Tests\BTCPayServer.Plugins.Flash.Tests.csproj", "{E2260881-D312-40F5-A326-CA99235E2C9E}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BTCPayServer.Plugins.LnAddress", "Plugins\\BTCPayServer.Plugins.LnAddress\\BTCPayServer.Plugins.LnAddress.csproj", "{C56C6CAC-AD1D-5596-83FF-093BBD94549E}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BTCPayServer.Plugins.LnAddressConnect", "Plugins\BTCPayServer.Plugins.LnAddressConnect\BTCPayServer.Plugins.LnAddressConnect.csproj", "{C56C6CAC-AD1D-5596-83FF-093BBD94549E}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BTCPayServer.Plugins.LnAddress.Tests", "Plugins\\BTCPayServer.Plugins.LnAddress.Tests\\BTCPayServer.Plugins.LnAddress.Tests.csproj", "{64607ED1-211E-552E-BA40-051CFE09D039}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BTCPayServer.Plugins.LnAddressConnect.Tests", "Plugins\BTCPayServer.Plugins.LnAddressConnect.Tests\BTCPayServer.Plugins.LnAddressConnect.Tests.csproj", "{64607ED1-211E-552E-BA40-051CFE09D039}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -258,6 +258,30 @@ Global
 		{E2260881-D312-40F5-A326-CA99235E2C9E}.Release|x64.Build.0 = Release|Any CPU
 		{E2260881-D312-40F5-A326-CA99235E2C9E}.Release|x86.ActiveCfg = Release|Any CPU
 		{E2260881-D312-40F5-A326-CA99235E2C9E}.Release|x86.Build.0 = Release|Any CPU
+		{C56C6CAC-AD1D-5596-83FF-093BBD94549E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C56C6CAC-AD1D-5596-83FF-093BBD94549E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C56C6CAC-AD1D-5596-83FF-093BBD94549E}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{C56C6CAC-AD1D-5596-83FF-093BBD94549E}.Debug|x64.Build.0 = Debug|Any CPU
+		{C56C6CAC-AD1D-5596-83FF-093BBD94549E}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{C56C6CAC-AD1D-5596-83FF-093BBD94549E}.Debug|x86.Build.0 = Debug|Any CPU
+		{C56C6CAC-AD1D-5596-83FF-093BBD94549E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C56C6CAC-AD1D-5596-83FF-093BBD94549E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C56C6CAC-AD1D-5596-83FF-093BBD94549E}.Release|x64.ActiveCfg = Release|Any CPU
+		{C56C6CAC-AD1D-5596-83FF-093BBD94549E}.Release|x64.Build.0 = Release|Any CPU
+		{C56C6CAC-AD1D-5596-83FF-093BBD94549E}.Release|x86.ActiveCfg = Release|Any CPU
+		{C56C6CAC-AD1D-5596-83FF-093BBD94549E}.Release|x86.Build.0 = Release|Any CPU
+		{64607ED1-211E-552E-BA40-051CFE09D039}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{64607ED1-211E-552E-BA40-051CFE09D039}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{64607ED1-211E-552E-BA40-051CFE09D039}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{64607ED1-211E-552E-BA40-051CFE09D039}.Debug|x64.Build.0 = Debug|Any CPU
+		{64607ED1-211E-552E-BA40-051CFE09D039}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{64607ED1-211E-552E-BA40-051CFE09D039}.Debug|x86.Build.0 = Debug|Any CPU
+		{64607ED1-211E-552E-BA40-051CFE09D039}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{64607ED1-211E-552E-BA40-051CFE09D039}.Release|Any CPU.Build.0 = Release|Any CPU
+		{64607ED1-211E-552E-BA40-051CFE09D039}.Release|x64.ActiveCfg = Release|Any CPU
+		{64607ED1-211E-552E-BA40-051CFE09D039}.Release|x64.Build.0 = Release|Any CPU
+		{64607ED1-211E-552E-BA40-051CFE09D039}.Release|x86.ActiveCfg = Release|Any CPU
+		{64607ED1-211E-552E-BA40-051CFE09D039}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -281,5 +305,7 @@ Global
 		{4B695AAF-9AAD-4ABB-ABCE-0C07807C5559} = {B2C3D4E5-F6A7-8901-BCDE-F12345678901}
 		{FC3BCBC8-7639-4901-9092-790521A50A38} = {B2C3D4E5-F6A7-8901-BCDE-F12345678901}
 		{E2260881-D312-40F5-A326-CA99235E2C9E} = {B2C3D4E5-F6A7-8901-BCDE-F12345678901}
+		{C56C6CAC-AD1D-5596-83FF-093BBD94549E} = {B2C3D4E5-F6A7-8901-BCDE-F12345678901}
+		{64607ED1-211E-552E-BA40-051CFE09D039} = {B2C3D4E5-F6A7-8901-BCDE-F12345678901}
 	EndGlobalSection
 EndGlobal

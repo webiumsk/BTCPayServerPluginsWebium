@@ -6,11 +6,11 @@
   </PropertyGroup>
 
   <PropertyGroup>
-    <Product>Satflux LN Address</Product>
+    <Product>LN Address Connect</Product>
     <Description>Use any Lightning address with LUD-21 verify support (Blitz, Flash, Coinos, ...) as a receive-only Lightning backend. Invoices are minted by the wallet's LNURL server; settlement is detected via LUD-21 verify. Supersedes the Blitz and Flash plugins (legacy connection strings keep working). No node, no API keys.</Description>
     <Version>1.0.0</Version>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
-    <RootNamespace>BTCPayServer.Plugins.LnAddress</RootNamespace>
+    <RootNamespace>BTCPayServer.Plugins.LnAddressConnect</RootNamespace>
   </PropertyGroup>
 
   <PropertyGroup>
@@ -21,7 +21,7 @@
 
   <ItemDefinitionGroup>
     <ProjectReference>
-      <Properties>StaticWebAssetsEnabled=false</Properties>
+      <AdditionalProperties>StaticWebAssetsEnabled=false</AdditionalProperties>
       <Private>false</Private>
       <ExcludeAssets>runtime;native;build;buildTransitive;contentFiles</ExcludeAssets>
     </ProjectReference>
@@ -43,7 +43,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <InternalsVisibleTo Include="BTCPayServer.Plugins.LnAddress.Tests" />
+    <InternalsVisibleTo Include="BTCPayServer.Plugins.LnAddressConnect.Tests" />
   </ItemGroup>
 
   <ItemGroup>

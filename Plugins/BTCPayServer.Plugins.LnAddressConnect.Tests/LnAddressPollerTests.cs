@@ -3,11 +3,11 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using BTCPayServer.Lightning;
-using BTCPayServer.Plugins.LnAddress;
+using BTCPayServer.Plugins.LnAddressConnect;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
-namespace BTCPayServer.Plugins.LnAddress.Tests;
+namespace BTCPayServer.Plugins.LnAddressConnect.Tests;
 
 public class LnAddressPollerTests
 {
@@ -63,17 +63,44 @@ public class LnAddressPollerTests
                 DateTimeOffset.UtcNow.AddHours(1)));
         }
 
-        LnAddressPollerService.PollOverride = (t, _) =>
+        var ownHashes = new HashSet<string>(hashes);
+        var inFlight = 0;
+        var maxInFlight = 0;
+        LnAddressPollerService.PollOverride = async (t, _) =>
         {
-            var idx = int.Parse(t.PaymentHash.Substring(4, 2));
-            if (idx % 2 == 0)
-                return Task.FromResult<LightningInvoice?>(new LightningInvoice
-                { Id = t.PaymentHash, PaymentHash = t.PaymentHash, Status = LightningInvoiceStatus.Paid });
-            throw new Exception("simulated poll failure");
+            // Foreign invoices from parallel test classes share the static registry - leave them alone.
+            if (!ownHashes.Contains(t.PaymentHash))
+                return null;
+
+            var now = Interlocked.Increment(ref inFlight);
+            try
+            {
+                // Record peak concurrency and yield so polls genuinely overlap
+                // instead of completing synchronously one by one.
+                int observed;
+                do { observed = Volatile.Read(ref maxInFlight); }
+                while (now > observed && Interlocked.CompareExchange(ref maxInFlight, now, observed) != observed);
+                await Task.Delay(5);
+
+                var idx = int.Parse(t.PaymentHash.Substring(4, 2));
+                if (idx % 2 == 0)
+                    return new LightningInvoice
+                    { Id = t.PaymentHash, PaymentHash = t.PaymentHash, Status = LightningInvoiceStatus.Paid };
+                throw new Exception("simulated poll failure");
+            }
+            finally
+            {
+                Interlocked.Decrement(ref inFlight);
+            }
         };
 
         var settled = 0;
-        void Handler(TrackedInvoice t, LightningInvoice inv) => Interlocked.Increment(ref settled);
+        void Handler(TrackedInvoice t, LightningInvoice inv)
+        {
+            // The Settled event is static and shared with parallel test classes - count only ours.
+            if (ownHashes.Contains(t.PaymentHash))
+                Interlocked.Increment(ref settled);
+        }
         TrackedInvoiceRegistry.Settled += Handler;
 
         var poller = new LnAddressPollerService(
@@ -85,6 +112,9 @@ public class LnAddressPollerTests
                 await Task.Delay(25, TestContext.Current.CancellationToken);
 
             Assert.Equal(30, Volatile.Read(ref settled));                 // all 30 even invoices settled once
+            // Polls overlapped, but never beyond the poller's per-cycle concurrency cap.
+            Assert.True(Volatile.Read(ref maxInFlight) > 1, $"polls never ran concurrently (max {maxInFlight})");
+            Assert.True(Volatile.Read(ref maxInFlight) <= 16, $"concurrency cap exceeded (max {maxInFlight})");
             foreach (var h in hashes)
                 if (int.Parse(h.Substring(4, 2)) % 2 == 0)
                     Assert.True(TrackedInvoiceRegistry.TryGetSettled(h, out _)); // retrievable as Paid

@@ -3,7 +3,7 @@
 
 set -euo pipefail
 
-PLUGIN_NAME="BTCPayServer.Plugins.LnAddress"
+PLUGIN_NAME="BTCPayServer.Plugins.LnAddressConnect"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 PUBLISH_DIR="$SCRIPT_DIR/bin/publish/$PLUGIN_NAME"

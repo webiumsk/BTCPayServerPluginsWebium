@@ -35,6 +35,7 @@ public class FlashConnectionStringHandler : ILightningConnectionStringHandler
     // startup poll can null-evict it. A failed load is retried (with backoff), not marked done.
     private static readonly object _loadLock = new();
     private static bool _loaded;
+    private static bool _loadInProgress;
     private static DateTimeOffset _loadRetryAfter = DateTimeOffset.MinValue;
     private static readonly TimeSpan LoadRetryDelay = TimeSpan.FromSeconds(30);
 
@@ -111,20 +112,29 @@ public class FlashConnectionStringHandler : ILightningConnectionStringHandler
         if (_loaded || _settings is null) return;
         lock (_loadLock)
         {
-            if (_loaded || DateTimeOffset.UtcNow < _loadRetryAfter) return;
-            try
+            if (_loaded || _loadInProgress || DateTimeOffset.UtcNow < _loadRetryAfter) return;
+            _loadInProgress = true;
+        }
+
+        // The settings round-trip runs outside the lock: one caller loads while later Create
+        // calls observe _loadInProgress and return immediately instead of queueing behind it.
+        try
+        {
+            new FlashPersistence(_settings).LoadAsync().GetAwaiter().GetResult();
+            lock (_loadLock) { _loaded = true; _loadInProgress = false; }
+        }
+        catch (Exception e)
+        {
+            lock (_loadLock)
             {
-                new FlashPersistence(_settings).LoadAsync().GetAwaiter().GetResult();
-                _loaded = true;
-            }
-            catch (Exception e)
-            {
-                // A transient failure must not permanently disable restart recovery: leave _loaded
-                // false and retry on a later Create, after a short backoff.
                 _loadRetryAfter = DateTimeOffset.UtcNow.Add(LoadRetryDelay);
-                _loggerFactory.CreateLogger(nameof(FlashConnectionStringHandler))
-                    .LogWarning(e, "Failed to load persisted Flash tracked invoices; will retry");
+                _loadInProgress = false;
             }
+
+            // A transient failure must not permanently disable restart recovery: leave _loaded
+            // false and retry on a later Create, after a short backoff.
+            _loggerFactory.CreateLogger(nameof(FlashConnectionStringHandler))
+                .LogWarning(e, "Failed to load persisted Flash tracked invoices; will retry");
         }
     }
 }

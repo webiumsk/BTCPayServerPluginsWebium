@@ -94,7 +94,7 @@ public sealed class FlashReceiver
         var commentAllowed = meta["commentAllowed"]?.Value<int>() ?? 0;
         if (commentAllowed > 0 && !string.IsNullOrEmpty(description))
         {
-            var c = description!.Length > commentAllowed ? description.Substring(0, commentAllowed) : description;
+            var c = TruncateByTextElements(description!, commentAllowed);
             q.Append("&comment=").Append(Uri.EscapeDataString(c));
         }
         cb.Query = q.ToString();
@@ -218,6 +218,21 @@ public sealed class FlashReceiver
             PaidAt = settled ? DateTimeOffset.UtcNow : null,
             ExpiresAt = t.ExpiresAt
         };
+    }
+
+
+    /// <summary>
+    /// Truncates to at most <paramref name="maxTextElements"/> user-perceived characters,
+    /// never splitting a surrogate pair or combining sequence (a lone surrogate would be
+    /// URL-escaped as U+FFFD by the callback).
+    /// </summary>
+    internal static string TruncateByTextElements(string value, int maxTextElements)
+    {
+        if (value.Length <= maxTextElements) return value; // fast path: cannot exceed the limit
+        var info = new System.Globalization.StringInfo(value);
+        return info.LengthInTextElements <= maxTextElements
+            ? value
+            : info.SubstringByTextElements(0, maxTextElements);
     }
 
     public static bool IsValidPreimage(string? preimage, string paymentHash)

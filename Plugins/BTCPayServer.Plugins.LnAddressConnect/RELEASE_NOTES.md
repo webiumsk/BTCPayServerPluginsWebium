@@ -1,4 +1,4 @@
-# Satflux LN Address - release notes
+# LN Address Connect - release notes
 
 ## 1.0.0
 
@@ -16,7 +16,8 @@ wallet-agnostic LN-address backend:
 
 ### Upgrade
 
-1. Uninstall the Blitz and Flash plugins (leaving them installed causes
-   non-deterministic connection dispatch and duplicate polling).
+1. Uninstall the Blitz and Flash plugins. While a legacy plugin is still
+   installed this plugin does not claim its `type=` value (safety guard), but
+   the duplicate setup-tab entry and settings churn remain until removal.
 2. Install this plugin and restart BTCPay Server.
 3. No store changes needed - existing connection strings stay valid.

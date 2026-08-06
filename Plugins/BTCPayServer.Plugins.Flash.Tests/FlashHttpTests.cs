@@ -46,6 +46,14 @@ public class FlashHttpTests
     [InlineData("fe80::1")]        // link-local
     [InlineData("fd00::1")]        // unique local
     [InlineData("::ffff:127.0.0.1")] // IPv4-mapped loopback
+    [InlineData("::ffff:192.168.1.1")] // IPv4-mapped RFC1918
+    [InlineData("198.18.0.1")]     // benchmarking 198.18.0.0/15
+    [InlineData("192.0.0.1")]      // IETF reserved 192.0.0.0/24
+    [InlineData("2001:0:203:405::1")] // Teredo
+    [InlineData("64:ff9b::7f00:1")]   // NAT64 embedding loopback
+    [InlineData("64:ff9b::c0a8:101")] // NAT64 embedding 192.168.1.1
+    [InlineData("2002:c0a8:101::")]   // 6to4 embedding 192.168.1.1
+    [InlineData("2002:7f00:1::")]     // 6to4 embedding 127.0.0.1
     public void Blocks_private_and_reserved_addresses(string ip)
         => Assert.True(FlashHttp.IsBlockedAddress(IPAddress.Parse(ip)));
 
@@ -54,6 +62,8 @@ public class FlashHttpTests
     [InlineData("8.8.8.8")]
     [InlineData("172.32.0.1")]     // just outside 172.16/12
     [InlineData("2606:4700:4700::1111")]
+    [InlineData("64:ff9b::101:101")]  // NAT64 embedding public 1.1.1.1
+    [InlineData("2002:101:101::")]    // 6to4 embedding public 1.1.1.1
     public void Allows_public_addresses(string ip)
         => Assert.False(FlashHttp.IsBlockedAddress(IPAddress.Parse(ip)));
 }

@@ -1,10 +1,10 @@
 using BTCPayServer.Lightning;
-using BTCPayServer.Plugins.LnAddress;
+using BTCPayServer.Plugins.LnAddressConnect;
 using LNURL;
 using Newtonsoft.Json.Linq;
 using Xunit;
 
-namespace BTCPayServer.Plugins.LnAddress.Tests;
+namespace BTCPayServer.Plugins.LnAddressConnect.Tests;
 
 public class LnAddressLnurlRequestFilterTests
 {

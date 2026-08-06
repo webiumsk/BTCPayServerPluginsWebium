@@ -21,13 +21,13 @@ as with any Flash payment).
 
 In your store: **Settings → Lightning → Use custom node**, then enter:
 
-```
+```text
 type=flash;ln-address=you
 ```
 
 or with a full address (non-default domains are allowed as long as their LNURL server supports LUD-21 verify):
 
-```
+```text
 type=flash;ln-address=you@flashapp.me
 ```
 

@@ -3,10 +3,10 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using BTCPayServer.Abstractions.Contracts;
-using BTCPayServer.Plugins.LnAddress;
+using BTCPayServer.Plugins.LnAddressConnect;
 using Xunit;
 
-namespace BTCPayServer.Plugins.LnAddress.Tests;
+namespace BTCPayServer.Plugins.LnAddressConnect.Tests;
 
 public class LnAddressPersistenceTests
 {
@@ -120,19 +120,25 @@ public class LnAddressPersistenceTests
     }
 
     [Fact]
-    public async Task Save_writes_the_tracked_invoice_to_settings()
+    public async Task Save_writes_the_tracked_invoice_to_settings_and_amount_survives_reload()
     {
         var settings = new FakeSettings();
         var hash = Uniq("psave_");
         TrackedInvoiceRegistry.Add(new TrackedInvoice(
             hash, "lnbc1", $"https://h.example/verify/{hash}", "h.example", "https://h.example/pay",
-            DateTimeOffset.UtcNow.AddHours(1)));
+            DateTimeOffset.UtcNow.AddHours(1), AmountMsat: 21_000));
 
         await new LnAddressPersistence(settings).SaveAsync();
 
         var stored = await settings.GetSettingAsync<PersistedTrackedInvoices>(LnAddressPersistence.SettingName);
         Assert.NotNull(stored);
-        Assert.Contains(stored!.Invoices, i => i.PaymentHash == hash && i.Bolt11 == "lnbc1");
+        Assert.Contains(stored!.Invoices, i => i.PaymentHash == hash && i.Bolt11 == "lnbc1" && i.AmountMsat == 21_000);
+
+        // The amount round-trips through a reload (BuildInvoice uses it for Amount/AmountReceived).
+        TrackedInvoiceRegistry.Remove(hash);
+        await new LnAddressPersistence(settings).LoadAsync();
+        Assert.True(TrackedInvoiceRegistry.TryGet(hash, out var reloaded));
+        Assert.Equal(21_000, reloaded.AmountMsat);
 
         TrackedInvoiceRegistry.Remove(hash);
     }

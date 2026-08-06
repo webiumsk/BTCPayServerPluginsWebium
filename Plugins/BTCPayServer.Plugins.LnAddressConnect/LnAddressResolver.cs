@@ -1,11 +1,12 @@
 #nullable enable
 using System;
+using System.IO;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
 
-namespace BTCPayServer.Plugins.LnAddress;
+namespace BTCPayServer.Plugins.LnAddressConnect;
 
 /// <summary>The outcome of resolving a Lightning address: its LNURL-pay metadata endpoint
 /// (the connection's identity) and the host shown in the UI.</summary>
@@ -55,10 +56,27 @@ public static class LnAddressResolver
         return new ResolvedLnAddress(endpoint, lnAddress, endpoint.Host);
     }
 
+    /// <summary>Upper bound for LNURL JSON responses - far above any legitimate payload.</summary>
+    internal const int MaxResponseBytes = 1_000_000;
+
     internal static async Task<JObject> GetJson(HttpClient http, Uri uri, CancellationToken ct)
     {
-        using var resp = await http.GetAsync(uri, ct);
-        var body = await resp.Content.ReadAsStringAsync(ct);
+        // ResponseHeadersRead + bounded copy: a hostile LNURL server must not be able to
+        // stream an arbitrarily large body into memory.
+        using var resp = await http.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, ct);
+        if (resp.Content.Headers.ContentLength is > MaxResponseBytes)
+            throw new FormatException($"LNURL endpoint '{uri}' response exceeds {MaxResponseBytes} bytes.");
+        await using var stream = await resp.Content.ReadAsStreamAsync(ct);
+        using var buffer = new MemoryStream();
+        var chunk = new byte[8192];
+        int read;
+        while ((read = await stream.ReadAsync(chunk, ct)) > 0)
+        {
+            if (buffer.Length + read > MaxResponseBytes)
+                throw new FormatException($"LNURL endpoint '{uri}' response exceeds {MaxResponseBytes} bytes.");
+            buffer.Write(chunk, 0, read);
+        }
+        var body = System.Text.Encoding.UTF8.GetString(buffer.GetBuffer(), 0, (int)buffer.Length);
         if (!resp.IsSuccessStatusCode)
             throw new FormatException($"LNURL endpoint '{uri}' returned HTTP {(int)resp.StatusCode}.");
         var json = JObject.Parse(body);

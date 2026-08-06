@@ -6,7 +6,7 @@ using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace BTCPayServer.Plugins.Flash.Tests;
+namespace BTCPayServer.Plugins.LnAddressConnect.Tests;
 
 /// <summary>Deterministic HttpMessageHandler mapping exact URL -> (status, body) for unit tests.</summary>
 public sealed class FakeHttp : HttpMessageHandler

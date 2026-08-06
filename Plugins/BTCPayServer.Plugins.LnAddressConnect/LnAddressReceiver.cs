@@ -11,7 +11,7 @@ using NBitcoin.DataEncoders;
 using Newtonsoft.Json.Linq;
 using Network = NBitcoin.Network;
 
-namespace BTCPayServer.Plugins.LnAddress;
+namespace BTCPayServer.Plugins.LnAddressConnect;
 
 /// <summary>
 /// The receive side: creates invoices via the LnAddress LNURL-pay callback (capturing the LUD-21 verify
@@ -95,7 +95,7 @@ public sealed class LnAddressReceiver
         var commentAllowed = meta["commentAllowed"]?.Value<int>() ?? 0;
         if (commentAllowed > 0 && !string.IsNullOrEmpty(description))
         {
-            var c = description!.Length > commentAllowed ? description.Substring(0, commentAllowed) : description;
+            var c = TruncateByTextElements(description!, commentAllowed);
             q.Append("&comment=").Append(Uri.EscapeDataString(c));
         }
         cb.Query = q.ToString();
@@ -161,6 +161,9 @@ public sealed class LnAddressReceiver
     /// null) on a transient transport error so BTCPay/the poller keeps the invoice tracked.
     /// </summary>
     public static async Task<LightningInvoice?> PollAndBuild(TrackedInvoice t, HttpClient http, CancellationToken ct)
+        => await PollAndBuild(t, http, null, ct);
+
+    public static async Task<LightningInvoice?> PollAndBuild(TrackedInvoice t, HttpClient http, ILogger? logger, CancellationToken ct)
     {
         // Defense in depth for URLs re-armed from persistence (or any path that bypassed the
         // accept-time check): never poll a non-public destination; drop the invoice instead.
@@ -195,10 +198,10 @@ public sealed class LnAddressReceiver
 
         var settled = json["settled"]?.Value<bool>() ?? false;
         var preimage = json["preimage"]?.Value<string>();
-        return BuildInvoice(t, settled, preimage);
+        return BuildInvoice(t, settled, preimage, logger);
     }
 
-    private static LightningInvoice BuildInvoice(TrackedInvoice t, bool settled, string? preimage)
+    private static LightningInvoice BuildInvoice(TrackedInvoice t, bool settled, string? preimage, ILogger? logger = null)
     {
         // Amount was captured at creation — re-parsing the BOLT11 here could throw on a corrupted
         // tracked/persisted entry and take down the whole poll cycle for that invoice.
@@ -207,6 +210,12 @@ public sealed class LnAddressReceiver
             : t.ExpiresAt < DateTimeOffset.UtcNow ? LightningInvoiceStatus.Expired
             : LightningInvoiceStatus.Unpaid;
         string? valid = settled && preimage is not null && IsValidPreimage(preimage, t.PaymentHash) ? preimage : null;
+        if (settled && preimage is not null && valid is null)
+            // Surface it - the invoice still settles (LUD-21 'settled' is the authority), but a
+            // wallet returning a preimage whose SHA256 does not match the hash is worth noticing.
+            logger?.LogWarning(
+                "Wallet reported invoice {PaymentHash} settled with a preimage that fails validation; storing it as paid without a preimage",
+                t.PaymentHash);
         return new LightningInvoice
         {
             Id = t.PaymentHash,
@@ -219,6 +228,21 @@ public sealed class LnAddressReceiver
             PaidAt = settled ? DateTimeOffset.UtcNow : null,
             ExpiresAt = t.ExpiresAt
         };
+    }
+
+
+    /// <summary>
+    /// Truncates to at most <paramref name="maxTextElements"/> user-perceived characters,
+    /// never splitting a surrogate pair or combining sequence (a lone surrogate would be
+    /// URL-escaped as U+FFFD by the callback).
+    /// </summary>
+    internal static string TruncateByTextElements(string value, int maxTextElements)
+    {
+        if (value.Length <= maxTextElements) return value; // fast path: cannot exceed the limit
+        var info = new System.Globalization.StringInfo(value);
+        return info.LengthInTextElements <= maxTextElements
+            ? value
+            : info.SubstringByTextElements(0, maxTextElements);
     }
 
     public static bool IsValidPreimage(string? preimage, string paymentHash)
