@@ -1,5 +1,19 @@
 # CashuMelt plugin — release notes
 
+## 1.3.1.0 (parallel-fallback mode: quote only on activation)
+
+When the store also offers BTC Lightning, the CashuMelt payment prompt is now
+created deferred (per-method lazy activation): the mint quote and its settlement
+record are created only when the Cashu method actually activates in checkout -
+the Lightning prompt failed to create, or the customer picked the Cashu tab.
+
+Previously every invoice minted a quote up front, so every Lightning-paid
+invoice left an orphaned `PENDING`/`UNPAID` row in "Recent CashuMelt payments"
+that could never settle. Pure-Cashu stores (no Lightning method, or Lightning
+excluded from checkout) keep the immediate prompt, so their checkout QR is
+available instantly. Existing orphaned rows from older versions are harmless
+(their quotes are UNPAID - no funds involved) and can be ignored.
+
 ## 1.3.0.0 (NUT-08 fee-reserve change, NUT-02 keyset fees, NUT-07 checkstate)
 
 Adopts the strongest techniques from the official cashubtc BTCNutServer plugin while keeping the CashuMelt design (no custodied customer ecash, LNURL payout, no wallet seed in the DB).

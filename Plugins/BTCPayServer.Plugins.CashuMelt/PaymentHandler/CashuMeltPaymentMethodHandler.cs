@@ -47,6 +47,29 @@ public class CashuMeltPaymentMethodHandler : IPaymentMethodHandler
         context.Prompt.Divisibility = settings.Unit == "usd" ? 2 : 8;
         context.Prompt.PaymentMethodFee = 0m;
         context.State = settings;
+
+        // Parallel-fallback mode: when the store also offers BTC Lightning, defer this
+        // prompt (per-method lazy activation). The mint quote and its settlement record
+        // are then created only if the Cashu method actually activates in checkout -
+        // the Lightning prompt failed to create, or the customer picked the Cashu tab.
+        // Without this, every Lightning-paid invoice leaves an orphaned PENDING quote.
+        // Never defer during activation itself (the invoice already carries our prompt,
+        // and the fresh activation context must be allowed to configure it).
+        if (context.InvoiceEntity.GetPaymentPrompt(PaymentMethodId) is null
+            && ShouldDeferBehindLightning(context.Store))
+        {
+            context.Prompt.Inactive = true;
+        }
+    }
+
+    /// <summary>BTC Lightning is configured on the store and not excluded from checkout.</summary>
+    public static bool ShouldDeferBehindLightning(StoreData store)
+    {
+        var lnPmId = PaymentTypes.LN.GetPaymentMethodId("BTC");
+        if (!store.GetPaymentMethodConfigs().ContainsKey(lnPmId))
+            return false;
+
+        return !store.GetStoreBlob().GetExcludedPaymentMethods().Match(lnPmId);
     }
 
     public async Task ConfigurePrompt(PaymentMethodContext context)
