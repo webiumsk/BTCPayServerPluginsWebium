@@ -47,6 +47,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <AdditionalFiles Include="Views\Shared\LnAddress\LNPaymentMethodSetupTab.cshtml" />
+    <AdditionalFiles Include="Views\Shared\LnAddressConnect\LNPaymentMethodSetupTab.cshtml" />
   </ItemGroup>
 </Project>
