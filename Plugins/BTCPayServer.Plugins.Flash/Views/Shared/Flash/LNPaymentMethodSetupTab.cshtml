@@ -1,0 +1,48 @@
+@model BTCPayServer.Models.StoreViewModels.LightningNodeViewModel
+@{
+    if (Model.CryptoCode != "BTC")
+    {
+        return;
+    }
+}
+
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+        const customNodeAccordian = document.getElementById("CustomNodeSupport");
+        const template = document.getElementById("flashwallet");
+        customNodeAccordian.appendChild(template.content.cloneNode(true));
+    });
+</script>
+
+<template id="flashwallet">
+    <div class="accordion-item">
+        <h2 class="accordion-header" id="CustomFlashHeader">
+            <button type="button" class="accordion-button collapsed" data-bs-toggle="collapse" data-bs-target="#CustomFlashContent" aria-controls="CustomFlashContent" aria-expanded="false">
+                <span><strong>Flash</strong> lightning address</span>
+                <vc:icon symbol="caret-down"/>
+            </button>
+        </h2>
+        <div id="CustomFlashContent" class="accordion-collapse collapse" aria-labelledby="CustomFlashHeader" data-bs-parent="#CustomNodeSupport">
+            <div class="accordion-body">
+                <p class="my-2">
+                    Receive checkout payments straight into your
+                    <a href="https://getflash.io/" target="_blank" rel="noreferrer noopener">Flash</a> account —
+                    no node, no API key. Enter a custom connection string with your Flash username or full Lightning address:
+                </p>
+                <ul class="pb-2">
+                    <li>
+                        <code><b>type=</b>flash;<b>ln-address=</b>you</code>
+                    </li>
+                    <li class="mt-2">
+                        <code><b>type=</b>flash;<b>ln-address=</b>you@flashapp.me</code>
+                    </li>
+                </ul>
+                <p class="my-2 text-muted">
+                    Receive-only: invoices are minted by Flash's LNURL server, so your phone does not need to be
+                    online to get paid, but BTCPay cannot send payments or refunds from this account. Settlement is
+                    detected via the LNURL LUD-21 <code>verify</code> endpoint.
+                </p>
+            </div>
+        </div>
+    </div>
+</template>
