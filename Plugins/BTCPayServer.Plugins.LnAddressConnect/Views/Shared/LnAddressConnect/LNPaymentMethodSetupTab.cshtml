@@ -1,0 +1,51 @@
+@model BTCPayServer.Models.StoreViewModels.LightningNodeViewModel
+@{
+    if (Model.CryptoCode != "BTC")
+    {
+        return;
+    }
+}
+
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+        const customNodeAccordian = document.getElementById("CustomNodeSupport");
+        const template = document.getElementById("lnaddress-wallet");
+        customNodeAccordian.appendChild(template.content.cloneNode(true));
+    });
+</script>
+
+<template id="lnaddress-wallet">
+    <div class="accordion-item">
+        <h2 class="accordion-header" id="CustomLnAddressHeader">
+            <button type="button" class="accordion-button collapsed" data-bs-toggle="collapse" data-bs-target="#CustomLnAddressContent" aria-controls="CustomLnAddressContent" aria-expanded="false">
+                <span><strong>Lightning address</strong> (Blitz, Flash, Coinos, ...)</span>
+                <vc:icon symbol="caret-down"/>
+            </button>
+        </h2>
+        <div id="CustomLnAddressContent" class="accordion-collapse collapse" aria-labelledby="CustomLnAddressHeader" data-bs-parent="#CustomNodeSupport">
+            <div class="accordion-body">
+                <p class="my-2">
+                    Receive checkout payments straight into your Lightning wallet — no node, no API key.
+                    Works with any wallet whose Lightning address supports the LNURL LUD-21
+                    <code>verify</code> extension (Blitz, Flash, Coinos and others). Enter a custom
+                    connection string with your full Lightning address:
+                </p>
+                <ul class="pb-2">
+                    <li>
+                        <code><b>type=</b>lnaddress;<b>ln-address=</b>you@yourwallet.com</code>
+                    </li>
+                    <li class="mt-2 text-muted">
+                        Legacy strings from the Blitz and Flash plugins
+                        (<code>type=blitz;…</code>, <code>type=flash;…</code>) keep working.
+                    </li>
+                </ul>
+                <p class="my-2 text-muted">
+                    Receive-only: invoices are minted by your wallet's LNURL server, so your phone does not
+                    need to be online to get paid, but BTCPay cannot send payments or refunds from this
+                    wallet. Settlement is detected via the LUD-21 <code>verify</code> endpoint; support for
+                    it is probed when you save.
+                </p>
+            </div>
+        </div>
+    </div>
+</template>

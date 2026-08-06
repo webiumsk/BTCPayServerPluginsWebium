@@ -1,0 +1,52 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>13</LangVersion>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <Product>LN Address Connect</Product>
+    <Description>Use any Lightning address with LUD-21 verify support (Blitz, Flash, Coinos, ...) as a receive-only Lightning backend. Invoices are minted by the wallet's LNURL server; settlement is detected via LUD-21 verify. Supersedes the Blitz and Flash plugins (legacy connection strings keep working). No node, no API keys.</Description>
+    <Version>1.0.0</Version>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <RootNamespace>BTCPayServer.Plugins.LnAddressConnect</RootNamespace>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <AddRazorSupportForMvc>true</AddRazorSupportForMvc>
+    <PreserveCompilationContext>false</PreserveCompilationContext>
+    <GenerateEmbeddedFilesManifest>true</GenerateEmbeddedFilesManifest>
+  </PropertyGroup>
+
+  <ItemDefinitionGroup>
+    <ProjectReference>
+      <AdditionalProperties>StaticWebAssetsEnabled=false</AdditionalProperties>
+      <Private>false</Private>
+      <ExcludeAssets>runtime;native;build;buildTransitive;contentFiles</ExcludeAssets>
+    </ProjectReference>
+  </ItemDefinitionGroup>
+
+  <ItemGroup>
+    <!--
+      BTCPay Server reference — paths tried in order:
+        1. BTCPay official plugin builder: btcpayserver as submodule in this repo (submodules/btcpayserver)
+        2. Local dev: btcpayserver cloned as sibling to the repo root (../../../btcpayserver)
+        3. Local dev fallback: BTCPayServerPluginsKukks sibling directory
+    -->
+    <ProjectReference Include="..\..\submodules\btcpayserver\BTCPayServer\BTCPayServer.csproj"
+                      Condition="Exists('..\..\submodules\btcpayserver\BTCPayServer\BTCPayServer.csproj')" />
+    <ProjectReference Include="..\..\..\btcpayserver\BTCPayServer\BTCPayServer.csproj"
+                      Condition="!Exists('..\..\submodules\btcpayserver\BTCPayServer\BTCPayServer.csproj') And Exists('..\..\..\btcpayserver\BTCPayServer\BTCPayServer.csproj')" />
+    <ProjectReference Include="..\..\..\BTCPayServerPluginsKukks\submodules\btcpayserver\BTCPayServer\BTCPayServer.csproj"
+                      Condition="!Exists('..\..\submodules\btcpayserver\BTCPayServer\BTCPayServer.csproj') And !Exists('..\..\..\btcpayserver\BTCPayServer\BTCPayServer.csproj')" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="BTCPayServer.Plugins.LnAddressConnect.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AdditionalFiles Include="Views\Shared\LnAddress\LNPaymentMethodSetupTab.cshtml" />
+  </ItemGroup>
+</Project>
