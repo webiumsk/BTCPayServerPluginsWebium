@@ -40,6 +40,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BTCPayServer.Plugins.Flash"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BTCPayServer.Plugins.Flash.Tests", "Plugins\BTCPayServer.Plugins.Flash.Tests\BTCPayServer.Plugins.Flash.Tests.csproj", "{E2260881-D312-40F5-A326-CA99235E2C9E}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BTCPayServer.Plugins.LnAddress", "Plugins\\BTCPayServer.Plugins.LnAddress\\BTCPayServer.Plugins.LnAddress.csproj", "{C56C6CAC-AD1D-5596-83FF-093BBD94549E}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BTCPayServer.Plugins.LnAddress.Tests", "Plugins\\BTCPayServer.Plugins.LnAddress.Tests\\BTCPayServer.Plugins.LnAddress.Tests.csproj", "{64607ED1-211E-552E-BA40-051CFE09D039}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
