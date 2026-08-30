@@ -8,7 +8,7 @@
   <PropertyGroup>
     <Product>Email Confirm API</Product>
     <Description>Adds an admin Greenfield endpoint to mark a user's email as confirmed (POST /api/v1/plugins/email-confirm/users/{idOrEmail}/confirm-email). Fills a Greenfield gap: changing a user's email resets emailConfirmed and, with the "confirmed email to log in" policy, permanently locks the account's API keys - core BTCPay only exposes the fix as an admin UI checkbox.</Description>
-    <Version>1.0.0</Version>
+    <Version>1.0.1</Version>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
     <RootNamespace>BTCPayServer.Plugins.EmailConfirm</RootNamespace>
   </PropertyGroup>

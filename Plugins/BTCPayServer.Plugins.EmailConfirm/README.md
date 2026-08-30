@@ -2,7 +2,7 @@
 
 Adds one admin Greenfield endpoint that core BTCPay Server is missing:
 
-```
+```text
 POST /api/v1/plugins/email-confirm/users/{idOrEmail}/confirm-email
 ```
 

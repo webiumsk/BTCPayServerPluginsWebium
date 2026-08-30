@@ -1,4 +1,5 @@
 #nullable enable
+using System.Linq;
 using System.Threading.Tasks;
 using BTCPayServer.Abstractions.Constants;
 using BTCPayServer.Abstractions.Extensions;
@@ -44,10 +45,20 @@ public class EmailConfirmApiController : ControllerBase
 
         user.EmailConfirmed = true;
         var result = await _userManager.UpdateAsync(user);
-        if (!result.Succeeded)
-            return this.CreateAPIError(500, "email-confirm-failed", "Could not update the user's email confirmation state.");
+        if (result.Succeeded)
+            return Ok(new EmailConfirmResult { EmailConfirmed = true, Changed = true });
 
-        return Ok(new EmailConfirmResult { EmailConfirmed = true, Changed = true });
+        // Concurrent request may have confirmed the email between our read and update
+        // (Identity's ConcurrencyStamp check rejects the stale entity). Reload and,
+        // if it is confirmed now, report it as already done rather than as a failure.
+        if (result.Errors.Any(e => e.Code == nameof(IdentityErrorDescriber.ConcurrencyFailure)))
+        {
+            var persisted = await _userManager.FindByIdAsync(user.Id);
+            if (persisted?.EmailConfirmed == true)
+                return Ok(new EmailConfirmResult { EmailConfirmed = true, Changed = false });
+        }
+
+        return this.CreateAPIError(500, "email-confirm-failed", "Could not update the user's email confirmation state.");
     }
 }
 
