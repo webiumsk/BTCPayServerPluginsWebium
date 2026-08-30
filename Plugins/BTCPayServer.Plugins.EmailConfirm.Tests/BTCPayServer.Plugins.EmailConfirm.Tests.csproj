@@ -1,0 +1,48 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <!-- Lightweight unit-test project for the EmailConfirm plugin (controller
+         behavior against a fake user store) — NOT BTCPayServer.Tests/ServerTester —
+         so it builds and runs fast. -->
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <!-- xunit.v3 test projects build as executables -->
+        <OutputType>Exe</OutputType>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <IsPackable>false</IsPackable>
+        <!-- The plugin builds BTCPayServer with static web assets disabled;
+             disable them here too so the transitive content-copy step does not
+             look for asset manifests the referenced build never produced. -->
+        <StaticWebAssetsEnabled>false</StaticWebAssetsEnabled>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.6.0" />
+        <PackageReference Include="xunit.v3" Version="3.2.2" />
+        <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5">
+          <PrivateAssets>all</PrivateAssets>
+          <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\BTCPayServer.Plugins.EmailConfirm\BTCPayServer.Plugins.EmailConfirm.csproj" />
+        <!-- BTCPayServer reference mirrors the plugin csproj's fallback layouts (plugin-builder
+             submodule, sibling btcpayserver, BTCPayServerPluginsKukks sibling). Each builds
+             BTCPayServer with StaticWebAssetsEnabled=false so it is configured identically to the
+             plugin's own reference (a second config would flip-flop the staticwebassets manifest). -->
+        <ProjectReference Include="..\..\submodules\btcpayserver\BTCPayServer\BTCPayServer.csproj"
+                          Condition="Exists('..\..\submodules\btcpayserver\BTCPayServer\BTCPayServer.csproj')">
+            <AdditionalProperties>StaticWebAssetsEnabled=false</AdditionalProperties>
+        </ProjectReference>
+        <ProjectReference Include="..\..\..\btcpayserver\BTCPayServer\BTCPayServer.csproj"
+                          Condition="!Exists('..\..\submodules\btcpayserver\BTCPayServer\BTCPayServer.csproj') And Exists('..\..\..\btcpayserver\BTCPayServer\BTCPayServer.csproj')">
+            <AdditionalProperties>StaticWebAssetsEnabled=false</AdditionalProperties>
+        </ProjectReference>
+        <ProjectReference Include="..\..\..\BTCPayServerPluginsKukks\submodules\btcpayserver\BTCPayServer\BTCPayServer.csproj"
+                          Condition="!Exists('..\..\submodules\btcpayserver\BTCPayServer\BTCPayServer.csproj') And !Exists('..\..\..\btcpayserver\BTCPayServer\BTCPayServer.csproj')">
+            <AdditionalProperties>StaticWebAssetsEnabled=false</AdditionalProperties>
+        </ProjectReference>
+    </ItemGroup>
+
+</Project>
