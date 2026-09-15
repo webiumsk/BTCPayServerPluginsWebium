@@ -1,5 +1,6 @@
 using System;
 using System.Security.Cryptography;
+using System.Text.RegularExpressions;
 
 namespace BTCPayServer.Plugins.SepaInstantQr.Services;
 
@@ -11,7 +12,7 @@ namespace BTCPayServer.Plugins.SepaInstantQr.Services;
 /// store to a NOP backend later changes nothing downstream.
 /// CZ: numeric variable symbol, 10 digits, no leading zero (bank VS field).
 /// </summary>
-public static class PaymentReferenceGenerator
+public static partial class PaymentReferenceGenerator
 {
     public static string NewEndToEndId()
         => "QR-" + Guid.NewGuid().ToString("N");
@@ -26,4 +27,16 @@ public static class PaymentReferenceGenerator
         var value = BitConverter.ToUInt64(bytes) % 9_000_000_000UL;
         return (1_000_000_000UL + value).ToString();
     }
+
+    /// <summary>
+    /// True for a NOP-shaped transaction id (QR- + 32 hex, either case) -
+    /// the only shape the public NOP diagnostics endpoint accepts. Whether
+    /// NOP actually issued the id is a different question (local ids look
+    /// identical).
+    /// </summary>
+    public static bool IsNopShaped(string? reference)
+        => reference is not null && NopShapedId().IsMatch(reference);
+
+    [GeneratedRegex("^QR-[0-9a-fA-F]{32}$")]
+    private static partial Regex NopShapedId();
 }

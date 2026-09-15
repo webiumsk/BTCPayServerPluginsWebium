@@ -209,9 +209,13 @@
                         <td>@row.AmountDue.ToString("0.00") @row.Currency</td>
                         <td>@row.ReviewReason</td>
                         <td>
-                            <form method="post" asp-action="ConfirmManually" asp-route-storeId="@Model.StoreId" asp-route-reference="@row.Reference">
+                            <form method="post" asp-action="ConfirmManually" asp-route-storeId="@Model.StoreId" asp-route-reference="@row.Reference" class="d-inline">
                                 <button type="submit" class="btn btn-sm btn-outline-success">Mark as paid</button>
                             </form>
+                            @if (row.Reference.StartsWith("QR-", StringComparison.OrdinalIgnoreCase))
+                            {
+                                <a asp-action="NopHistory" asp-route-storeId="@Model.StoreId" asp-route-reference="@row.Reference" class="btn btn-sm btn-link">Where is my payment</a>
+                            }
                         </td>
                     </tr>
                 }
@@ -236,9 +240,13 @@
                         <td>@row.AmountDue.ToString("0.00") @row.Currency</td>
                         <td>@row.CreatedAt.ToString("yyyy-MM-dd HH:mm")</td>
                         <td>
-                            <form method="post" asp-action="ConfirmManually" asp-route-storeId="@Model.StoreId" asp-route-reference="@row.Reference">
+                            <form method="post" asp-action="ConfirmManually" asp-route-storeId="@Model.StoreId" asp-route-reference="@row.Reference" class="d-inline">
                                 <button type="submit" class="btn btn-sm btn-outline-success">Mark as paid</button>
                             </form>
+                            @if (row.Reference.StartsWith("QR-", StringComparison.OrdinalIgnoreCase))
+                            {
+                                <a asp-action="NopHistory" asp-route-storeId="@Model.StoreId" asp-route-reference="@row.Reference" class="btn btn-sm btn-link">Where is my payment</a>
+                            }
                         </td>
                     </tr>
                 }

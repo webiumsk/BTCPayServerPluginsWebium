@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.8.0 - unreleased
+
+- "Where is my payment": public NOP diagnostics
+  (`GET https://kdejemojaplatba.kverkom.sk/api/v1/getTransactionHistory/{id}`,
+  Finančná správa SR, no certificate) for every `QR-…` payment request -
+  a link in the pending/review tables and Greenfield
+  `GET payment-requests/{reference}/nop-history` (status found | not_found |
+  invalid_id | unavailable plus the createdAt/indexedAt/matchedAt/
+  publishedAt/receivedAt timeline, organization and reported amount).
+  Read-only: NOP only knows ids it issued (NOP backends) or a bank reported,
+  and it never exposes the creditor account, so nothing is settled from it.
+  The official host is used directly - www.kdejemojaplatba.sk is a
+  third-party viewer with its own IP rate limit.
+- `PaymentReferenceGenerator.IsNopShaped()` - shared `QR-` + 32 hex check.
+
+
 ## 0.7.0 - unreleased
 
 - Greenfield `POST payment-requests/report`: amount-verified confirmation

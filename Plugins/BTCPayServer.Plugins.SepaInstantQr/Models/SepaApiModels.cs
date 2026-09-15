@@ -130,3 +130,61 @@ public class SepaTestResultData
     public bool Ok { get; set; }
     public string? Message { get; set; }
 }
+
+/// <summary>
+/// Public NOP diagnostics ("Kde je moja platba") for one payment request.
+/// status: found | not_found | invalid_id | unavailable. Never proof of
+/// settlement - NOP exposes no creditor account here.
+/// </summary>
+public class SepaNopHistoryData
+{
+    public string Reference { get; set; } = string.Empty;
+    public string Status { get; set; } = "unavailable";
+    public string Environment { get; set; } = "PROD";
+    public string? Message { get; set; }
+    public string? TransactionId { get; set; }
+    public DateTimeOffset? CreatedAt { get; set; }
+    public DateTimeOffset? IndexedAt { get; set; }
+    public DateTimeOffset? MatchedAt { get; set; }
+    public DateTimeOffset? PublishedAt { get; set; }
+    public DateTimeOffset? ReceivedAt { get; set; }
+    public string? OrganizationName { get; set; }
+    public string? NopStatus { get; set; }
+    public decimal? Amount { get; set; }
+    public string? Currency { get; set; }
+    public string? Raw { get; set; }
+
+    public static SepaNopHistoryData From(
+        string reference, string? environment, Services.Confirmation.Nop.NopPublicLookupResult result)
+    {
+        var data = new SepaNopHistoryData
+        {
+            Reference = reference,
+            Environment = Services.Confirmation.Nop.NopPublicClient.BaseUrlFor(environment)
+                          == Services.Confirmation.Nop.NopPublicClient.ProdBaseUrl ? "PROD" : "INT",
+            Status = result.Status switch
+            {
+                Services.Confirmation.Nop.NopPublicLookupStatus.Found => "found",
+                Services.Confirmation.Nop.NopPublicLookupStatus.NotFound => "not_found",
+                Services.Confirmation.Nop.NopPublicLookupStatus.InvalidId => "invalid_id",
+                _ => "unavailable",
+            },
+            Message = result.Message,
+        };
+        if (result.History is { } h)
+        {
+            data.TransactionId = h.TransactionId;
+            data.CreatedAt = h.CreatedAt;
+            data.IndexedAt = h.IndexedAt;
+            data.MatchedAt = h.MatchedAt;
+            data.PublishedAt = h.PublishedAt;
+            data.ReceivedAt = h.ReceivedAt;
+            data.OrganizationName = h.OrganizationName;
+            data.NopStatus = h.Status;
+            data.Amount = h.Amount;
+            data.Currency = h.Currency;
+            data.Raw = h.RawJson;
+        }
+        return data;
+    }
+}

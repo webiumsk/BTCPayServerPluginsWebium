@@ -54,6 +54,7 @@ public class SepaInstantQrPlugin : BaseBTCPayServerPlugin
         services.AddSingleton<NopNotificationProcessor>();
         services.AddSingleton<IPaymentConfirmationSource, NopMqttSource>();
         services.AddSingleton<IPaymentConfirmationSource, NopRestPollerSource>();
+        services.AddSingleton<NopPublicClient>();
         services.AddHostedService<NopMqttListener>();
         services.AddHostedService<SepaPollingHostedService>();
 

@@ -15,6 +15,7 @@ using BTCPayServer.Plugins.SepaInstantQr.Models;
 using BTCPayServer.Plugins.SepaInstantQr.PaymentHandler;
 using BTCPayServer.Plugins.SepaInstantQr.Services;
 using BTCPayServer.Plugins.SepaInstantQr.Services.Confirmation;
+using BTCPayServer.Plugins.SepaInstantQr.Services.Confirmation.Nop;
 using BTCPayServer.Services.Invoices;
 using BTCPayServer.Services.Stores;
 using Microsoft.AspNetCore.Authorization;
@@ -39,6 +40,7 @@ public class UISepaController : Controller
     private readonly SepaDbContextFactory _dbContextFactory;
     private readonly SepaMatchingService _matchingService;
     private readonly PaymentMethodHandlerDictionary _handlers;
+    private readonly NopPublicClient _nopPublicClient;
     private readonly System.Collections.Generic.Dictionary<string, IPaymentConfirmationSource> _confirmationSources;
 
     public UISepaController(
@@ -48,6 +50,7 @@ public class UISepaController : Controller
         SepaDbContextFactory dbContextFactory,
         SepaMatchingService matchingService,
         PaymentMethodHandlerDictionary handlers,
+        NopPublicClient nopPublicClient,
         System.Collections.Generic.IEnumerable<IPaymentConfirmationSource> confirmationSources)
     {
         _storeRepository = storeRepository;
@@ -56,6 +59,7 @@ public class UISepaController : Controller
         _dbContextFactory = dbContextFactory;
         _matchingService = matchingService;
         _handlers = handlers;
+        _nopPublicClient = nopPublicClient;
         _confirmationSources = confirmationSources.ToDictionary(s => s.Id, StringComparer.OrdinalIgnoreCase);
     }
 
@@ -246,6 +250,33 @@ public class UISepaController : Controller
             Message = result.Message ?? (result.Ok ? "Backend test passed." : "Backend test failed."),
         });
         return RedirectToAction(nameof(Settings), new { storeId });
+    }
+
+    /// <summary>
+    /// "Kde je moja platba": public NOP diagnostics timeline of one payment
+    /// request. Read-only; the merchant still confirms in the bank.
+    /// </summary>
+    [HttpGet("nop-history/{reference}")]
+    public async Task<IActionResult> NopHistory(string storeId, string reference, CancellationToken cancellationToken)
+    {
+        await using var ctx = _dbContextFactory.CreateContext();
+        var request = await ctx.SepaPaymentRequests
+            .AsNoTracking()
+            .FirstOrDefaultAsync(r => r.Reference == reference && r.StoreId == storeId, cancellationToken);
+        if (request is null)
+            return NotFound();
+
+        var settings = await _configService.GetSettingsAsync(storeId, cancellationToken);
+        var credentials = settings is null ? null : _configService.GetCredentials(settings);
+        var environment = credentials?.HasNopCertificate == true ? credentials.NopEnvironment : "PROD";
+        var result = await _nopPublicClient.GetTransactionHistoryAsync(environment, reference, cancellationToken);
+
+        return View(new SepaNopHistoryPageViewModel
+        {
+            StoreId = storeId,
+            InvoiceId = request.InvoiceId,
+            Result = SepaNopHistoryData.From(reference, environment, result),
+        });
     }
 
     /// <summary>

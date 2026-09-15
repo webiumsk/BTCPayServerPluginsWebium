@@ -113,3 +113,10 @@ public class SepaSettingsPageViewModel
     public string? TestResultMessage { get; set; }
     public bool? TestResultOk { get; set; }
 }
+
+public class SepaNopHistoryPageViewModel
+{
+    public string StoreId { get; set; } = string.Empty;
+    public string InvoiceId { get; set; } = string.Empty;
+    public SepaNopHistoryData Result { get; set; } = new();
+}
