@@ -83,6 +83,24 @@ public class LnAddressLnurlRequestFilterTests
     }
 
     [Fact]
+    public void Rounding_never_exceeds_the_wallets_maximum()
+    {
+        // The wallet's own max is sub-satoshi and less than 1 sat above BTCPay's fixed amount: no
+        // whole-satoshi amount fits, so the bounds stay as served rather than being widened past a
+        // maximum the LNURL server would reject.
+        var arg = new LNURLPayRequest
+        {
+            MinSendable = LightMoney.MilliSatoshis(5_137_620),
+            MaxSendable = LightMoney.MilliSatoshis(5_137_620)
+        };
+
+        LnAddressLnurlRequestFilter.ApplyLnAddressParameters(arg, LnAddressMeta(max: 5_137_800));
+
+        Assert.Equal(LightMoney.MilliSatoshis(5_137_620), arg.MinSendable);
+        Assert.Equal(LightMoney.MilliSatoshis(5_137_620), arg.MaxSendable);
+    }
+
+    [Fact]
     public void Range_bounds_round_inward_to_whole_satoshis()
     {
         // Top-up style range: min rounds up, max rounds down, whole-satoshi bounds stay put.

@@ -191,7 +191,7 @@ public class LnAddressLnurlRequestFilter : PluginHookFilter<LNURLPayRequest>
                 arg.MaxSendable = newMax;
         }
 
-        RoundBoundsToWholeSatoshis(arg);
+        RoundBoundsToWholeSatoshis(arg, flashMax);
 
         if (flashMetadata["commentAllowed"]?.Value<int>() is { } flashComment and >= 0 &&
             arg.CommentAllowed > flashComment)
@@ -206,15 +206,24 @@ public class LnAddressLnurlRequestFilter : PluginHookFilter<LNURLPayRequest>
     /// requires the returned invoice to match it, but sat-denominated LNURL servers (e.g. Blink) refuse
     /// sub-satoshi amounts, so the callback would fail. Serving whole-satoshi bounds makes the wallet ask
     /// for an amount the LNURL server will mint, and the invoice then matches the request exactly.
+    /// The rounded bounds never exceed the wallet's own maximum (<paramref name="remoteMax"/>): when no
+    /// whole-satoshi amount fits below it, the bounds are left as served (same policy as disjoint
+    /// ranges) and the callback's own amount validation rejects the request cleanly.
     /// </summary>
-    internal static void RoundBoundsToWholeSatoshis(LNURLPayRequest arg)
+    internal static void RoundBoundsToWholeSatoshis(LNURLPayRequest arg, LightMoney? remoteMax = null)
     {
-        if (arg.MinSendable is { } min)
-            arg.MinSendable = LightMoney.MilliSatoshis(LnAddressReceiver.RoundUpToSatoshi(min.MilliSatoshi));
+        LightMoney? roundedMin = arg.MinSendable is { } min
+            ? LightMoney.MilliSatoshis(LnAddressReceiver.RoundUpToSatoshi(min.MilliSatoshi))
+            : null;
+        if (roundedMin is not null && remoteMax is not null && roundedMin > remoteMax)
+            return;
+
+        if (roundedMin is not null)
+            arg.MinSendable = roundedMin;
         if (arg.MaxSendable is { } max)
         {
             var floored = max.MilliSatoshi / 1000 * 1000;
-            if (arg.MinSendable is { } roundedMin && floored < roundedMin.MilliSatoshi)
+            if (roundedMin is not null && floored < roundedMin.MilliSatoshi)
                 floored = roundedMin.MilliSatoshi;
             arg.MaxSendable = LightMoney.MilliSatoshis(floored);
         }
