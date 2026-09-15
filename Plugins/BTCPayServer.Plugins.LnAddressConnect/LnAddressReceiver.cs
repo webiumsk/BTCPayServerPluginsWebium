@@ -30,8 +30,8 @@ public sealed class LnAddressReceiver
 
     private const string VerifyUnsupportedMessage =
         "This Lightning address's LNURL server does not support the LUD-21 'verify' extension, which is " +
-        "required to detect payment settlement. Wallets known to support it include Blitz "+
-        "(user@blitzwalletapp.com), Flash (user@flashapp.me) and Coinos (user@coinos.io).";
+        "required to detect payment settlement. Wallets known to support it include Blitz " +
+        "(user@blitzwalletapp.com), Blink (user@blink.sv), Flash (user@flashapp.me) and Coinos (user@coinos.io).";
 
     /// <summary>
     /// Config-time probe: requests a minimal invoice from the pay callback and checks that the LUD-21
@@ -84,7 +84,13 @@ public sealed class LnAddressReceiver
                        ?? throw new Exception("LNURL-pay response is missing a callback URL.");
         var min = meta["minSendable"]?.Value<long>() ?? 1000;
         var max = meta["maxSendable"]?.Value<long>() ?? long.MaxValue;
-        var msat = amount.MilliSatoshi;
+        // BTCPay prices Lightning prompts in msat (Divisibility 11), so a fiat-priced invoice usually
+        // lands on a sub-satoshi amount. Sat-denominated LNURL servers (Blink: "amount must be a whole
+        // sat amount") refuse to mint those, so ask for the next whole satoshi. BTCPay's Lightning
+        // handler reconciles the difference via a tweak fee when the returned invoice amount differs
+        // from the requested one; the LNURL-pay path never gets here with a sub-satoshi amount because
+        // LnAddressLnurlRequestFilter serves whole-satoshi bounds.
+        var msat = RoundUpToSatoshi(amount.MilliSatoshi);
         if (msat < min) throw new Exception($"Amount {msat} msat is below the minimum ({min} msat).");
         if (msat > max) throw new Exception($"Amount {msat} msat is above the maximum ({max} msat).");
 
@@ -92,8 +98,12 @@ public sealed class LnAddressReceiver
         var q = new StringBuilder(cb.Query.TrimStart('?'));
         if (q.Length > 0) q.Append('&');
         q.Append("amount=").Append(msat);
+        // LUD-12 comment: only for a human-readable description. In BTCPay's LNURL-pay callback path
+        // (DescriptionHashOnly) the "description" is the serialized LNURL metadata JSON that the
+        // invoice's description hash commits to — forwarding that blob as a comment is meaningless
+        // and some LNURL servers reject it.
         var commentAllowed = meta["commentAllowed"]?.Value<int>() ?? 0;
-        if (commentAllowed > 0 && !string.IsNullOrEmpty(description))
+        if (commentAllowed > 0 && p?.DescriptionHashOnly != true && !string.IsNullOrEmpty(description))
         {
             var c = TruncateByTextElements(description!, commentAllowed);
             q.Append("&comment=").Append(Uri.EscapeDataString(c));
@@ -230,6 +240,9 @@ public sealed class LnAddressReceiver
         };
     }
 
+
+    /// <summary>Rounds a positive msat amount up to the next whole satoshi (a whole-satoshi amount is unchanged).</summary>
+    internal static long RoundUpToSatoshi(long msat) => msat <= 0 ? msat : (msat + 999) / 1000 * 1000;
 
     /// <summary>
     /// Truncates to at most <paramref name="maxTextElements"/> user-perceived characters,

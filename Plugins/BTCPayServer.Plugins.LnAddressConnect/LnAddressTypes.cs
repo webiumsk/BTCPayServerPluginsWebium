@@ -63,6 +63,7 @@ public static class LnAddressTypes
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
             ["blitzwalletapp.com"] = "Blitz Wallet",
+            ["blink.sv"] = "Blink",
             ["flashapp.me"] = "Flash",
             ["coinos.io"] = "Coinos",
         };

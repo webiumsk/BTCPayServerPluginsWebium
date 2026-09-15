@@ -163,7 +163,7 @@ public class LnAddressLnurlRequestFilter : PluginHookFilter<LNURLPayRequest>
     /// Overwrites the served metadata with LnAddress's (so the served-metadata hash matches the invoice's
     /// committed description hash), narrows the sendable bounds to the intersection of BTCPay's and
     /// LnAddress's limits (only ever narrowed, never widened, so a fixed-amount invoice with min == max is
-    /// preserved) and caps the allowed comment length to LnAddress's.
+    /// preserved), rounds them to whole satoshis and caps the allowed comment length to LnAddress's.
     /// </summary>
     internal static void ApplyLnAddressParameters(LNURLPayRequest arg, JObject flashMetadata)
     {
@@ -191,9 +191,42 @@ public class LnAddressLnurlRequestFilter : PluginHookFilter<LNURLPayRequest>
                 arg.MaxSendable = newMax;
         }
 
+        RoundBoundsToWholeSatoshis(arg, flashMax);
+
         if (flashMetadata["commentAllowed"]?.Value<int>() is { } flashComment and >= 0 &&
             arg.CommentAllowed > flashComment)
             arg.CommentAllowed = flashComment;
+    }
+
+    /// <summary>
+    /// Rounds the served bounds to whole satoshis: min up, max down, and max never below min (so a
+    /// fixed sub-satoshi amount rounds up to the next satoshi rather than becoming an empty range).
+    /// Why: BTCPay serves min == max == the invoice's due amount in msat, which is usually sub-satoshi
+    /// (Lightning prompts use Divisibility 11). The wallet requests exactly that amount and LUD-06
+    /// requires the returned invoice to match it, but sat-denominated LNURL servers (e.g. Blink) refuse
+    /// sub-satoshi amounts, so the callback would fail. Serving whole-satoshi bounds makes the wallet ask
+    /// for an amount the LNURL server will mint, and the invoice then matches the request exactly.
+    /// The rounded bounds never exceed the wallet's own maximum (<paramref name="remoteMax"/>): when no
+    /// whole-satoshi amount fits below it, the bounds are left as served (same policy as disjoint
+    /// ranges) and the callback's own amount validation rejects the request cleanly.
+    /// </summary>
+    internal static void RoundBoundsToWholeSatoshis(LNURLPayRequest arg, LightMoney? remoteMax = null)
+    {
+        LightMoney? roundedMin = arg.MinSendable is { } min
+            ? LightMoney.MilliSatoshis(LnAddressReceiver.RoundUpToSatoshi(min.MilliSatoshi))
+            : null;
+        if (roundedMin is not null && remoteMax is not null && roundedMin > remoteMax)
+            return;
+
+        if (roundedMin is not null)
+            arg.MinSendable = roundedMin;
+        if (arg.MaxSendable is { } max)
+        {
+            var floored = max.MilliSatoshi / 1000 * 1000;
+            if (roundedMin is not null && floored < roundedMin.MilliSatoshi)
+                floored = roundedMin.MilliSatoshi;
+            arg.MaxSendable = LightMoney.MilliSatoshis(floored);
+        }
     }
 
     /// <summary>Returns the larger of two possibly-null amounts (null is treated as "no bound").</summary>

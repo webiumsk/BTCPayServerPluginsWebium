@@ -1,5 +1,20 @@
 # LN Address Connect - release notes
 
+## 1.0.1
+
+- **Fix: payments failed for sat-denominated wallets (Blink).** BTCPay prices Lightning
+  invoices in millisatoshis, so a fiat-priced invoice is usually a sub-satoshi amount.
+  Blink's LNURL server refuses those (`amount must be a whole sat amount`), so the BOLT11
+  could not be minted and the LNURL fallback failed for every wallet (Phoenix, Blink, ...).
+  Amounts are now rounded up to the next whole satoshi both when minting the invoice
+  (BTCPay reconciles the difference via its tweak fee) and in the LNURL-pay bounds BTCPay
+  serves, so wallets request an amount the LNURL server will mint.
+- Fix: BTCPay's LNURL-pay callback passes its serialized LNURL metadata as the invoice
+  "description"; it is no longer forwarded to the wallet's LNURL server as a LUD-12 comment.
+- Blink (`user@blink.sv`) added to the curated wallet branding.
+- README: documented that the Blink app pays a Blink address intraledger when using the
+  LNURL option, bypassing the BTCPay invoice (BOLT11 QR is unaffected).
+
 ## 1.0.0
 
 First release. Generalizes the Blitz (1.0.0) and Flash (1.0.0) plugins into one
