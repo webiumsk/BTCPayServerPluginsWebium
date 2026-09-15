@@ -268,8 +268,7 @@ public class UISepaController : Controller
 
         var settings = await _configService.GetSettingsAsync(storeId, cancellationToken);
         var credentials = settings is null ? null : _configService.GetCredentials(settings);
-        var environment = credentials?.HasNopCertificate == true ? credentials.NopEnvironment : "PROD";
-        var result = await _nopPublicClient.GetTransactionHistoryAsync(environment, reference, cancellationToken);
+        var (environment, result) = await _nopPublicClient.LookupForStoreAsync(credentials, reference, cancellationToken);
 
         return View(new SepaNopHistoryPageViewModel
         {

@@ -6,6 +6,7 @@ using System.Net.Http;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using BTCPayServer.Plugins.SepaInstantQr.Services;
 using Microsoft.Extensions.Logging;
 
 namespace BTCPayServer.Plugins.SepaInstantQr.Services.Confirmation.Nop;
@@ -115,9 +116,12 @@ public class NopPublicClient
             {
                 case HttpStatusCode.OK:
                     var history = Parse(body);
-                    return history is null
-                        ? new NopPublicLookupResult(NopPublicLookupStatus.Unavailable, null, "NOP answered with an unexpected payload.", status)
-                        : new NopPublicLookupResult(NopPublicLookupStatus.Found, history, null, status);
+                    if (history is null)
+                    {
+                        _logger.LogWarning("NOP public lookup {Id} returned HTTP {Status} with an unexpected payload", transactionId, status);
+                        return new NopPublicLookupResult(NopPublicLookupStatus.Unavailable, null, "NOP answered with an unexpected payload.", status);
+                    }
+                    return new NopPublicLookupResult(NopPublicLookupStatus.Found, history, null, status);
                 case HttpStatusCode.NotFound:
                     return new NopPublicLookupResult(NopPublicLookupStatus.NotFound, null, ProblemDetail(body) ?? "Transaction not found", status);
                 case HttpStatusCode.BadRequest:
@@ -145,6 +149,31 @@ public class NopPublicClient
             return new NopPublicLookupResult(NopPublicLookupStatus.Unavailable, null, "NOP is not reachable right now.", null);
         }
     }
+
+    /// <summary>
+    /// Lookup for a store's payment request. Ids of a store holding a NOP
+    /// certificate were issued in its current environment - but a store
+    /// moved from INT to PROD still has older INT-issued ids, so a
+    /// "not found" there is retried in the other environment. Stores
+    /// without a certificate only ever have bank-reported ids, which exist
+    /// in PROD alone. Returns the environment that answered.
+    /// </summary>
+    public async Task<(string Environment, NopPublicLookupResult Result)> LookupForStoreAsync(
+        SepaBackendCredentials? credentials, string reference, CancellationToken cancellationToken)
+    {
+        var hasCertificate = credentials?.HasNopCertificate == true;
+        var primary = hasCertificate ? NormalizeEnvironment(credentials!.NopEnvironment) : "PROD";
+        var result = await GetTransactionHistoryAsync(primary, reference, cancellationToken);
+        if (!hasCertificate || result.Status != NopPublicLookupStatus.NotFound)
+            return (primary, result);
+
+        var other = primary == "PROD" ? "INT" : "PROD";
+        var fallback = await GetTransactionHistoryAsync(other, reference, cancellationToken);
+        return fallback.Status == NopPublicLookupStatus.Found ? (other, fallback) : (primary, result);
+    }
+
+    public static string NormalizeEnvironment(string? environment)
+        => BaseUrlFor(environment) == ProdBaseUrl ? "PROD" : "INT";
 
     /// <summary>
     /// Tolerant mapping of the history payload: the field names were taken

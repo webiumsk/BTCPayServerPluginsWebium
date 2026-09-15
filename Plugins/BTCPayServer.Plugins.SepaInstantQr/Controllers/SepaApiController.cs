@@ -333,17 +333,11 @@ public class SepaApiController : ControllerBase
         return Ok(await LookupNopHistoryAsync(settings, reference, cancellationToken));
     }
 
-    /// <summary>
-    /// Environment: the store's NOP environment when it holds a certificate
-    /// (its ids were issued there), otherwise PROD - a bank-reported id can
-    /// only exist in production.
-    /// </summary>
     private async Task<SepaNopHistoryData> LookupNopHistoryAsync(
         SepaStoreSettings? settings, string reference, CancellationToken cancellationToken)
     {
         var credentials = settings is null ? null : _configService.GetCredentials(settings);
-        var environment = credentials?.HasNopCertificate == true ? credentials.NopEnvironment : "PROD";
-        var result = await _nopPublicClient.GetTransactionHistoryAsync(environment, reference, cancellationToken);
+        var (environment, result) = await _nopPublicClient.LookupForStoreAsync(credentials, reference, cancellationToken);
         return SepaNopHistoryData.From(reference, environment, result);
     }
 

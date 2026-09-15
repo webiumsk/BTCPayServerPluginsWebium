@@ -205,6 +205,59 @@ public class NopPublicClientTests
             () => client.GetTransactionHistoryAsync("PROD", Id, cts.Token));
     }
 
+    private const string NotFoundBody = "{\"detail\":\"Transaction not found\"}";
+
+    [Fact]
+    public async Task Store_without_certificate_asks_prod_only()
+    {
+        var calls = new List<string>();
+        var (client, _) = Create((req, _) =>
+        {
+            calls.Add(req.RequestUri!.Host);
+            return Task.FromResult(Response(HttpStatusCode.NotFound, NotFoundBody));
+        });
+
+        var (environment, result) = await client.LookupForStoreAsync(
+            new SepaBackendCredentials { NopEnvironment = "INT" }, Id, CancellationToken.None);
+
+        Assert.Equal("PROD", environment);
+        Assert.Equal(NopPublicLookupStatus.NotFound, result.Status);
+        Assert.Equal(["kdejemojaplatba.kverkom.sk"], calls);
+    }
+
+    [Fact]
+    public async Task Store_with_certificate_falls_back_to_the_other_environment_on_not_found()
+    {
+        var calls = new List<string>();
+        var (client, _) = Create((req, _) =>
+        {
+            calls.Add(req.RequestUri!.Host);
+            return Task.FromResult(req.RequestUri.Host.StartsWith("kdejemojaplatba-i", StringComparison.Ordinal)
+                ? Response(HttpStatusCode.OK, "{\"transactionId\":\"" + Id + "\"}")
+                : Response(HttpStatusCode.NotFound, NotFoundBody));
+        });
+        var credentials = new SepaBackendCredentials { NopEnvironment = "PROD", NopPfxBase64 = "dummy" };
+        Assert.True(credentials.HasNopCertificate);
+
+        var (environment, result) = await client.LookupForStoreAsync(credentials, Id, CancellationToken.None);
+
+        Assert.Equal("INT", environment);
+        Assert.Equal(NopPublicLookupStatus.Found, result.Status);
+        Assert.Equal(["kdejemojaplatba.kverkom.sk", "kdejemojaplatba-i.kverkom.sk"], calls);
+    }
+
+    [Fact]
+    public async Task Fallback_that_also_misses_reports_the_primary_environment()
+    {
+        var (client, _) = Create((_, _) => Task.FromResult(Response(HttpStatusCode.NotFound, "{}")));
+        var credentials = new SepaBackendCredentials { NopEnvironment = "INT", NopPfxBase64 = "dummy" };
+
+        var (environment, result) = await client.LookupForStoreAsync(credentials, Id, CancellationToken.None);
+
+        Assert.Equal("INT", environment);
+        Assert.Equal(NopPublicLookupStatus.NotFound, result.Status);
+    }
+
     [Fact]
     public void Api_data_mapping_uses_the_effective_environment_and_status_names()
     {
