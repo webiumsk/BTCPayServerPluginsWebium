@@ -75,6 +75,35 @@ and the aggregator notes in `docs/research/btcpay-plugin-patterns.md`.
 An aggregator backend can plug into the existing confirmation seam once
 that contract exists.
 
+## Where is my payment - public NOP diagnostics
+
+Every `QR-…` payment request in the pending/review tables links to **Where
+is my payment**: the plugin asks the public NOP diagnostics API of Finančná
+správa SR (`https://kdejemojaplatba.kverkom.sk/api/v1/getTransactionHistory/{id}`,
+`kdejemojaplatba-i` for INT; no certificate, no API key) and shows the
+timeline NOP has for that id - created, bank notification stored, matched to
+the cash register, published, received - plus the organization and the
+amount a bank reported.
+
+What it can and cannot tell you:
+
+- NOP only knows ids it **issued** (stores on a `nop-*` backend) or ids a
+  bank **reported** for a notification-enabled account (Tatra banka, SLSP).
+  References of manual/Fio stores are generated locally and answer
+  "not found" even after the money arrived (and after Fio/b-mail settled
+  the invoice) - unless a bank notification for an unregistered id ever
+  gets stored (unverified as of 0.8.0, see docs/research/nop.md).
+- The answer carries **no creditor account**. A payer could send the amount
+  to their own notification-enabled account with your reference and NOP
+  would still show a payment. The plugin therefore never settles from this
+  data - confirm in your banking app (or let Fio/NOP/b-mail do it).
+- The public host is rate limited per IP and refuses some ranges (403);
+  the page says so instead of failing.
+
+`https://www.kdejemojaplatba.sk` (the "explorer" link on the invoice page)
+is a third-party viewer over the same endpoint; the plugin does not depend
+on it.
+
 ## Merchant setup
 
 1. Store settings → **SEPA Instant QR** (wallets nav).
@@ -176,6 +205,7 @@ never leave the server.
 | GET | `/payment-requests?state=pending\|review` | Awaiting/needs-review payments (newest 100) |
 | POST | `/payment-requests/report` | Amount-verified confirmation report: `{ "reference", "amount", "currency", "dedupKey"? }` - mismatches go to review |
 | POST | `/payment-requests/{reference}/confirm` | Manual confirmation through the normal invoice lifecycle |
+| GET | `/payment-requests/{reference}/nop-history` | Public NOP diagnostics timeline for a `QR-…` request (`status`: found, not_found, invalid_id, unavailable; read-only) |
 
 Notes for integrators: PUT `/settings` rejects a `nop-*` backend until a
 certificate is uploaded; upload the certificate first, then switch the

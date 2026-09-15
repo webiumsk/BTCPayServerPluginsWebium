@@ -60,14 +60,47 @@ Public diagnostics REST (no mTLS): `https://kdejemojaplatba.kverkom.sk` /
   list of notifications for a cash register. Notifications **expire 2 hours**
   after registration; `date_from` compares against the transaction's
   `created_at`.
-- `GET /v1/getTransactionHistory/{transactionId}` - **public, no auth**, on
-  the kdejemojaplatba host; diagnostic metadata: `transactionId, createdAt,
-  indexedAt?, matchedAt?, organizationId?, organizationName?, requestId?,
-  publishedAt?, receivedAt?`.
+- `GET /api/v1/getTransactionHistory/{transactionId}` - **public, no auth**,
+  on the kdejemojaplatba host (see "Public diagnostics API" below - the
+  path includes `/api`, the manual's `/v1/...` form answers 403);
+  diagnostic metadata: `transactionId, createdAt, indexedAt?, matchedAt?,
+  organizationId?, organizationName?, requestId?, publishedAt?, receivedAt?`.
 - Error codes: 400 Bad Request, 401 Unauthorized (`MTLS_REQUIRED`), 403
   Forbidden, 404, 405, 408 Request Timeout, 415, 409 CONFLICT "Duplicate"
   (integration manual), 429 RATE_LIMITED, 5xx. Backoff guidance: exponential
   1s, 2s, 4s ... max 30 s, max 5 attempts.
+
+## Public diagnostics API ("Kde je moja platba") - verified 2026-09-16
+
+- Hosts: PROD `https://kdejemojaplatba.kverkom.sk`, INT
+  `https://kdejemojaplatba-i.kverkom.sk` (TLS cert issued to Finančné
+  riaditeľstvo SR, GeoTrust). `GET /api/v1/getTransactionHistory/{id}` needs
+  no mTLS and no key; `access-control-allow-origin: *`; gunicorn. The root
+  and `/api/v1/status` answer `403 Forbidden` (WAF). 8 quick requests from a
+  SK IP passed without 429; the rate limit is undocumented.
+- Errors are RFC 7807: `404 {"title":"Not found","detail":"Transaction not
+  found"}`, `400 {"title":"Bad request","detail":"Invalid URL parameter"}`
+  for a malformed id.
+- Success payload (from the public front-end's bundle, NOT yet observed on
+  a real id): `transactionId, createdAt, indexedAt?, matchedAt?,
+  publishedAt?, receivedAt?, organizationName?, status?, payment?{amount,
+  currency}`. No creditor IBAN. UI timeline labels: "Vznik ID transakcie",
+  "Banka zasiela oznámenie", "Oznámenie uložené" (indexedAt), "Spárované s
+  pokladnicou" (matchedAt), "Sprístupnené pokladnici" (publishedAt),
+  "Oznámenie prijaté" (receivedAt).
+- `https://www.kdejemojaplatba.sk` is a **third-party** Next.js/Vercel
+  front-end (`generator: AI`) proxying `GET /api/transaction?id=…&env=
+  production|integration` to the host above, with its own per-IP rate limit
+  (429, `retryAfter` ~19 s). Do not build on it.
+- **Locally generated ids are unknown to NOP**: `QR-5178ebd792314ed599e2d9549828968e`
+  (a manual-backend reference, unpaid) answers 404 on PROD and INT.
+- OPEN (go/no-go for a certificate-free confirmation backend): does a
+  bank notification for an id nobody registered get stored (`indexedAt`)
+  and exposed here? Spike: pay a local `QR-` reference to a Tatra/SLSP
+  notification-enabled account and query the id; ask
+  `kverkom.kasoveIS@financnasprava.sk` whether ERP polling of this endpoint
+  is intended and rate limited. Even if yes, the missing creditor account
+  means such a backend can only feed manual review, never settle.
 
 ## MQTT
 

@@ -1,0 +1,96 @@
+@using BTCPayServer.Abstractions.Extensions
+@model BTCPayServer.Plugins.SepaInstantQr.Models.SepaNopHistoryPageViewModel
+@{
+    ViewData.SetActivePage("Wallets", "SEPA Instant QR", "SepaInstantQr");
+    ViewData["Title"] = "Where is my payment";
+    var r = Model.Result;
+    string When(DateTimeOffset? at) => at?.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") ?? "-";
+    var steps = new (string Label, DateTimeOffset? At, string Hint)[]
+    {
+        ("Transaction id created", r.CreatedAt, "The cash register asked NOP for this id."),
+        ("Bank notification stored", r.IndexedAt, "The payer's transfer reached a notification-enabled account and the bank told NOP."),
+        ("Matched to the cash register", r.MatchedAt, "NOP paired the notification with the id it issued."),
+        ("Published to the cash register", r.PublishedAt, "The notification was made available on MQTT / REST."),
+        ("Received by the cash register", r.ReceivedAt, "The cash register acknowledged it."),
+    };
+}
+
+<partial name="_StatusMessage" />
+
+<h2 class="mb-1">Where is my payment</h2>
+<p class="text-muted mb-4">
+    Public NOP diagnostics (Finančná správa SR, environment <strong>@r.Environment</strong>)
+    for reference <span class="font-monospace">@r.Reference</span>
+    - invoice <a asp-controller="UIInvoice" asp-action="Invoice" asp-route-invoiceId="@Model.InvoiceId">@Model.InvoiceId</a>.
+</p>
+
+<div class="row">
+    <div class="col-xl-8 col-xxl-constrain">
+        @switch (r.Status)
+        {
+            case "found":
+                <div class="alert alert-info">
+                    NOP knows this id.
+                    @if (r.Amount is not null)
+                    {
+                        <text>A bank reported <strong>@r.Amount.Value.ToString("0.00") @r.Currency</strong>.</text>
+                    }
+                    @if (!string.IsNullOrEmpty(r.OrganizationName))
+                    {
+                        <text>Cash register: <strong>@r.OrganizationName</strong>.</text>
+                    }
+                    @if (!string.IsNullOrEmpty(r.NopStatus))
+                    {
+                        <text>Status: <span class="font-monospace">@r.NopStatus</span>.</text>
+                    }
+                </div>
+                <table class="table">
+                    <thead><tr><th>Step</th><th>When</th><th></th></tr></thead>
+                    <tbody>
+                    @foreach (var step in steps)
+                    {
+                        <tr class="@(step.At is null ? "text-muted" : "")">
+                            <td>@(step.At is null ? "○" : "●") @step.Label</td>
+                            <td class="font-monospace">@When(step.At)</td>
+                            <td class="text-muted small">@step.Hint</td>
+                        </tr>
+                    }
+                    </tbody>
+                </table>
+                <p class="text-muted small">
+                    This timeline is a hint about the payment's journey through NOP. It does not
+                    show which account was credited - confirm the transfer in your banking app
+                    before marking the invoice as paid.
+                </p>
+                <details class="mt-3">
+                    <summary class="text-muted small">Raw NOP response</summary>
+                    <pre class="small mt-2">@r.Raw</pre>
+                </details>
+                break;
+            case "not_found":
+                <div class="alert alert-secondary">
+                    NOP has not seen this id. That is expected for stores without a NOP backend:
+                    their references are generated locally, so NOP has nothing to show even when
+                    the money has already arrived. It does not mean the payer has not paid -
+                    check the transfer in your banking app.
+                </div>
+                break;
+            case "invalid_id":
+                <div class="alert alert-secondary">
+                    This reference is not a NOP transaction id (only <span class="font-monospace">QR-…</span>
+                    references can be looked up).
+                </div>
+                break;
+            default:
+                <div class="alert alert-warning">
+                    NOP could not be asked right now: @r.Message
+                </div>
+                break;
+        }
+
+        <a asp-action="Settings" asp-route-storeId="@Model.StoreId" class="btn btn-secondary mt-3">Back</a>
+        <a href="https://www.kdejemojaplatba.sk/?id=@Uri.EscapeDataString(r.Reference)" target="_blank" rel="noreferrer noopener" class="btn btn-link mt-3">
+            Open kdejemojaplatba.sk (third-party viewer)
+        </a>
+    </div>
+</div>
