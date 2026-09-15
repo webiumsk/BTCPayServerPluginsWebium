@@ -69,9 +69,10 @@
                 break;
             case "not_found":
                 <div class="alert alert-secondary">
-                    NOP has not seen this id. That is expected for stores without a NOP backend
-                    (their references are generated locally) and for payments the payer has not
-                    sent yet. Confirm the transfer in your banking app.
+                    NOP has not seen this id. That is expected for stores without a NOP backend:
+                    their references are generated locally, so NOP has nothing to show even when
+                    the money has already arrived. It does not mean the payer has not paid -
+                    check the transfer in your banking app.
                 </div>
                 break;
             case "invalid_id":

@@ -90,8 +90,9 @@ What it can and cannot tell you:
 - NOP only knows ids it **issued** (stores on a `nop-*` backend) or ids a
   bank **reported** for a notification-enabled account (Tatra banka, SLSP).
   References of manual/Fio stores are generated locally and answer
-  "not found" until a bank notification arrives - if it ever does for an
-  unregistered id (unverified as of 0.8.0, see docs/research/nop.md).
+  "not found" even after the money arrived (and after Fio/b-mail settled
+  the invoice) - unless a bank notification for an unregistered id ever
+  gets stored (unverified as of 0.8.0, see docs/research/nop.md).
 - The answer carries **no creditor account**. A payer could send the amount
   to their own notification-enabled account with your reference and NOP
   would still show a payment. The plugin therefore never settles from this
