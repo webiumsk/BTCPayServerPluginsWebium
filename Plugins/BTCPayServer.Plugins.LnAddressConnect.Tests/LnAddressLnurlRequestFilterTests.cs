@@ -51,17 +51,60 @@ public class LnAddressLnurlRequestFilterTests
     [Fact]
     public void Disjoint_ranges_leave_bounds_untouched()
     {
-        // LnAddress's min (1000 msat) above BTCPay's fixed 500 msat -> disjoint -> leave BTCPay's bounds.
+        // LnAddress's min (14 sat, as Blink advertises for some accounts) above BTCPay's fixed 5 sat
+        // -> disjoint -> leave BTCPay's bounds.
         var arg = new LNURLPayRequest
         {
-            MinSendable = LightMoney.MilliSatoshis(500),
-            MaxSendable = LightMoney.MilliSatoshis(500)
+            MinSendable = LightMoney.MilliSatoshis(5_000),
+            MaxSendable = LightMoney.MilliSatoshis(5_000)
         };
 
-        LnAddressLnurlRequestFilter.ApplyLnAddressParameters(arg, LnAddressMeta(min: 1000));
+        LnAddressLnurlRequestFilter.ApplyLnAddressParameters(arg, LnAddressMeta(min: 14_000));
 
-        Assert.Equal(LightMoney.MilliSatoshis(500), arg.MinSendable);
-        Assert.Equal(LightMoney.MilliSatoshis(500), arg.MaxSendable);
+        Assert.Equal(LightMoney.MilliSatoshis(5_000), arg.MinSendable);
+        Assert.Equal(LightMoney.MilliSatoshis(5_000), arg.MaxSendable);
+    }
+
+    [Fact]
+    public void Sub_satoshi_fixed_amount_is_rounded_up_to_whole_satoshi()
+    {
+        // BTCPay serves min == max == due amount in msat (usually sub-satoshi). Sat-only LNURL servers
+        // (Blink) refuse sub-satoshi callbacks, so the served fixed amount rounds up to the next satoshi.
+        var arg = new LNURLPayRequest
+        {
+            MinSendable = LightMoney.MilliSatoshis(5_137_620),
+            MaxSendable = LightMoney.MilliSatoshis(5_137_620)
+        };
+
+        LnAddressLnurlRequestFilter.ApplyLnAddressParameters(arg, LnAddressMeta());
+
+        Assert.Equal(LightMoney.MilliSatoshis(5_138_000), arg.MinSendable);
+        Assert.Equal(LightMoney.MilliSatoshis(5_138_000), arg.MaxSendable);
+    }
+
+    [Fact]
+    public void Range_bounds_round_inward_to_whole_satoshis()
+    {
+        // Top-up style range: min rounds up, max rounds down, whole-satoshi bounds stay put.
+        var arg = new LNURLPayRequest
+        {
+            MinSendable = LightMoney.MilliSatoshis(1_500),
+            MaxSendable = LightMoney.MilliSatoshis(5_137_620)
+        };
+
+        LnAddressLnurlRequestFilter.ApplyLnAddressParameters(arg, LnAddressMeta());
+
+        Assert.Equal(LightMoney.MilliSatoshis(2_000), arg.MinSendable);
+        Assert.Equal(LightMoney.MilliSatoshis(5_137_000), arg.MaxSendable);
+
+        var whole = new LNURLPayRequest
+        {
+            MinSendable = LightMoney.MilliSatoshis(21_000),
+            MaxSendable = LightMoney.MilliSatoshis(21_000)
+        };
+        LnAddressLnurlRequestFilter.ApplyLnAddressParameters(whole, LnAddressMeta());
+        Assert.Equal(LightMoney.MilliSatoshis(21_000), whole.MinSendable);
+        Assert.Equal(LightMoney.MilliSatoshis(21_000), whole.MaxSendable);
     }
 
     [Fact]

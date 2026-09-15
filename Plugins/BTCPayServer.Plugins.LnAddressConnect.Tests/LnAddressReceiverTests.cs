@@ -200,6 +200,60 @@ public class LnAddressReceiverTests
     }
 
     [Fact]
+    public async Task CreateInvoice_rounds_sub_satoshi_amount_up_to_whole_satoshi()
+    {
+        // BTCPay prices Lightning prompts in msat, so fiat-priced invoices are usually sub-satoshi.
+        // Sat-denominated LNURL servers (Blink) refuse those ("amount must be a whole sat amount"), so
+        // the callback must be asked for the next whole satoshi and the (larger) minted amount accepted.
+        var host = "round.example";
+        var cb = $"https://{host}/.well-known/lnurlp/alice/";
+        var http = new FakeHttp()
+            .Map($"https://{host}/.well-known/lnurlp/alice", PayMeta.Replace("{CB}", cb))
+            .Map($"{cb}?amount=250000000", $"{{\"pr\":\"{SpecBolt11}\",\"verify\":\"{LnAddressVerify}\"}}");
+        var rx = Rx(host, http);
+
+        var inv = await rx.CreateInvoice(LightMoney.MilliSatoshis(249_999_001), null, null, TestContext.Current.CancellationToken);
+
+        Assert.Equal($"{cb}?amount=250000000", http.Requests[1]);
+        Assert.Equal(LightMoney.MilliSatoshis(250_000_000), inv.Amount); // BTCPay reconciles via tweak fee
+        Assert.True(TrackedInvoiceRegistry.TryGet(inv.PaymentHash, out var tracked));
+        Assert.Equal(250_000_000, tracked.AmountMsat);
+        TrackedInvoiceRegistry.Remove(inv.PaymentHash);
+    }
+
+    [Fact]
+    public void RoundUpToSatoshi_rounds_up_and_keeps_whole_satoshis()
+    {
+        Assert.Equal(1000, LnAddressReceiver.RoundUpToSatoshi(1));
+        Assert.Equal(1000, LnAddressReceiver.RoundUpToSatoshi(999));
+        Assert.Equal(1000, LnAddressReceiver.RoundUpToSatoshi(1000));
+        Assert.Equal(2000, LnAddressReceiver.RoundUpToSatoshi(1001));
+        Assert.Equal(5_138_000, LnAddressReceiver.RoundUpToSatoshi(5_137_620));
+        Assert.Equal(0, LnAddressReceiver.RoundUpToSatoshi(0));
+    }
+
+    [Fact]
+    public async Task CreateInvoice_does_not_forward_lnurl_metadata_as_comment()
+    {
+        // BTCPay's LNURL-pay callback path passes the serialized LNURL metadata JSON as the
+        // "description" with DescriptionHashOnly set; that blob must not become a LUD-12 comment.
+        var host = "dho.example";
+        var cb = $"https://{host}/.well-known/lnurlp/alice/";
+        var http = new FakeHttp()
+            .Map($"https://{host}/.well-known/lnurlp/alice", PayMeta.Replace("{CB}", cb));
+        var rx = Rx(host, http);
+        var metadataJson = "[[\"text/plain\",\"Pay alice\"]]";
+        var p = new CreateInvoiceParams(LightMoney.MilliSatoshis(250_000_000), metadataJson, TimeSpan.FromMinutes(10))
+        { DescriptionHashOnly = true };
+
+        // The callback route is unmapped (404 -> throws), but the request it made is still recorded.
+        await Assert.ThrowsAnyAsync<Exception>(() =>
+            rx.CreateInvoice(p.Amount, p.Description, p, TestContext.Current.CancellationToken));
+
+        Assert.Equal($"{cb}?amount=250000000", http.Requests[1]);
+    }
+
+    [Fact]
     public async Task CreateInvoice_rejects_unsafe_verify_url()
     {
         // A malicious/compromised LNURL server hands back a verify URL pointing at an internal

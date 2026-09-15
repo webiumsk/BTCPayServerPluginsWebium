@@ -2,8 +2,8 @@
 
 Receive-only Lightning backend for BTCPay Server driven by nothing but a Lightning
 address. Works with **any wallet whose LNURL server supports LUD-21 `verify`** -
-Blitz Wallet, Flash and Coinos are curated (branding, tested), but unknown domains
-work too: support is probed when the connection is saved.
+Blitz Wallet, Blink, Flash and Coinos are curated (branding, tested), but unknown
+domains work too: support is probed when the connection is saved.
 
 ## Connection strings
 
@@ -35,4 +35,19 @@ Store configuration needs no changes - the legacy `type=` values stay valid.
 - Settlement is detected by polling the LUD-21 `verify` URL (batched per host, backoff).
 - Receive-only: no sending, balances or channel operations - payouts happen in the
   wallet app itself.
+- Amounts are rounded **up to whole satoshis** before the LNURL callback (and the
+  LNURL-pay bounds BTCPay serves are rounded the same way). BTCPay prices Lightning
+  invoices in millisatoshis, and sat-denominated LNURL servers such as Blink refuse
+  sub-satoshi amounts (`amount must be a whole sat amount`). BTCPay reconciles the
+  sub-satoshi difference automatically.
 - All outbound HTTP is SSRF-guarded (https-only, public hosts, redirects disabled).
+
+## Known limitations
+
+- **Blink app paying a Blink address via LNURL.** The served LNURL metadata must mirror
+  the wallet's own (it is committed by the invoice's description hash), and for
+  `user@blink.sv` it contains a `text/identifier` the Blink app recognises as its own.
+  The Blink app then pays that address **intraledger**, outside the BTCPay invoice, so
+  the merchant is paid but the invoice never settles. This only affects the LNURL-pay
+  option (and the store's BTCPay Lightning address); the regular BOLT11 invoice QR is
+  unaffected - a Blink app paying it settles the invoice normally.
