@@ -1,4 +1,6 @@
 #nullable enable
+using System;
+using System.Net.Http;
 using BTCPayServer.Abstractions.Contracts;
 using BTCPayServer.Abstractions.Extensions;
 using BTCPayServer.Abstractions.Models;
@@ -17,7 +19,7 @@ public class CashuMeltPlugin : BaseBTCPayServerPlugin
 
     public override IBTCPayServerPlugin.PluginDependency[] Dependencies { get; } =
     [
-        new() { Identifier = nameof(BTCPayServer), Condition = ">=2.3.7" }
+        new() { Identifier = nameof(BTCPayServer), Condition = ">=2.4.5" }
     ];
 
     public override void Execute(IServiceCollection services)
@@ -32,9 +34,16 @@ public class CashuMeltPlugin : BaseBTCPayServerPlugin
         services.AddStartupTask<PluginMigrationRunner>();
 
         // ── HTTP clients ────────────────────────────────────────────────────────
-        services.AddHttpClient<CashuMeltMintClient>();
+        services.AddTransient<HttpsDestinationHandler>();
+        services.AddHttpClient<CashuMeltMintClient>(c => c.Timeout = TimeSpan.FromSeconds(30))
+            .AddHttpMessageHandler<HttpsDestinationHandler>()
+            .UseSSRFProtection()
+            .ConfigurePrimaryHttpMessageHandler((h, _) => { ((SocketsHttpHandler)h).AllowAutoRedirect = false; });
         // LightningAddressResolver is instantiated directly via IHttpClientFactory in CashuMeltPaymentService
-        services.AddHttpClient(nameof(LightningAddressResolver));
+        services.AddHttpClient(nameof(LightningAddressResolver), c => c.Timeout = TimeSpan.FromSeconds(30))
+            .AddHttpMessageHandler<HttpsDestinationHandler>()
+            .UseSSRFProtection()
+            .ConfigurePrimaryHttpMessageHandler((h, _) => { ((SocketsHttpHandler)h).AllowAutoRedirect = false; });
 
         // ── Services ─────────────────────────────────────────────────────────
         services.AddSingleton<CashuMeltConfigService>();
