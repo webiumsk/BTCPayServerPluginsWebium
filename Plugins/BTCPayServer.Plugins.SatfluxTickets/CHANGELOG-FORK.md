@@ -1,3 +1,9 @@
+# 2.0.1 (BTCPay 2.4.5)
+
+- Align Npgsql, QRCoder, Identity/EF, and conditional Roslyn dependencies to the exact 2.4.5 host; require host 2.4.5.
+- Build and pack with the repository's pinned host. No migration IDs, schema/history identities, legacy routes, or fulfillment behavior changed.
+- Verified new-database startup migrations and restart on an isolated 2.4.5 host. Existing production-data upgrade and paid ticket/raffle fulfillment remain staging gates.
+
 # 2.0.0 (standalone rename)
 
 - The plugin is now **Satflux Tickets** with the standalone identifier

@@ -8,7 +8,7 @@
   <PropertyGroup>
     <Product>SEPA Instant QR</Product>
     <Description>Accept instant SEPA credit transfers via QR code (SK PayMe, CZ SPD, EU EPC QR) paid directly to the merchant's own bank account. Manual and automated payment confirmation backends. No custody.</Description>
-    <Version>0.8.0</Version>
+    <Version>0.8.1</Version>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
   </PropertyGroup>
 
@@ -29,7 +29,7 @@
   </ItemDefinitionGroup>
 
   <ItemGroup>
-    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.1" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
     <PackageReference Include="MQTTnet" Version="5.2.0.1603" />
     <PackageReference Include="LZMA-SDK" Version="22.1.1" />
   </ItemGroup>
@@ -39,14 +39,14 @@
   </ItemGroup>
 
   <ItemGroup Condition="'$(Configuration)' != 'Release'">
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.4">
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.12">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
     <!-- Pin the full CodeAnalysis graph EF Design drags in (same fix as SatoshiTickets). -->
-    <PackageReference Include="Microsoft.CodeAnalysis" Version="5.3.0" />
-    <PackageReference Include="Microsoft.CodeAnalysis.Common" Version="5.3.0" />
-    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.3.0" />
+    <PackageReference Include="Microsoft.CodeAnalysis" Version="5.9.0" />
+    <PackageReference Include="Microsoft.CodeAnalysis.Common" Version="5.9.0" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.9.0" />
   </ItemGroup>
 
   <ItemGroup>
