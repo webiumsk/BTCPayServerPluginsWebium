@@ -11,6 +11,18 @@ public class ConnectionStringTests
     const string PayTemplate =
         "{\"tag\":\"payRequest\",\"status\":\"OK\",\"callback\":\"https://ibex.flashapp.me/pay/lnurl/{U}\",\"minSendable\":1000,\"maxSendable\":10000000000,\"commentAllowed\":140,\"metadata\":\"[[\\\"text/plain\\\",\\\"Pay {U}\\\"]]\"}";
 
+    [Theory]
+    [InlineData("https://user:secret@flashapp.me")]
+    [InlineData("https://flashapp.me/#fragment")]
+    public void Server_origin_rejects_credentials_and_fragments_before_requests(string server)
+    {
+        var fake = new FakeHttp();
+        var handler = new FlashConnectionStringHandler(new FakeHttpClientFactory(fake), NullLoggerFactory.Instance);
+        Assert.Null(handler.Create($"type=flash;ln-address=alice@flashapp.me;server={server};", Network.Main, out var error));
+        Assert.NotNull(error);
+        Assert.Empty(fake.Requests);
+    }
+
     [Fact]
     public void Accepts_real_lnurl_origin_and_rejects_unrelated_server_before_requests()
     {

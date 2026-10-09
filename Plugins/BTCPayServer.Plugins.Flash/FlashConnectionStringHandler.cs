@@ -68,6 +68,7 @@ public class FlashConnectionStringHandler : ILightningConnectionStringHandler
         var normalized = FlashResolver.NormalizeAddress(lnAddress);
         if (kv.TryGetValue("server", out var origin) &&
             (!Uri.TryCreate(origin, UriKind.Absolute, out var supplied) ||
+             !string.IsNullOrEmpty(supplied.UserInfo) || !string.IsNullOrEmpty(supplied.Fragment) ||
              supplied != new Uri($"https://{normalized.Split('@')[1]}")))
         {
             error = "The server must be the HTTPS origin of the Lightning address";
