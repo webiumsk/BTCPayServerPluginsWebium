@@ -8,7 +8,7 @@ Build against the pinned host commit `5d0745cae6be5d8210459e38813f317673aa97b8` 
 | CashuMelt | 1.3.1.1 |
 | SEPA Instant QR | 0.8.1 |
 | Satflux Tickets | 2.0.1 |
-| LnAddress Connect | 1.0.2 |
+| LnAddress Connect | 1.0.3 |
 | Blitz | 1.0.1 |
 | Flash | 1.0.1 |
 
@@ -21,3 +21,26 @@ CashuMelt mint, LightningAddressResolver, and D21 fallback clients use BTCPay's 
 For staging, back up host/plugin databases and configuration, pause wallet edits and invoice creation during the host/package restart, install these versions with the 2.4.5 host, and then enable the compatible Satflux deployment. Verify existing migrations, pending invoices, Cashu mint/melt, SEPA settlement, Tickets/Raffle fulfillment, and restart recovery using staging wallets. No production plugin installation or database rewrite is performed by these changes.
 
 Rollback requires the previous host/package set and a coordinated database backup if host migration rollback is needed. Keep Tickets' fork identity and migration history; never substitute an upstream ticket package. Preserve callbacks and their signing secrets. The local source builds and tests do not establish funded settlement readiness.
+
+Blink BTC Lightning addresses now use LNAddress Connect 1.0.3 with
+`type=lnaddress;ln-address=merchant@blink.sv;server=https://blink.sv;`.
+Legacy `type=blink;ln-address=...;` and `username` address forms work without
+Kukks Blink. While its assembly is loaded, legacy Blink types remain with that
+plugin; primary `type=lnaddress` always belongs to LNAddress Connect.
+API-key, wallet-id and non-BTC currency configurations are never claimed by the
+address receiver. This receiver requires amounts and LUD-21 verification; it
+does not provide custodial balance, outgoing payments or USD wallet support.
+
+Retire Kukks Blink only after auditing all stores, migrating address-only
+connections explicitly, and draining every monitored invoice, including
+archived and Processing invoices. Existing Blink tracking has no persistence
+blob that LNAddress Connect can import: restarting with a new adapter is not a
+pending-invoice migration. Keep the old plugin while any custodial/USD store or
+unsettled Blink invoice depends on it. Validate a funded invoice and restart
+recovery on staging before removal. New LNAddress invoices use our existing
+durable tracking and receiver checks. No deployed plugin is removed here.
+
+The host verifier rejects staged/unstaged tracked edits and deletions in
+addition to a wrong host commit; untracked build output is allowed. CI exercises
+these cases. All address handlers reject credential-bearing or fragmented
+`server` origins before network requests.

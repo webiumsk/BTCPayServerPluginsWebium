@@ -7,8 +7,8 @@
 
   <PropertyGroup>
     <Product>LN Address Connect</Product>
-    <Description>Use any Lightning address with LUD-21 verify support (Blitz, Blink, Flash, Coinos, ...) as a receive-only Lightning backend. Invoices are minted by the wallet's LNURL server; settlement is detected via LUD-21 verify. Supersedes the Blitz and Flash plugins (legacy connection strings keep working). No node, no API keys.</Description>
-    <Version>1.0.2</Version>
+    <Description>Use any Lightning address with LUD-21 verify support (Blitz, Blink, Flash, Coinos, ...) as a receive-only Lightning backend. Invoices are minted by the wallet's LNURL server; settlement is detected via LUD-21 verify. Replaces Blitz, Flash and Blink address mode (legacy address strings keep working). No node, no API keys.</Description>
+    <Version>1.0.3</Version>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
     <RootNamespace>BTCPayServer.Plugins.LnAddressConnect</RootNamespace>
   </PropertyGroup>

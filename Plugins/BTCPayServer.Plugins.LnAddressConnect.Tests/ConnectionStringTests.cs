@@ -88,6 +88,51 @@ public class ConnectionStringTests
         Assert.Contains(fake.Requests, r => r.Contains("flashapp.me"));
     }
 
+    [Theory]
+    [InlineData("ln-address", false)]
+    [InlineData("ln-address", true)]
+    [InlineData("username", false)]
+    [InlineData("lnaddress", false)]
+    public void Legacy_blink_address_uses_our_receiver_without_the_Kukks_plugin(string key, bool fullAddress)
+    {
+        var user = "blink" + Guid.NewGuid().ToString("N").Substring(0, 8);
+        var fake = new FakeHttp().Map($"https://blink.sv/.well-known/lnurlp/{user}", PayTemplate.Replace("{U}", user));
+        var handler = new LnAddressConnectionStringHandler(new FakeHttpClientFactory(fake), NullLoggerFactory.Instance);
+        var value = fullAddress ? user + "@blink.sv" : user;
+        var connection = $"type=blink;{key}={value};server=https://blink.sv;";
+        Assert.IsType<LnAddressLightningClient>(handler.Create(connection, Network.Main, out var error));
+        Assert.Null(error);
+        Assert.True(LnAddressLnurlRequestFilter.TryGetLnAddressLnAddress(connection, out var address));
+        Assert.Equal(user + "@blink.sv", address);
+    }
+
+    [Fact]
+    public void Legacy_Blink_keeps_its_domain_restriction_before_requests()
+    {
+        var fake = new FakeHttp();
+        var handler = new LnAddressConnectionStringHandler(new FakeHttpClientFactory(fake), NullLoggerFactory.Instance);
+        Assert.Null(handler.Create("type=blink;ln-address=alice@unrelated.example;", Network.Main, out var error));
+        Assert.NotNull(error);
+        Assert.Empty(fake.Requests);
+        Assert.False(LnAddressLnurlRequestFilter.TryGetLnAddressLnAddress("type=blink;ln-address=alice@unrelated.example;", out _));
+    }
+
+    [Theory]
+    [InlineData("api-key=secret;wallet-id=wallet;")]
+    [InlineData("apikey=secret;")]
+    [InlineData("wallet-id=wallet;")]
+    [InlineData("currency=USD;")]
+    public void Custodial_or_USD_Blink_configurations_are_never_reinterpreted_as_address_only(string extra)
+    {
+        var fake = new FakeHttp();
+        var handler = new LnAddressConnectionStringHandler(new FakeHttpClientFactory(fake), NullLoggerFactory.Instance);
+        var connection = "type=blink;ln-address=alice@blink.sv;" + extra;
+        Assert.Null(handler.Create(connection, Network.Main, out var error));
+        Assert.Null(error);
+        Assert.False(LnAddressLnurlRequestFilter.TryGetLnAddressLnAddress(connection, out _));
+        Assert.Empty(fake.Requests);
+    }
+
     [Fact]
     public void Rejects_missing_ln_address()
     {

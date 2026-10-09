@@ -7,7 +7,7 @@ namespace BTCPayServer.Plugins.LnAddressConnect;
 
 /// <summary>
 /// Connection-string types this plugin claims and the curated wallet branding.
-/// The plugin supersedes the Blitz and Flash plugins: their legacy types keep working
+/// The plugin supersedes the address modes of the Blitz, Flash and Blink plugins: their legacy types keep working
 /// (including bare-username expansion to their historical default domains), while new
 /// connections use <c>type=lnaddress</c> with a full user@domain address. Any domain whose
 /// LNURL server supports LUD-21 verify works; the branding map is cosmetic only.
@@ -22,6 +22,7 @@ public static class LnAddressTypes
         {
             ["blitz"] = "blitzwalletapp.com",
             ["flash"] = "flashapp.me",
+            ["blink"] = "blink.sv",
         };
 
     /// <summary>Legacy type → assembly name of the superseded plugin that natively claims it.</summary>
@@ -30,6 +31,7 @@ public static class LnAddressTypes
         {
             ["blitz"] = "BTCPayServer.Plugins.Blitz",
             ["flash"] = "BTCPayServer.Plugins.Flash",
+            ["blink"] = "BTCPayServer.Plugins.Blink",
         };
 
     /// <summary>
@@ -57,6 +59,23 @@ public static class LnAddressTypes
         type is not null
         && (type.Equals(Primary, StringComparison.OrdinalIgnoreCase)
             || (LegacyDefaultDomains.ContainsKey(type) && ClaimsLegacyType(type)));
+
+    /// <summary>Claims only receive-only address configurations. Blink API keys and
+    /// USD balances belong to the custodial plugin and must never be silently downgraded.</summary>
+    public static bool IsOurConnection(string? type, IReadOnlyDictionary<string, string> parameters) =>
+        IsOurType(type)
+        && !parameters.ContainsKey("api-key") && !parameters.ContainsKey("apikey")
+        && !parameters.ContainsKey("wallet-id") && !parameters.ContainsKey("walletid")
+        && (!parameters.TryGetValue("currency", out var currency)
+            || currency.Equals("BTC", StringComparison.OrdinalIgnoreCase));
+
+    public static string? AddressParameter(string? type, IReadOnlyDictionary<string, string> parameters)
+    {
+        if (parameters.TryGetValue("ln-address", out var address)) return address;
+        // Kukks Blink historically also accepts a username, defaulting to blink.sv.
+        return type?.Equals("blink", StringComparison.OrdinalIgnoreCase) == true
+            && (parameters.TryGetValue("username", out address) || parameters.TryGetValue("lnaddress", out address)) ? address : null;
+    }
 
     /// <summary>Curated display names by LN address domain - cosmetic; unknown domains still work.</summary>
     public static readonly IReadOnlyDictionary<string, string> KnownWalletNames =

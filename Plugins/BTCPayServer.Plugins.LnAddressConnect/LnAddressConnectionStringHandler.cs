@@ -50,13 +50,14 @@ public class LnAddressConnectionStringHandler : ILightningConnectionStringHandle
     public ILightningClient? Create(string connectionString, Network network, out string? error)
     {
         var kv = LightningConnectionStringHelper.ExtractValues(connectionString, out var type);
-        if (!LnAddressTypes.IsOurType(type))
+        if (!LnAddressTypes.IsOurConnection(type, kv))
         {
             error = null;
             return null;
         }
 
-        if (!kv.TryGetValue("ln-address", out var lnAddress) || string.IsNullOrWhiteSpace(lnAddress))
+        var lnAddress = LnAddressTypes.AddressParameter(type, kv);
+        if (string.IsNullOrWhiteSpace(lnAddress))
         {
             error = "The key 'ln-address' (your wallet's Lightning address) is mandatory for lnaddress connection strings";
             return null;
@@ -67,7 +68,7 @@ public class LnAddressConnectionStringHandler : ILightningConnectionStringHandle
         string normalized;
         try
         {
-            // Legacy types (blitz/flash) expand bare usernames to their historical domain;
+            // Legacy address types (blitz/flash/blink) expand bare usernames to their historical domain;
             // type=lnaddress requires a full user@domain address.
             normalized = LnAddressResolver.NormalizeAddress(lnAddress, type);
         }
