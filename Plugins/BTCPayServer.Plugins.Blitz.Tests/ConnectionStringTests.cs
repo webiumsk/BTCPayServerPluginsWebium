@@ -12,6 +12,19 @@ public class ConnectionStringTests
         "{\"tag\":\"payRequest\",\"status\":\"OK\",\"callback\":\"https://blitzwalletapp.com/.well-known/lnurlp/{U}/\",\"minSendable\":1000,\"maxSendable\":10000000000,\"commentAllowed\":150,\"metadata\":\"[[\\\"text/plain\\\",\\\"Pay {U}\\\"]]\"}";
 
     [Fact]
+    public void Accepts_real_lnurl_origin_and_rejects_unrelated_server_before_requests()
+    {
+        var user = "origin" + Guid.NewGuid().ToString("N")[..8];
+        var fake = new FakeHttp().Map($"https://blitzwalletapp.com/.well-known/lnurlp/{user}", PayTemplate.Replace("{U}", user));
+        var h = new BlitzConnectionStringHandler(new FakeHttpClientFactory(fake), NullLoggerFactory.Instance);
+        Assert.Null(h.Create($"type=blitz;ln-address={user}@blitzwalletapp.com;server=https://unrelated.example;", Network.Main, out var rejected));
+        Assert.NotNull(rejected);
+        Assert.Empty(fake.Requests);
+        Assert.NotNull(h.Create($"type=blitz;ln-address={user}@blitzwalletapp.com;server=https://blitzwalletapp.com;", Network.Main, out var error));
+        Assert.Null(error);
+    }
+
+    [Fact]
     public void Ignores_non_blitz_types()
     {
         var h = new BlitzConnectionStringHandler(new FakeHttpClientFactory(new FakeHttp()), NullLoggerFactory.Instance);

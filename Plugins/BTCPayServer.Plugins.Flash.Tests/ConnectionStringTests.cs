@@ -12,6 +12,19 @@ public class ConnectionStringTests
         "{\"tag\":\"payRequest\",\"status\":\"OK\",\"callback\":\"https://ibex.flashapp.me/pay/lnurl/{U}\",\"minSendable\":1000,\"maxSendable\":10000000000,\"commentAllowed\":140,\"metadata\":\"[[\\\"text/plain\\\",\\\"Pay {U}\\\"]]\"}";
 
     [Fact]
+    public void Accepts_real_lnurl_origin_and_rejects_unrelated_server_before_requests()
+    {
+        var user = "origin" + Guid.NewGuid().ToString("N")[..8];
+        var fake = new FakeHttp().Map($"https://flashapp.me/.well-known/lnurlp/{user}", PayTemplate.Replace("{U}", user));
+        var h = new FlashConnectionStringHandler(new FakeHttpClientFactory(fake), NullLoggerFactory.Instance);
+        Assert.Null(h.Create($"type=flash;ln-address={user}@flashapp.me;server=https://unrelated.example;", Network.Main, out var rejected));
+        Assert.NotNull(rejected);
+        Assert.Empty(fake.Requests);
+        Assert.NotNull(h.Create($"type=flash;ln-address={user}@flashapp.me;server=https://flashapp.me;", Network.Main, out var error));
+        Assert.Null(error);
+    }
+
+    [Fact]
     public void Ignores_non_flash_types()
     {
         var h = new FlashConnectionStringHandler(new FakeHttpClientFactory(new FakeHttp()), NullLoggerFactory.Instance);

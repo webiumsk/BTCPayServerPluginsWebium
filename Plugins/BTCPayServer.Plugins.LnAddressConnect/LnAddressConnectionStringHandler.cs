@@ -77,6 +77,14 @@ public class LnAddressConnectionStringHandler : ILightningConnectionStringHandle
             return null;
         }
 
+        if (kv.TryGetValue("server", out var origin) &&
+            (!Uri.TryCreate(origin, UriKind.Absolute, out var supplied) ||
+             supplied != new Uri($"https://{normalized.Split('@')[1]}")))
+        {
+            error = "The server must be the HTTPS origin of the Lightning address";
+            return null;
+        }
+
         error = null;
         var http = _httpClientFactory.CreateClient(LnAddressHttp.ClientName);
         // Bound each LNURL request rather than inheriting the default 100s HttpClient timeout.
