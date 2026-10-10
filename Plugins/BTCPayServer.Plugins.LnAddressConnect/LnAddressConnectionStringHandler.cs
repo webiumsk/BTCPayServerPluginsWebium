@@ -66,11 +66,14 @@ public class LnAddressConnectionStringHandler : ILightningConnectionStringHandle
         EnsurePersistedInvoicesLoaded();
 
         string normalized;
+        Uri addressOrigin;
         try
         {
             // Legacy address types (blitz/flash/blink) expand bare usernames to their historical domain;
             // type=lnaddress requires a full user@domain address.
             normalized = LnAddressResolver.NormalizeAddress(lnAddress, type);
+            var (_, domain) = LnAddressResolver.ParseLightningAddress(normalized);
+            addressOrigin = new Uri($"https://{domain}");
         }
         catch (FormatException ex)
         {
@@ -81,7 +84,7 @@ public class LnAddressConnectionStringHandler : ILightningConnectionStringHandle
         if (kv.TryGetValue("server", out var origin) &&
             (!Uri.TryCreate(origin, UriKind.Absolute, out var supplied) ||
              !string.IsNullOrEmpty(supplied.UserInfo) || !string.IsNullOrEmpty(supplied.Fragment) ||
-             supplied != new Uri($"https://{normalized.Split('@')[1]}")))
+             supplied != addressOrigin))
         {
             error = "The server must be the HTTPS origin of the Lightning address";
             return null;

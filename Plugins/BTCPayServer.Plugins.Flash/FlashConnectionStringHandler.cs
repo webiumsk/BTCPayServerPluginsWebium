@@ -65,11 +65,23 @@ public class FlashConnectionStringHandler : ILightningConnectionStringHandler
         EnsurePersistedInvoicesLoaded();
 
         error = null;
-        var normalized = FlashResolver.NormalizeAddress(lnAddress);
+        string normalized;
+        Uri addressOrigin;
+        try
+        {
+            normalized = FlashResolver.NormalizeAddress(lnAddress);
+            var (_, domain) = FlashResolver.ParseLightningAddress(normalized);
+            addressOrigin = new Uri($"https://{domain}");
+        }
+        catch (FormatException ex)
+        {
+            error = ex.Message;
+            return null;
+        }
         if (kv.TryGetValue("server", out var origin) &&
             (!Uri.TryCreate(origin, UriKind.Absolute, out var supplied) ||
              !string.IsNullOrEmpty(supplied.UserInfo) || !string.IsNullOrEmpty(supplied.Fragment) ||
-             supplied != new Uri($"https://{normalized.Split('@')[1]}")))
+             supplied != addressOrigin))
         {
             error = "The server must be the HTTPS origin of the Lightning address";
             return null;

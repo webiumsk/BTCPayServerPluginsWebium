@@ -12,6 +12,25 @@ public class ConnectionStringTests
         "{\"tag\":\"payRequest\",\"status\":\"OK\",\"callback\":\"https://ibex.flashapp.me/pay/lnurl/{U}\",\"minSendable\":1000,\"maxSendable\":10000000000,\"commentAllowed\":140,\"metadata\":\"[[\\\"text/plain\\\",\\\"Pay {U}\\\"]]\"}";
 
     [Theory]
+    [InlineData("alice@", false)]
+    [InlineData("alice@", true)]
+    [InlineData("@example.com", false)]
+    [InlineData("@example.com", true)]
+    [InlineData("alice@@example.com", false)]
+    [InlineData("alice@@example.com", true)]
+    [InlineData("alice@[invalid", false)]
+    [InlineData("alice@[invalid", true)]
+    public void Malformed_addresses_return_errors_before_requests(string address, bool includeServer)
+    {
+        var fake = new FakeHttp();
+        var handler = new LnAddressConnectionStringHandler(new FakeHttpClientFactory(fake), NullLoggerFactory.Instance);
+        var server = includeServer ? "server=https://example.com;" : "";
+        Assert.Null(handler.Create($"type=lnaddress;ln-address={address};{server}", Network.Main, out var error));
+        Assert.NotNull(error);
+        Assert.Empty(fake.Requests);
+    }
+
+    [Theory]
     [InlineData("https://user:secret@anywallet.example")]
     [InlineData("https://anywallet.example/#fragment")]
     public void Server_origin_rejects_credentials_and_fragments_before_requests(string server)

@@ -44,3 +44,9 @@ The host verifier rejects staged/unstaged tracked edits and deletions in
 addition to a wrong host commit; untracked build output is allowed. CI exercises
 these cases. All address handlers reject credential-bearing or fragmented
 `server` origins before network requests.
+
+Address handlers validate the normalized username/domain and construct the expected
+origin inside the validation error boundary. Malformed addresses, including an
+empty domain or an invalid URI host with `server`, return connection errors
+without making HTTP requests rather than escaping as exceptions. Regression
+coverage includes these cases with and without an explicit server.
