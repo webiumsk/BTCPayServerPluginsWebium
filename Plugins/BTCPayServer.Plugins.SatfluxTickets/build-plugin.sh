@@ -10,14 +10,9 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 PUBLISH_DIR="$SCRIPT_DIR/bin/publish/$PLUGIN_NAME"
 OUTPUT_DIR="${1:-$REPO_ROOT/packaged}"
 
-PLUGIN_PACKER="$REPO_ROOT/submodules/btcpayserver/BTCPayServer.PluginPacker"
-if [ ! -d "$PLUGIN_PACKER" ]; then
-    PLUGIN_PACKER="$REPO_ROOT/../btcpayserver/BTCPayServer.PluginPacker"
-fi
-if [ ! -d "$PLUGIN_PACKER" ]; then
-    PLUGIN_PACKER="$REPO_ROOT/../BTCPayServerPluginsKukks/submodules/btcpayserver/BTCPayServer.PluginPacker"
-fi
+bash "$REPO_ROOT/scripts/verify-btcpay-host.sh"
 
+PLUGIN_PACKER="$REPO_ROOT/submodules/btcpayserver/BTCPayServer.PluginPacker"
 DOTNET="${DOTNET:-dotnet}"
 if ! command -v "$DOTNET" &>/dev/null; then
     if [ -x "$HOME/.dotnet/dotnet" ]; then

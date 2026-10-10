@@ -65,7 +65,28 @@ public class FlashConnectionStringHandler : ILightningConnectionStringHandler
         EnsurePersistedInvoicesLoaded();
 
         error = null;
-        var normalized = FlashResolver.NormalizeAddress(lnAddress);
+        string normalized;
+        Uri addressOrigin;
+        try
+        {
+            normalized = FlashResolver.NormalizeAddress(lnAddress);
+            var (_, domain) = FlashResolver.ParseLightningAddress(normalized);
+            addressOrigin = new Uri($"https://{domain}");
+        }
+        catch (FormatException ex)
+        {
+            error = ex.Message;
+            return null;
+        }
+        if (kv.TryGetValue("server", out var origin) &&
+            (!Uri.TryCreate(origin, UriKind.Absolute, out var supplied) ||
+             !string.IsNullOrEmpty(supplied.UserInfo) || !string.IsNullOrEmpty(supplied.Fragment) ||
+             supplied != addressOrigin))
+        {
+            error = "The server must be the HTTPS origin of the Lightning address";
+            return null;
+        }
+
         var http = _httpClientFactory.CreateClient(FlashHttp.ClientName);
         // Bound each LNURL request rather than inheriting the default 100s HttpClient timeout.
         http.Timeout = TimeSpan.FromSeconds(30);

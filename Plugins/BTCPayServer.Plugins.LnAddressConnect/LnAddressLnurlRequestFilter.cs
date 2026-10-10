@@ -144,10 +144,11 @@ public class LnAddressLnurlRequestFilter : PluginHookFilter<LNURLPayRequest>
         try
         {
             kv = LightningConnectionStringHelper.ExtractValues(connectionString, out var type);
-            if (!LnAddressTypes.IsOurType(type))
+            if (!LnAddressTypes.IsOurConnection(type, kv))
                 return false;
 
-            if (!kv.TryGetValue("ln-address", out lnAddress) || string.IsNullOrWhiteSpace(lnAddress))
+            lnAddress = LnAddressTypes.AddressParameter(type, kv);
+            if (string.IsNullOrWhiteSpace(lnAddress))
                 return false;
 
             lnAddress = LnAddressResolver.NormalizeAddress(lnAddress, type);

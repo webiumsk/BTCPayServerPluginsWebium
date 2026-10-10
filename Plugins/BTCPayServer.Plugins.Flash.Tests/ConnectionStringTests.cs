@@ -11,6 +11,50 @@ public class ConnectionStringTests
     const string PayTemplate =
         "{\"tag\":\"payRequest\",\"status\":\"OK\",\"callback\":\"https://ibex.flashapp.me/pay/lnurl/{U}\",\"minSendable\":1000,\"maxSendable\":10000000000,\"commentAllowed\":140,\"metadata\":\"[[\\\"text/plain\\\",\\\"Pay {U}\\\"]]\"}";
 
+    [Theory]
+    [InlineData("alice@", false)]
+    [InlineData("alice@", true)]
+    [InlineData("@example.com", false)]
+    [InlineData("@example.com", true)]
+    [InlineData("alice@@example.com", false)]
+    [InlineData("alice@@example.com", true)]
+    [InlineData("alice@[invalid", false)]
+    [InlineData("alice@[invalid", true)]
+    public void Malformed_addresses_return_errors_before_requests(string address, bool includeServer)
+    {
+        var fake = new FakeHttp();
+        var handler = new FlashConnectionStringHandler(new FakeHttpClientFactory(fake), NullLoggerFactory.Instance);
+        var server = includeServer ? "server=https://example.com;" : "";
+        Assert.Null(handler.Create($"type=flash;ln-address={address};{server}", Network.Main, out var error));
+        Assert.NotNull(error);
+        Assert.Empty(fake.Requests);
+    }
+
+    [Theory]
+    [InlineData("https://user:secret@flashapp.me")]
+    [InlineData("https://flashapp.me/#fragment")]
+    public void Server_origin_rejects_credentials_and_fragments_before_requests(string server)
+    {
+        var fake = new FakeHttp();
+        var handler = new FlashConnectionStringHandler(new FakeHttpClientFactory(fake), NullLoggerFactory.Instance);
+        Assert.Null(handler.Create($"type=flash;ln-address=alice@flashapp.me;server={server};", Network.Main, out var error));
+        Assert.NotNull(error);
+        Assert.Empty(fake.Requests);
+    }
+
+    [Fact]
+    public void Accepts_real_lnurl_origin_and_rejects_unrelated_server_before_requests()
+    {
+        var user = "origin" + Guid.NewGuid().ToString("N")[..8];
+        var fake = new FakeHttp().Map($"https://flashapp.me/.well-known/lnurlp/{user}", PayTemplate.Replace("{U}", user));
+        var h = new FlashConnectionStringHandler(new FakeHttpClientFactory(fake), NullLoggerFactory.Instance);
+        Assert.Null(h.Create($"type=flash;ln-address={user}@flashapp.me;server=https://unrelated.example;", Network.Main, out var rejected));
+        Assert.NotNull(rejected);
+        Assert.Empty(fake.Requests);
+        Assert.NotNull(h.Create($"type=flash;ln-address={user}@flashapp.me;server=https://flashapp.me;", Network.Main, out var error));
+        Assert.Null(error);
+    }
+
     [Fact]
     public void Ignores_non_flash_types()
     {

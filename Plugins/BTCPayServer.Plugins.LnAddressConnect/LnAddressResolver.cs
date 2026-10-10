@@ -15,18 +15,24 @@ public sealed record ResolvedLnAddress(Uri PayEndpoint, string LnAddress, string
 public static class LnAddressResolver
 {
     /// <summary>
-    /// Trims and, for legacy types (blitz/flash), expands a bare username to that wallet's
+    /// Trims and, for legacy types (blitz/flash/blink), expands a bare username to that wallet's
     /// historical default domain. For <c>type=lnaddress</c> a full user@domain is required.
     /// </summary>
     public static string NormalizeAddress(string lnAddress, string? type = null)
     {
         lnAddress = lnAddress.Trim();
-        if (lnAddress.Contains('@'))
-            return lnAddress;
-        if (type is not null && LnAddressTypes.LegacyDefaultDomains.TryGetValue(type, out var domain))
-            return $"{lnAddress}@{domain}";
-        throw new FormatException(
-            $"'{lnAddress}' is not a full Lightning address - use user@domain (e.g. you@yourwallet.com).");
+        if (!lnAddress.Contains('@'))
+        {
+            if (type is not null && LnAddressTypes.LegacyDefaultDomains.TryGetValue(type, out var domain))
+                lnAddress = $"{lnAddress}@{domain}";
+            else
+                throw new FormatException(
+                    $"'{lnAddress}' is not a full Lightning address - use user@domain (e.g. you@yourwallet.com).");
+        }
+        if (type?.Equals("blink", StringComparison.OrdinalIgnoreCase) == true
+            && !ParseLightningAddress(lnAddress).Domain.Equals("blink.sv", StringComparison.OrdinalIgnoreCase))
+            throw new FormatException("Legacy Blink addresses must use the blink.sv domain.");
+        return lnAddress;
     }
 
     public static (string Username, string Domain) ParseLightningAddress(string lnAddress)

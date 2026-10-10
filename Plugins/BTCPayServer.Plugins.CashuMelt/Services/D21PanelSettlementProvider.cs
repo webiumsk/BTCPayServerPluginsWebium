@@ -43,7 +43,7 @@ public class D21PanelSettlementProvider(
         if (string.IsNullOrWhiteSpace(_baseUrl) || string.IsNullOrWhiteSpace(_apiKey))
             return new(false, "D21Panel settlement is not configured.");
 
-        var client = _httpClientFactory.CreateClient();
+        var client = _httpClientFactory.CreateClient(nameof(LightningAddressResolver));
         client.BaseAddress = new Uri(_baseUrl.TrimEnd('/') + "/");
         client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         client.DefaultRequestHeaders.Add("X-D21-Api-Key", _apiKey);

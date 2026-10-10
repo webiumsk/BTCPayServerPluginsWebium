@@ -64,7 +64,28 @@ public class BlitzConnectionStringHandler : ILightningConnectionStringHandler
         EnsurePersistedInvoicesLoaded();
 
         error = null;
-        var normalized = BlitzResolver.NormalizeAddress(lnAddress);
+        string normalized;
+        Uri addressOrigin;
+        try
+        {
+            normalized = BlitzResolver.NormalizeAddress(lnAddress);
+            var (_, domain) = BlitzResolver.ParseLightningAddress(normalized);
+            addressOrigin = new Uri($"https://{domain}");
+        }
+        catch (FormatException ex)
+        {
+            error = ex.Message;
+            return null;
+        }
+        if (kv.TryGetValue("server", out var origin) &&
+            (!Uri.TryCreate(origin, UriKind.Absolute, out var supplied) ||
+             !string.IsNullOrEmpty(supplied.UserInfo) || !string.IsNullOrEmpty(supplied.Fragment) ||
+             supplied != addressOrigin))
+        {
+            error = "The server must be the HTTPS origin of the Lightning address";
+            return null;
+        }
+
         var http = _httpClientFactory.CreateClient(BlitzHttp.ClientName);
         // Bound each LNURL request rather than inheriting the default 100s HttpClient timeout.
         http.Timeout = TimeSpan.FromSeconds(30);

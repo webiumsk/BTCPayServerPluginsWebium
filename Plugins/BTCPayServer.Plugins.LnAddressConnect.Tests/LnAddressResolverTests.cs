@@ -14,6 +14,7 @@ public class LnAddressResolverTests
     public void Bare_username_expands_only_for_legacy_types()
     {
         // Legacy blitz/flash types keep their historical default-domain expansion.
+        Assert.Equal("alice@blink.sv", LnAddressResolver.NormalizeAddress("alice", "blink"));
         Assert.Equal("alice@flashapp.me", LnAddressResolver.NormalizeAddress("alice", "flash"));
         Assert.Equal("alice@blitzwalletapp.com", LnAddressResolver.NormalizeAddress("alice", "blitz"));
         // Full addresses always pass through, regardless of type.

@@ -9,19 +9,9 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 PUBLISH_DIR="$SCRIPT_DIR/bin/publish/$PLUGIN_NAME"
 OUTPUT_DIR="${1:-$REPO_ROOT/packaged}"
 
-# PluginPacker resolution mirrors the csproj's BTCPayServer reference order.
-PACKER_CANDIDATES=(
-    "$REPO_ROOT/submodules/btcpayserver/BTCPayServer.PluginPacker"
-    "$REPO_ROOT/../btcpayserver/BTCPayServer.PluginPacker"
-    "$REPO_ROOT/../BTCPayServerPluginsKukks/submodules/btcpayserver/BTCPayServer.PluginPacker"
-)
-PLUGIN_PACKER=""
-for candidate in "${PACKER_CANDIDATES[@]}"; do
-    if [ -d "$candidate" ]; then
-        PLUGIN_PACKER="$candidate"
-        break
-    fi
-done
+# Use the exact host source pinned by this repository.
+bash "$REPO_ROOT/scripts/verify-btcpay-host.sh"
+PLUGIN_PACKER="${PLUGIN_PACKER:-$REPO_ROOT/submodules/btcpayserver/BTCPayServer.PluginPacker}"
 
 DOTNET="${DOTNET:-dotnet}"
 if ! command -v "$DOTNET" &>/dev/null; then
@@ -33,9 +23,8 @@ if ! command -v "$DOTNET" &>/dev/null; then
     fi
 fi
 
-if [ -z "$PLUGIN_PACKER" ]; then
-    echo "Error: PluginPacker not found in any of:"
-    printf '  %s\n' "${PACKER_CANDIDATES[@]}"
+if [ ! -d "$PLUGIN_PACKER" ]; then
+    echo "Error: PluginPacker not found at $PLUGIN_PACKER"
     exit 1
 fi
 

@@ -10,7 +10,7 @@ public class LnAddressTypesTests
     [InlineData("LNADDRESS", true)]
     [InlineData("blitz", true)]
     [InlineData("flash", true)]
-    [InlineData("blink", false)]
+    [InlineData("blink", true)]
     [InlineData("lnurl", false)]
     [InlineData(null, false)]
     public void IsOurType_covers_primary_and_legacy_aliases(string? type, bool expected)
@@ -28,9 +28,11 @@ public class LnAddressTypesTests
 
         Assert.False(LnAddressTypes.ClaimsLegacyType("blitz", AllLegacyLoaded));
         Assert.False(LnAddressTypes.ClaimsLegacyType("flash", AllLegacyLoaded));
+        Assert.False(LnAddressTypes.ClaimsLegacyType("blink", AllLegacyLoaded));
 
         Assert.True(LnAddressTypes.ClaimsLegacyType("blitz", NoneLoaded));
         Assert.True(LnAddressTypes.ClaimsLegacyType("flash", NoneLoaded));
+        Assert.True(LnAddressTypes.ClaimsLegacyType("blink", NoneLoaded));
 
         // The primary type is never subject to the guard.
         Assert.False(LnAddressTypes.ClaimsLegacyType("lnaddress", NoneLoaded));
@@ -41,6 +43,7 @@ public class LnAddressTypesTests
     [InlineData("blitzwalletapp.com", "Blitz Wallet")]
     [InlineData("flashapp.me", "Flash")]
     [InlineData("coinos.io", "Coinos")]
+    [InlineData("blink.sv", "Blink")]
     [InlineData("CoinOS.io", "Coinos")]
     [InlineData("unknown.example", "LN Address (unknown.example)")]
     public void DisplayNameFor_uses_curated_brands_with_generic_fallback(string domain, string expected)
