@@ -8,6 +8,12 @@ namespace BTCPayServer.Plugins.CashuMelt.Tests;
 public class CashuMeltSettlementVerificationTests
 {
     [Fact]
+    public void Fee_buffer_ceiling_cannot_overflow_on_mint_controlled_amounts()
+    {
+        Assert.Equal(92233720368547759L, CashuMeltFeePolicy.EstimateFeeBufferSat(long.MaxValue));
+    }
+
+    [Fact]
     public void Confirmation_requires_the_exact_quote_amount_and_payment_preimage()
     {
         var (invoice, preimage) = LightningInvoiceFixture.Create(100);

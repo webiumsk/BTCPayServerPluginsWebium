@@ -37,6 +37,16 @@ public class CashuMeltDatabaseSafetyTests
     }
 
     [CashuDatabaseFact]
+    public async Task Orphaned_assets_cannot_be_reassigned_by_recreating_store_settings()
+    {
+        var factory = await Ready(); var store = Guid.NewGuid().ToString("N");
+        await using var ctx = factory.CreateContext();
+        ctx.CashuMeltPaymentRequests.Add(new CashuMeltPaymentRequest { QuoteId = Guid.NewGuid().ToString("N"), StoreId = store, InvoiceId = "old", CreatedAt = DateTimeOffset.UtcNow, SettlementState = "MANUAL_REVIEW" });
+        await ctx.SaveChangesAsync();
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new CashuMeltConfigService(factory).SaveSettingsAsync(new CashuMeltStoreSettings { StoreId = store, MintUrl = "https://replacement.example", LightningAddress = "replacement@example.com", Enabled = true }));
+    }
+
+    [CashuDatabaseFact]
     public async Task Fresh_database_applies_the_entire_EF_migration_chain()
     {
         var connection = new Npgsql.NpgsqlConnectionStringBuilder(Environment.GetEnvironmentVariable("CASHUMELT_TEST_CONNECTION"));

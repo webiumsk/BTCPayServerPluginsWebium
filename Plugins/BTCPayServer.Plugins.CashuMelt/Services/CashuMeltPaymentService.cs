@@ -128,9 +128,10 @@ public class CashuMeltPaymentService
             return (null, null, "Mint must support NUT-09 recovery before accepting payments");
 
         var quote = await _mintClient.CreateMintQuoteAsync(settings.MintUrl, amountSats, unit, ct);
-        if (quote is null || string.IsNullOrEmpty(quote.Quote))
+        if (quote is null || string.IsNullOrWhiteSpace(quote.Quote))
             return (null, null, "Mint did not return a valid quote");
 
+        if (quote.HasBeenPaid || quote.HasBeenIssued) return (null, null, "Mint returned an already-funded quote");
         if (quote.Request is null) return (null, null, "Mint did not return an invoice");
         CashuMeltSettlementVerification.ValidateInvoice(quote.Request, amountSats);
         if (quote.Unit != unit || quote.Amount != amountSats) return (null, null, "Mint quote amount or unit mismatch");
@@ -780,7 +781,7 @@ public class CashuMeltPaymentService
                 return (false, req.SettlementError, false);
             }
 
-            if (meltQuote is not null && (meltQuote.Amount != forwardSat || (meltQuote.Request is not null && meltQuote.Request != bolt11)))
+            if (meltQuote is not null && (string.IsNullOrWhiteSpace(meltQuote.Quote) || meltQuote.Amount != forwardSat || (meltQuote.Request is not null && meltQuote.Request != bolt11)))
             {
                 await RequireManualReviewAsync(ctx, req, "Melt quote does not match the destination invoice", ct);
                 return (false, req.SettlementError, false);
@@ -812,8 +813,7 @@ public class CashuMeltPaymentService
                 return (false, feeCapErr, false);
             }
 
-            long totalNeeded = meltQuote.Amount + meltQuote.FeeReserve;
-            if (totalNeeded <= spendableSat)
+            if (meltQuote.Amount <= spendableSat && meltQuote.FeeReserve <= spendableSat - meltQuote.Amount)
                 break;
 
             var reducedForwardSat = CashuMeltFeePolicy.ReducedForwardSat(spendableSat, meltQuote.FeeReserve, forwardSat);
@@ -1361,11 +1361,11 @@ public class CashuMeltPaymentService
             payoutInvoice = bolt11;
 
             quote = await _mintClient.RequestMeltQuoteAsync(mintUrl, bolt11, "sat", ct);
-            if (quote is null || quote.Amount != forwardSat || (quote.Request is not null && quote.Request != bolt11))
+            if (quote is null || string.IsNullOrWhiteSpace(quote.Quote) || quote.Amount != forwardSat || (quote.Request is not null && quote.Request != bolt11))
                 return;
             var feeError = CashuMeltFeePolicy.ValidateMeltFeeReserve(totalSat, quote.FeeReserve, settings.MaxMeltFeeReserveSats, settings.MaxMeltFeeReservePercentOfMinted);
             if (feeError is not null) return;
-            if (quote.Amount + quote.FeeReserve <= spendableSat)
+            if (quote.Amount <= spendableSat && quote.FeeReserve <= spendableSat - quote.Amount)
                 break;
 
             var reduced = CashuMeltFeePolicy.ReducedForwardSat(spendableSat, quote.FeeReserve, forwardSat);
