@@ -9,6 +9,7 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
     <!-- StoreData blob (de)serialization reflects over BTCPayServer types that need
          these at runtime; BTCPay hosts them on the server, tests must ship them. -->
+    <PackageReference Include="BTCPayServer.Lightning.Common" Version="1.7.4" />
     <PackageReference Include="NBXplorer.Client" Version="5.0.11" />
     <PackageReference Include="MimeKit" Version="4.18.1" />
     <PackageReference Include="MailKit" Version="4.18.1" />
@@ -21,4 +22,5 @@
   <ItemGroup>
     <ProjectReference Include="..\BTCPayServer.Plugins.CashuMelt\BTCPayServer.Plugins.CashuMelt.csproj" />
   </ItemGroup>
+  <ItemGroup><Compile Include="../TestFixtures/LightningInvoiceFixture.cs" Link="LightningInvoiceFixture.cs" /></ItemGroup>
 </Project>

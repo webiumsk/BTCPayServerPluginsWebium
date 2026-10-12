@@ -61,14 +61,12 @@ public class CashuMeltMintClient
             }
             if (!resp.IsSuccessStatusCode)
             {
-                var errBody = await resp.Content.ReadAsStringAsync(ct);
-                _logger.LogWarning("CreateMintQuote HTTP {Status} at {Url}: {Body}", code, url,
-                    errBody.Length > 400 ? errBody[..400] : errBody);
+                _logger.LogWarning("CreateMintQuote HTTP {Status} at {Url}", code, url);
                 return null;
             }
             await using var stream = await resp.Content.ReadAsStreamAsync(ct);
             var result = await JsonSerializer.DeserializeAsync<MintQuoteBolt11Response>(stream, JsonOptions, ct);
-            _logger.LogDebug("Mint quote created: {QuoteId} for {Amount} {Unit}", result?.Quote, amount, unit);
+            _logger.LogDebug("Mint quote created for {Amount} {Unit}", amount, unit);
             return result;
         }
         catch (Exception ex)
@@ -93,16 +91,13 @@ public class CashuMeltMintClient
                 var ra = ParseRetryAfterSeconds(resp);
                 _logger.LogWarning(
                     "cashumelt_mint_poll_transient phase=mint_poll HTTP {Status} quote {QuoteId} retryAfter={RetryAfter}s",
-                    code, quoteId, ra);
+                    code, QuoteLogId(quoteId), ra);
                 return new MintQuotePollResult(false, true, ra, null, null);
             }
 
             if (!resp.IsSuccessStatusCode)
             {
-                var body = await resp.Content.ReadAsStringAsync(ct);
-                _logger.LogWarning(
-                    "Mint quote poll HTTP {Status} for quote {QuoteId}: {Body}",
-                    code, quoteId, body.Length > 500 ? body[..500] : body);
+                _logger.LogWarning("Mint quote poll HTTP {Status} quote fingerprint={QuoteId}", code, QuoteLogId(quoteId));
                 return new MintQuotePollResult(false, false, null, $"Mint returned HTTP {code}", null);
             }
 
@@ -126,11 +121,13 @@ public class CashuMeltMintClient
             CashuMeltObservability.TagMintPollTransient,
             CashuMeltObservability.PhaseMintPoll,
             mintHost,
-            quoteId,
+            QuoteLogId(quoteId),
             reason,
             retryAfter);
         return new MintQuotePollResult(false, true, retryAfter, null, null);
     }
+
+    private static string QuoteLogId(string quoteId) => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(quoteId)))[..12];
 
     private static string TryGetMintHost(string mintBaseUrl)
     {
@@ -217,6 +214,14 @@ public class CashuMeltMintClient
         }
     }
 
+    public async Task<MintKeysResponse?> GetKeysetKeysAsync(string mintBaseUrl, string keysetId, CancellationToken ct)
+    {
+        using var response = await _httpClient.GetAsync(Url(mintBaseUrl, "/v1/keys/" + Uri.EscapeDataString(keysetId)), ct);
+        response.EnsureSuccessStatusCode();
+        await using var stream = await response.Content.ReadAsStreamAsync(ct);
+        return await JsonSerializer.DeserializeAsync<MintKeysResponse>(stream, JsonOptions, ct);
+    }
+
     // ──────────────────────────────────────────────────────────────
     // NUT-05: Minting tokens
     // ──────────────────────────────────────────────────────────────
@@ -237,12 +242,12 @@ public class CashuMeltMintClient
             resp.EnsureSuccessStatusCode();
             await using var stream = await resp.Content.ReadAsStreamAsync(ct);
             var result = await JsonSerializer.DeserializeAsync<MintTokensResponse>(stream, JsonOptions, ct);
-            _logger.LogDebug("MintTokens: {Count} signatures for quote {QuoteId}", result?.Signatures?.Length, quoteId);
+            _logger.LogDebug("MintTokens: {Count} signatures for quote {QuoteId}", result?.Signatures?.Length, QuoteLogId(quoteId));
             return result;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "MintTokens failed for quote {QuoteId}", quoteId);
+            _logger.LogWarning("MintTokens failed for quote fingerprint={QuoteId} error={ErrorType}", QuoteLogId(quoteId), ex.GetType().Name);
             throw;
         }
     }
@@ -328,6 +333,26 @@ public class CashuMeltMintClient
         }
     }
 
+    /// <summary>NUT-09: recover signatures for the exact durable blinded outputs.</summary>
+    public async Task<RestoreResponse?> RestoreSignaturesAsync(string mintUrl, BlindedMessage[] outputs, CancellationToken ct)
+    {
+        using var content = JsonContent.Create(new { outputs }, options: JsonOptions);
+        using var response = await _httpClient.PostAsync(Url(mintUrl, "/v1/restore"), content, ct);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<RestoreResponse>(JsonOptions, ct);
+    }
+
+    public async Task<bool> SupportsRestoreAsync(string mintUrl, CancellationToken ct)
+    {
+        using var response = await _httpClient.GetAsync(Url(mintUrl, "/v1/info"), ct);
+        response.EnsureSuccessStatusCode();
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
+        return document.RootElement.TryGetProperty("nuts", out var nuts) && nuts.TryGetProperty("9", out var nut)
+            && nut.TryGetProperty("supported", out var enabled) && enabled.ValueKind == JsonValueKind.True;
+    }
+
+    public record RestoreResponse(BlindedMessage[] Outputs, BlindSignature[] Signatures);
+
     // ──────────────────────────────────────────────────────────────
     // Helpers
     // ──────────────────────────────────────────────────────────────
@@ -368,7 +393,13 @@ public class CashuMeltMintClient
         long Amount,
         string Unit,
         string State,
-        long? Expiry);
+        long? Expiry,
+        long? AmountPaid = null,
+        long? AmountIssued = null)
+    {
+        public bool HasBeenPaid => AmountPaid is not null ? Amount > 0 && AmountPaid >= Amount : State is "PAID" or "ISSUED";
+        public bool HasBeenIssued => AmountIssued is not null ? Amount > 0 && AmountIssued >= Amount : State == "ISSUED";
+    }
 
     /// <summary>
     /// Result of polling GET mint quote — avoids throwing on 429/502/503 so checkout poll stays 200 OK.
@@ -434,7 +465,8 @@ public class CashuMeltMintClient
         string State,
         long? Expiry,
         string? PaymentPreimage,
-        BlindSignature[]? Change); // NUT-08: returned on GET for paid quotes with blank outputs
+        BlindSignature[]? Change,
+        string? Request = null); // NUT-08: returned on GET for paid quotes with blank outputs
 
     public record MeltTokensRequest(
         [property: JsonPropertyName("quote")]  string Quote,

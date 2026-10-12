@@ -100,6 +100,32 @@ public class UICashuMeltController : Controller
         model ??= new CashuMeltStoreSettings { StoreId = storeId, Unit = "sat" };
         model.StoreId = storeId;
 
+        if (command is "confirm-original" or "export-change" or "confirm-change")
+        {
+            try
+            {
+                if (command == "export-change")
+                {
+                    var tokens = await _paymentService.ExportChangeAsync(storeId, HttpContext.RequestAborted);
+                    Response.Headers.CacheControl = "no-store";
+                    return File(Encoding.UTF8.GetBytes(System.Text.Json.JsonSerializer.Serialize(tokens)), "application/json", "cashumelt-change.json");
+                }
+                if (command == "confirm-change")
+                    await _paymentService.ConfirmChangeRecoveredAsync(storeId, HttpContext.RequestAborted);
+                else
+                {
+                    if (Request.Form["confirmOriginal"] != "true") throw new InvalidOperationException("Confirm that these are the original payment settings");
+                    await _paymentService.ConfirmOriginalSettingsAsync(storeId, Request.Form["originalQuoteId"].ToString(), Request.Form["originalMintUrl"].ToString(), Request.Form["originalAddress"].ToString(), HttpContext.RequestAborted);
+                }
+                TempData.SetStatusMessageModel(new StatusMessageModel { Severity = StatusMessageModel.StatusSeverity.Success, Message = "Recovery information verified." });
+            }
+            catch (InvalidOperationException ex)
+            {
+                TempData.SetStatusMessageModel(new StatusMessageModel { Severity = StatusMessageModel.StatusSeverity.Error, Message = ex.Message });
+            }
+            return RedirectToAction(nameof(Settings), new { storeId });
+        }
+
         if (command?.Equals("retry", StringComparison.OrdinalIgnoreCase) == true)
         {
             var quoteId = (Request.Form["quoteId"].ToString() ?? "").Trim();
@@ -341,6 +367,8 @@ public class UICashuMeltController : Controller
                 r.SettlementError,
                 r.CreatedAt,
                 r.MintedProofsJson,
+                r.MintIssuanceJson,
+                r.SettingsSnapshotJson,
                 r.Bolt11Invoice,
                 r.NeedsManualReview,
                 r.RetryCount,
@@ -357,9 +385,9 @@ public class UICashuMeltController : Controller
                 r.SettlementState,
                 r.SettlementError,
                 r.CreatedAt,
-                CanRetryForRow(r.SettlementState, r.MintedProofsJson),
+                r.SettingsSnapshotJson is not null && (r.SettlementState != "FAILED" || !string.IsNullOrEmpty(r.MintedProofsJson) || !string.IsNullOrEmpty(r.MintIssuanceJson)) && r.SettlementState != "SETTLED",
                 r.Bolt11Invoice,
-                CashuMeltNutsUrls.MintQuoteBolt11PollUrl(mintBase, r.QuoteId),
+                string.Empty,
                 r.NeedsManualReview,
                 r.RetryCount,
                 r.FailureReasonCode))
@@ -368,7 +396,7 @@ public class UICashuMeltController : Controller
         // Sat-only, matching the sweep (non-sat change is never swept and would skew totals).
         var pendingChangeSat = await ctx.CashuMeltChangeProofs.AsNoTracking()
             .Where(p => p.StoreId == storeId && p.Unit == "sat"
-                        && (p.State == "AVAILABLE" || p.State == "SWEEPING"))
+                        && (p.State == "AVAILABLE" || p.State == "SWEEPING" || p.State == "EXPORTED" || p.State == "MANUAL_REVIEW"))
             .SumAsync(p => (long?)p.Amount) ?? 0;
         var sweptChangeSat = await ctx.CashuMeltChangeProofs.AsNoTracking()
             .Where(p => p.StoreId == storeId && p.Unit == "sat" && p.State == "SWEPT")

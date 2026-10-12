@@ -7,7 +7,7 @@ using BTCPayServer.Plugins.CashuMelt.Data.Entities;
 namespace BTCPayServer.Plugins.CashuMelt.Services;
 
 /// <summary>
-/// Normalization and allow-list checks for mint URLs. We never custodian customer ecash;
+/// Normalization and allow-list checks for mint URLs. BTCPay temporarily holds ecash;
 /// this only constrains which mint HTTPS origins the store may call.
 /// </summary>
 public static class CashuMeltMintPolicy

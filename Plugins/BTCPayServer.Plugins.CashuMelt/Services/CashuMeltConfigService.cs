@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using BTCPayServer.Plugins.CashuMelt.Data;
@@ -48,7 +49,12 @@ public class CashuMeltConfigService
         try
         {
             await using var ctx = _dbContextFactory.CreateContext();
+            await using var lease = await CashuMeltDatabaseLease.TryAcquireAsync(_dbContextFactory, "cashumelt:store:" + settings.StoreId, false, cancellationToken)
+                ?? throw new InvalidOperationException("Cashu settlement in progress; try again after it finishes");
             var existing = await ctx.CashuMeltStoreSettings.FindAsync([settings.StoreId], cancellationToken);
+            if (existing is null || existing.MintUrl != settings.MintUrl || existing.LightningAddress != settings.LightningAddress
+                || existing.Unit != settings.Unit || existing.Enabled != settings.Enabled)
+                await AssertNoUnresolvedFundsAsync(ctx, settings.StoreId, cancellationToken);
 
             var now = DateTimeOffset.UtcNow;
             if (existing != null)
@@ -85,6 +91,9 @@ public class CashuMeltConfigService
         try
         {
             await using var ctx = _dbContextFactory.CreateContext();
+            await using var lease = await CashuMeltDatabaseLease.TryAcquireAsync(_dbContextFactory, "cashumelt:store:" + storeId, false, cancellationToken)
+                ?? throw new InvalidOperationException("Cashu settlement in progress");
+            await AssertNoUnresolvedFundsAsync(ctx, storeId, cancellationToken);
             var existing = await ctx.CashuMeltStoreSettings.FindAsync([storeId], cancellationToken);
             if (existing != null)
             {
@@ -96,6 +105,27 @@ public class CashuMeltConfigService
         {
             await EnsureSchemaAsync(cancellationToken);
         }
+    }
+
+    public async Task<(int Payments, int Change)> GetUnresolvedFundsAsync(string storeId, CancellationToken ct)
+    {
+        await using var ctx = _dbContextFactory.CreateContext();
+        var payments = await ctx.CashuMeltPaymentRequests.CountAsync(r => r.StoreId == storeId &&
+            ((r.SettlementState == null || (r.SettlementState != "SETTLED" && r.SettlementState != "EXPIRED_UNPAID"))
+             || r.MintedProofsJson != null || r.MintIssuanceJson != null || r.BlankOutputsJson != null), ct);
+        var change = await ctx.CashuMeltChangeProofs.CountAsync(r => r.StoreId == storeId &&
+            ((r.State != "SWEPT" && r.State != "RECOVERED") || r.SweepIntentJson != null), ct);
+        return (payments, change);
+    }
+
+    private static async Task AssertNoUnresolvedFundsAsync(CashuMeltDbContext ctx, string storeId, CancellationToken ct)
+    {
+        if (await ctx.CashuMeltPaymentRequests.AnyAsync(r => r.StoreId == storeId &&
+            ((r.SettlementState == null || (r.SettlementState != "SETTLED" && r.SettlementState != "EXPIRED_UNPAID"))
+             || r.MintedProofsJson != null || r.MintIssuanceJson != null || r.BlankOutputsJson != null), ct)
+            || await ctx.CashuMeltChangeProofs.AnyAsync(r => r.StoreId == storeId &&
+                ((r.State != "SWEPT" && r.State != "RECOVERED") || r.SweepIntentJson != null), ct))
+            throw new InvalidOperationException("Outstanding Cashu settlements or change must be recovered before changing this wallet");
     }
 
     private async Task EnsureSchemaAsync(CancellationToken cancellationToken)

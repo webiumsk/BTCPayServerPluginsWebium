@@ -25,8 +25,10 @@ public sealed class LnAddressReceiver
     private readonly HttpClient _http;
     private readonly ILogger _logger;
 
-    public LnAddressReceiver(ResolvedLnAddress resolved, Network network, HttpClient http, ILogger logger)
-    { _resolved = resolved; _network = network; _http = http; _logger = logger; }
+    private readonly LnAddressPersistence? _persistence;
+
+    public LnAddressReceiver(ResolvedLnAddress resolved, Network network, HttpClient http, ILogger logger, LnAddressPersistence? persistence = null)
+    { _resolved = resolved; _network = network; _http = http; _logger = logger; _persistence = persistence; }
 
     private const string VerifyUnsupportedMessage =
         "This Lightning address's LNURL server does not support the LUD-21 'verify' extension, which is " +
@@ -69,6 +71,17 @@ public sealed class LnAddressReceiver
             return VerifyUnsupportedMessage;
         if (!LnAddressHttp.IsSafeUrl(verifyUri, out var vReason))
             return $"The LUD-21 verify URL is not an allowed destination: {vReason}.";
+        var pr = json["pr"]?.Value<string>();
+        if (string.IsNullOrEmpty(pr)) return "LNURL callback did not return an invoice";
+        try
+        {
+            var receipt = await LnAddressResolver.GetJson(_http, verifyUri, ct);
+            if (receipt["status"]?.Value<string>() != "OK" || receipt["settled"]?.Type != JTokenType.Boolean
+                || receipt["settled"]!.Value<bool>() || receipt["pr"]?.Value<string>() != pr
+                || (receipt["preimage"] is not null && receipt["preimage"]!.Type != JTokenType.Null))
+                return "The LUD-21 endpoint did not return a matching unpaid invoice";
+        }
+        catch { return "Could not verify the probe invoice. Please try again."; }
         return null;
     }
 
@@ -139,6 +152,12 @@ public sealed class LnAddressReceiver
             paymentHash, pr, verifyUrl, verifyHost, _resolved.PayEndpoint.ToString(), bolt11.ExpiryDate,
             bolt11.MinimumAmount.MilliSatoshi));
 
+        if (_persistence is not null)
+        {
+            try { await _persistence.SaveAsync(); }
+            catch { TrackedInvoiceRegistry.Remove(paymentHash); throw; }
+        }
+
         return new LightningInvoice
         {
             Id = paymentHash,
@@ -185,29 +204,28 @@ public sealed class LnAddressReceiver
         }
 
         JObject? json = null;
-        bool transportError = false;
         try
         {
             using var resp = await http.GetAsync(t.VerifyUrl, ct);
             var body = await resp.Content.ReadAsStringAsync(ct);
             if (resp.IsSuccessStatusCode) json = JObject.Parse(body);
-            else transportError = true;
         }
-        catch { transportError = true; }
+        catch { }
 
-        if (json?["status"]?.Value<string>()?.Equals("ERROR", StringComparison.OrdinalIgnoreCase) == true)
-            return null; // genuine not-found
+        // A provider error (including a temporary LNURL ERROR) must not evict an invoice.
+        // Confirm only a receipt bound to the original invoice, with a real JSON boolean.
+        if (json?["status"]?.Value<string>() != "OK" ||
+            json["settled"]?.Type != JTokenType.Boolean ||
+            json["pr"]?.Value<string>() != t.Bolt11)
+            return BuildInvoice(t, false, null, logger);
 
-        if (json is null)
+        var settled = json["settled"]!.Value<bool>();
+        var preimage = json["preimage"]?.Type == JTokenType.Null ? null : json["preimage"]?.Value<string>();
+        if (settled && preimage is not null && !IsValidPreimage(preimage, t.PaymentHash))
         {
-            if (transportError)
-                return new LightningInvoice
-                { Id = t.PaymentHash, PaymentHash = t.PaymentHash, Status = LightningInvoiceStatus.Unpaid };
-            return null;
+            logger?.LogWarning("Invalid settlement preimage for invoice {PaymentHash}", t.PaymentHash);
+            return BuildInvoice(t, false, null, logger);
         }
-
-        var settled = json["settled"]?.Value<bool>() ?? false;
-        var preimage = json["preimage"]?.Value<string>();
         return BuildInvoice(t, settled, preimage, logger);
     }
 
@@ -220,12 +238,6 @@ public sealed class LnAddressReceiver
             : t.ExpiresAt < DateTimeOffset.UtcNow ? LightningInvoiceStatus.Expired
             : LightningInvoiceStatus.Unpaid;
         string? valid = settled && preimage is not null && IsValidPreimage(preimage, t.PaymentHash) ? preimage : null;
-        if (settled && preimage is not null && valid is null)
-            // Surface it - the invoice still settles (LUD-21 'settled' is the authority), but a
-            // wallet returning a preimage whose SHA256 does not match the hash is worth noticing.
-            logger?.LogWarning(
-                "Wallet reported invoice {PaymentHash} settled with a preimage that fails validation; storing it as paid without a preimage",
-                t.PaymentHash);
         return new LightningInvoice
         {
             Id = t.PaymentHash,

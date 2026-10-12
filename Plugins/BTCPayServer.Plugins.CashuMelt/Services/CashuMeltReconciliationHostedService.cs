@@ -16,7 +16,7 @@ namespace BTCPayServer.Plugins.CashuMelt.Services;
 /// stale <c>PENDING</c> / retriable <c>FAILED</c> rows so checkout does not have to stay open.
 /// Tracks retry count per row; after <see cref="MaxAutoRetries"/> consecutive auto-retry failures
 /// the row is flagged <c>NeedsManualReview</c> and skipped until manually retried via UI/API.
-/// Does not custodian customer ecash: it only completes forwarding and invoice recording already designed into CashuMelt.
+/// Recovers temporary ecash held by BTCPay until forwarding or merchant recovery completes.
 /// </summary>
 public sealed class CashuMeltReconciliationHostedService : BackgroundService
 {
@@ -82,15 +82,14 @@ public sealed class CashuMeltReconciliationHostedService : BackgroundService
         }
 
         // Lightly poll stale PENDING rows (quote not paid yet; expires naturally).
-        // No retry count tracked here — pending rows expire via mint and transition to FAILED.
+        // No retry count tracked here — unpaid rows expire only after both mint and BTCPay monitoring end.
         if (tick % 3 == 0)
         {
             var stale = DateTimeOffset.UtcNow.AddMinutes(-2);
             var pendingIds = await ctx.CashuMeltPaymentRequests.AsNoTracking()
                 .Where(r => r.SettlementState == "PENDING"
-                            && r.CreatedAt < stale
-                            && r.CreatedAt > DateTimeOffset.UtcNow.AddDays(-14))
-                .OrderBy(r => r.CreatedAt)
+                            && r.CreatedAt < stale)
+                .OrderBy(r => r.LastCheckedAt ?? r.CreatedAt)
                 .Take(25)
                 .Select(r => r.QuoteId)
                 .ToListAsync(ct);
@@ -121,8 +120,7 @@ public sealed class CashuMeltReconciliationHostedService : BackgroundService
         {
             var failedRows = await ctx.CashuMeltPaymentRequests.AsNoTracking()
                 .Where(r => r.SettlementState == "FAILED"
-                            && r.MintedProofsJson != null
-                            && r.MintedProofsJson != ""
+                            && (r.MintedProofsJson != null || r.MintIssuanceJson != null)
                             && !r.NeedsManualReview)
                 .OrderBy(r => r.CreatedAt)
                 .Take(12)

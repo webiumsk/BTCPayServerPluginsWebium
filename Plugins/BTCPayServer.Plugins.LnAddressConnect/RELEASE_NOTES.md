@@ -1,3 +1,7 @@
+## 1.0.4.0 - receipt validation and restart recovery
+
+Validate LUD-21 status, boolean settlement, exact original invoice, and any supplied preimage. Transient/invalid receipts keep invoices unpaid. Persist tracking before exposing an invoice and retain paid receipts across restart. Reconcile expired invoices for 14 days after expiry; configure invoice monitoring within this limit. Providers without a working LUD-21 endpoint still cannot use native verification.
+
 # LN Address Connect - release notes
 
 ## 1.0.1

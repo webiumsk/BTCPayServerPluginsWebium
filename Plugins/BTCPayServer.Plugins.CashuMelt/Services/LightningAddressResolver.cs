@@ -80,6 +80,7 @@ public class LightningAddressResolver
         if (string.IsNullOrEmpty(callback.Pr))
             throw new InvalidOperationException("LNURL callback did not return a bolt11 invoice.");
 
+        CashuMeltSettlementVerification.ValidateInvoice(callback.Pr, effectiveSat);
         return (callback.Pr, effectiveSat);
     }
 

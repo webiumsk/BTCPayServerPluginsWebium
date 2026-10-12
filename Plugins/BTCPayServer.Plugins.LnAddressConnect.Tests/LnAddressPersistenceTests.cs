@@ -13,7 +13,34 @@ public class LnAddressPersistenceTests
     static string Uniq(string p) => p + Guid.NewGuid().ToString("N").Substring(0, 8);
 
     [Fact]
-    public async Task Load_restores_non_expired_and_skips_expired()
+    public async Task Paid_receipt_survives_a_restart_and_is_not_repolled()
+    {
+        var hash = Uniq("paid_");
+        var settings = new FakeSettings();
+        var paid = new BTCPayServer.Lightning.LightningInvoice
+        {
+            Id = hash, PaymentHash = hash, BOLT11 = "original-invoice", Status = BTCPayServer.Lightning.LightningInvoiceStatus.Paid,
+            Amount = BTCPayServer.Lightning.LightMoney.Satoshis(21), AmountReceived = BTCPayServer.Lightning.LightMoney.Satoshis(21),
+            PaidAt = DateTimeOffset.UtcNow, ExpiresAt = DateTimeOffset.UtcNow.AddHours(-1)
+        };
+        TrackedInvoiceRegistry.MarkSettled(hash, paid, DateTimeOffset.UtcNow.AddDays(14));
+        await new LnAddressPersistence(settings).SaveAsync();
+        var stored = await settings.GetSettingAsync<PersistedTrackedInvoices>(LnAddressPersistence.SettingName);
+        Assert.Contains(stored!.PaidInvoices, p => p.PaymentHash == hash && p.AmountMsat == 21000);
+        // Expire only this cache entry, simulating process-local state loss without disturbing parallel tests.
+        TrackedInvoiceRegistry.MarkSettled(hash, paid, DateTimeOffset.UtcNow.AddSeconds(-1));
+        Assert.False(TrackedInvoiceRegistry.TryGetSettled(hash, out _));
+        await new LnAddressPersistence(settings).LoadAsync();
+        Assert.True(TrackedInvoiceRegistry.TryGetSettled(hash, out var restored));
+        Assert.Equal(BTCPayServer.Lightning.LightningInvoiceStatus.Paid, restored.Status);
+        Assert.Equal(paid.AmountReceived, restored.AmountReceived);
+        Assert.False(TrackedInvoiceRegistry.TryGet(hash, out _));
+        TrackedInvoiceRegistry.MarkSettled(hash, paid, DateTimeOffset.UtcNow.AddSeconds(-1));
+        TrackedInvoiceRegistry.TryGetSettled(hash, out _);
+    }
+
+    [Fact]
+    public async Task Load_restores_expired_invoices_within_reconciliation_window()
     {
         var settings = new FakeSettings();
         var live = Uniq("plive_");
@@ -34,7 +61,8 @@ public class LnAddressPersistenceTests
         Assert.True(TrackedInvoiceRegistry.TryGet(live, out var restored));
         Assert.Equal("lnbc1", restored.Bolt11);
         Assert.Equal($"https://h.example/verify/{live}", restored.VerifyUrl);
-        Assert.False(TrackedInvoiceRegistry.TryGet(expired, out _)); // expired -> not re-armed
+        Assert.True(TrackedInvoiceRegistry.TryGet(expired, out _)); // paid while offline must still be reconciled
+        TrackedInvoiceRegistry.Remove(expired);
 
         TrackedInvoiceRegistry.Remove(live);
     }

@@ -1,3 +1,5 @@
+**Upgrade 1.4.0.0:** read [settlement safety and merchant recovery](docs/SETTLEMENT_SAFETY.md) before installing. BTCPay temporarily holds encrypted spendable ecash; back up its key ring and database together.
+
 # Cashu Melt — BTCPay Server Plugin
 
 **Cashu-assisted Lightning checkout:** the customer pays a **mint quote (BOLT11)**; the plugin **mints proofs only to melt them immediately** to the merchant **Lightning address** (LNURL-pay), then records BTCPay after a successful melt. The plugin does **not** operate a customer ecash wallet. **1.1+** adds optional **trusted mint URLs**, **melt fee reserve caps**, **background reconciliation** for `MELT_COMPLETE` / stale `PENDING`, and **CSV export** plus NUT-23 poll links on the settings page.

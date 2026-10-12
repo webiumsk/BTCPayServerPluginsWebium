@@ -162,7 +162,8 @@ public class CashuMeltApiController : ControllerBase
             return BadRequest(new { error = ex.Message });
         }
 
-        await _configService.SaveSettingsAsync(settings, ct);
+        try { await _configService.SaveSettingsAsync(settings, ct); }
+        catch (InvalidOperationException ex) { return Conflict(new { error = ex.Message }); }
 
         // Register (or update) the CashuMelt payment method on the BTCPay store so that
         // invoice creation finds at least one payment method in DerivationStrategies.
@@ -189,6 +190,13 @@ public class CashuMeltApiController : ControllerBase
             s.TrustedMintUrls,
             s.MaxMeltFeeReserveSats,
             s.MaxMeltFeeReservePercentOfMinted);
+
+    [HttpGet("safety")]
+    public async Task<IActionResult> SettlementSafety(string storeId, CancellationToken ct)
+    {
+        var (payments, change) = await _configService.GetUnresolvedFundsAsync(storeId, ct);
+        return Ok(new { safeToChangeWallet = payments == 0 && change == 0, unresolvedPayments = payments, unresolvedChange = change });
+    }
 
     // ── Payment requests ────────────────────────────────────────────────────────
 
@@ -252,9 +260,7 @@ public class CashuMeltApiController : ControllerBase
                 r.CreatedAt,
                 r.PaidAt,
                 r.SettledAt,
-                string.IsNullOrEmpty(mintBase)
-                    ? null
-                    : CashuMeltNutsUrls.MintQuoteBolt11PollUrl(mintBase, r.QuoteId),
+                null,
                 r.RetryCount,
                 r.NeedsManualReview,
                 r.FailureReasonCode))

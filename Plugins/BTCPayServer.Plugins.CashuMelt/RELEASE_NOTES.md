@@ -1,3 +1,7 @@
+## 1.4.0.0 - settlement safety
+
+Durable NUT-09 issuance recovery, encrypted bearer assets, immutable payout settings, destination-bound settlement confirmation, cross-instance PostgreSQL locks, and a wallet-change safety API. Unknown spent-proof outcomes require evidence. Merchant recovery supports legacy original-settings confirmation and private export of small change. See [upgrade and recovery requirements](docs/SETTLEMENT_SAFETY.md); back up the database and Data Protection key ring and do not run mixed plugin versions.
+
 # CashuMelt plugin — release notes
 
 ## 1.3.1.0 (parallel-fallback mode: quote only on activation)

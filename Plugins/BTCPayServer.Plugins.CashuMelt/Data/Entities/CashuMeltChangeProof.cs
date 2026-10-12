@@ -31,7 +31,6 @@ public class CashuMeltChangeProof
 
     /// <summary>Proof secret (hex string, UTF-8 bytes are the NUT-00 secret).</summary>
     [Required]
-    [MaxLength(200)]
     public string Secret { get; set; } = string.Empty;
 
     /// <summary>Unblinded signature C (compressed point hex).</summary>
@@ -47,6 +46,8 @@ public class CashuMeltChangeProof
     /// <summary>Mint quote id of the payment whose melt produced this change.</summary>
     [MaxLength(100)]
     public string? SourceQuoteId { get; set; }
+
+    public string? SweepIntentJson { get; set; }
 
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 
