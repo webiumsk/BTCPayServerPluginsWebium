@@ -1,6 +1,6 @@
-# Settlement safety (1.4.0.0)
+# Settlement safety (1.4.0.1)
 
-Install CashuMelt 1.4.0.0 before the Satflux wallet-safety update. Compatible host: BTCPay Server 2.4.5. No new production environment variables are required.
+Install CashuMelt 1.4.0.1 before the Satflux wallet-safety update. Compatible host: BTCPay Server 2.4.5. No new production environment variables are required.
 
 ## Before upgrading
 
@@ -17,6 +17,8 @@ Issuance intent is committed before minting, including original blinding materia
 A lost melt response retains the original payout invoice, quote, proofs, and change blinding. UNPAID retries with confirmed unspent proofs resend the same intent. Unknown results wait; expired intents require manual recovery. Successful melts recover change before clearing funding assets, then durably enter MELT_COMPLETE before BTCPay accounting. Accounting retries retain the same payment ID. PostgreSQL advisory locks exclude duplicate quote processing across instances and block settings changes while settlement runs.
 
 ## Merchant recovery
+
+Version 1.4.0.0's actual BTCPay checkout handler bypassed the new durable quote service. Consequently even newly created, funded quotes could lack original settings and enter MANUAL_REVIEW. Version 1.4.0.1 corrects the creation path; existing affected payments still require original-settings confirmation below. Installing the update does not itself complete those payouts.
 
 Legacy in-flight records lack a trustworthy original settings snapshot. The configured mint may be queried to identify the exact original unpaid invoice, without adopting the current payout address. Unfunded FAILED/PENDING and legacy MANUAL_REVIEW quotes are reconciled in bounded background batches. They become EXPIRED_UNPAID only after the signed Lightning invoice and any known mint expiry have passed, BTCPay monitoring has ended, and the exact mint quote confirms UNPAID without issued tokens or retained recovery assets. Unknown/missing mint results stay blocked. Paid legacy records enter MANUAL_REVIEW instead of adopting the current mint/address. On the CashuMelt settings page, open **Cashu recovery** and explicitly confirm the original quote ID, mint URL, and payout address. Only MANUAL_REVIEW records missing their original settings can be confirmed; SETTLED and MELT_COMPLETE records cannot be reset. The supplied mint must return the original funding invoice/amount/unit. This is a merchant assertion about the original payout address, not historical proof. If the original issuance intent is missing and the quote was already issued, recovery requires the mint operator; retry cannot invent blinding secrets.
 

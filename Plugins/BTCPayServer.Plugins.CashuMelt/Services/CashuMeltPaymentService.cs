@@ -50,6 +50,7 @@ public class CashuMeltPaymentService
     private readonly CashuMeltMintIssuance _issuance;
     private readonly CashuMeltAssetProtector _assets;
     private readonly CashuMeltMintClient _mintClient;
+    private readonly CashuMeltQuoteService _quotes;
     private readonly CashuMeltConfigService _configService;
     private readonly CashuMeltDbContextFactory _dbContextFactory;
     private readonly InvoiceRepository _invoiceRepository;
@@ -80,9 +81,10 @@ public class CashuMeltPaymentService
         PaymentMethodHandlerDictionary handlers,
         IHttpClientFactory httpClientFactory,
         ILogger<CashuMeltPaymentService> logger,
-        CashuMeltMintIssuance issuance, CashuMeltAssetProtector assets)
+        CashuMeltMintIssuance issuance, CashuMeltAssetProtector assets, CashuMeltQuoteService quotes)
     {
         _mintClient = mintClient;
+        _quotes = quotes;
         _issuance = issuance;
         _assets = assets;
         _configService = configService;
@@ -99,74 +101,9 @@ public class CashuMeltPaymentService
     // Quote creation (called from CashuMeltPaymentMethodHandler)
     // ──────────────────────────────────────────────────────────────
 
-    public async Task<(string? QuoteId, string? Bolt11, string? Error)> CreateQuoteAsync(
-        string invoiceId,
-        string storeId,
-        long amountSats,
-        string unit,
-        CancellationToken ct = default)
-    {
-        var settings = await _configService.GetEnabledSettingsAsync(storeId, ct);
-        if (settings is null)
-            return (null, null, "CashuMelt not configured for this store");
-
-        try
-        {
-            CashuMeltMintPolicy.ValidateStoreMintAgainstTrustedList(settings);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return (null, null, ex.Message);
-        }
-
-        await using var storeLease = await CashuMeltDatabaseLease.TryAcquireAsync(_dbContextFactory, "cashumelt:store:" + storeId, true, ct);
-        if (storeLease is null) return (null, null, "CashuMelt settings update in progress");
-        settings = await _configService.GetEnabledSettingsAsync(storeId, ct);
-        if (settings is null) return (null, null, "CashuMelt not configured");
-        if (amountSats <= CashuMeltFeePolicy.EstimateFeeBufferSat(amountSats))
-            return (null, null, "Payment amount is too small to cover the Lightning payout reserve");
-        if (unit != "sat") return (null, null, "Lightning settlement currently requires a sat-denominated mint");
-        if (!await _mintClient.SupportsRestoreAsync(settings.MintUrl, ct))
-            return (null, null, "Mint must support NUT-09 recovery before accepting payments");
-
-        var quote = await _mintClient.CreateMintQuoteAsync(settings.MintUrl, amountSats, unit, ct);
-        if (quote is null || string.IsNullOrWhiteSpace(quote.Quote))
-            return (null, null, "Mint did not return a valid quote");
-
-        if (quote.HasBeenPaid || quote.HasBeenIssued) return (null, null, "Mint returned an already-funded quote");
-        if (quote.Request is null) return (null, null, "Mint did not return an invoice");
-        CashuMeltSettlementVerification.ValidateInvoice(quote.Request, amountSats);
-        if (quote.Unit != unit || quote.Amount != amountSats) return (null, null, "Mint quote amount or unit mismatch");
-
-        var req = new CashuMeltPaymentRequest
-        {
-            QuoteId        = Guid.NewGuid().ToString("N"),
-            MintQuoteId = _assets.Protect(quote.Quote),
-            MintUrl = settings.MintUrl,
-            SettingsSnapshotJson = JsonSerializer.Serialize(settings),
-            QuoteExpiresAt = quote.Expiry is > 0 ? DateTimeOffset.FromUnixTimeSeconds(quote.Expiry.Value) : null,
-            InvoiceId      = invoiceId,
-            StoreId        = storeId,
-            AmountSats     = amountSats,
-            Unit           = unit,
-            Bolt11Invoice  = quote.Request,
-            State          = quote.State,
-            SettlementState = "PENDING",
-            CreatedAt      = DateTimeOffset.UtcNow
-        };
-
-        await WithSchemaRetryAsync(async ctx =>
-        {
-            await ctx.CashuMeltPaymentRequests.AddAsync(req, ct);
-            await ctx.SaveChangesAsync(ct);
-        }, ct);
-
-        _logger.LogInformation(
-            "phase=mint_quote quote={QuoteId} invoice={InvoiceId} amountSat={AmountSat} unit={Unit}",
-            req.QuoteId, invoiceId, amountSats, unit);
-
-        return (req.QuoteId, quote.Request, null);
-    }
+    public Task<(string? QuoteId, string? Bolt11, string? Error)> CreateQuoteAsync(
+        string invoiceId, string storeId, long amountSats, string unit, CancellationToken ct = default) =>
+        _quotes.CreateQuoteAsync(invoiceId, storeId, amountSats, unit, ct);
 
     // ──────────────────────────────────────────────────────────────
     // Payment detection → mint → melt → record in BTCPay (poll endpoint)
@@ -1665,18 +1602,5 @@ public class CashuMeltPaymentService
         }
     }
 
-    private async Task WithSchemaRetryAsync(Func<CashuMeltDbContext, Task> action, CancellationToken ct)
-    {
-        await using var ctx = _dbContextFactory.CreateContext();
-        try
-        {
-            await action(ctx);
-        }
-        catch (PostgresException ex) when (ex.SqlState is "42P01" or "42703")
-        {
-            await CashuMeltSchemaCreator.EnsureSchemaAndTablesAsync(ctx, ct);
-            await using var retry = _dbContextFactory.CreateContext();
-            await action(retry);
-        }
-    }
+
 }

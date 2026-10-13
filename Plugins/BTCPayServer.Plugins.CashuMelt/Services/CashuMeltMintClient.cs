@@ -69,7 +69,7 @@ public class CashuMeltMintClient
             _logger.LogDebug("Mint quote created for {Amount} {Unit}", amount, unit);
             return result;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
             _logger.LogWarning(ex, "CreateMintQuote failed at {Url}", url);
             return null;

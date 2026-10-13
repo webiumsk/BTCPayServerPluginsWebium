@@ -59,7 +59,7 @@ public class CashuMeltPayoutRecoveryTests
         await CashuMeltSchemaCreator.EnsureSchemaAndTablesAsync(ctx);
         var assets = new CashuMeltAssetProtector(new EphemeralDataProtectionProvider());
         var client = new CashuMeltMintClient(new HttpClient(mint), NullLogger<CashuMeltMintClient>.Instance);
-        var service = new CashuMeltPaymentService(client, new CashuMeltConfigService(factory), factory, null!, null!, null!, null!, null!, NullLogger<CashuMeltPaymentService>.Instance, new CashuMeltMintIssuance(client, assets), assets);
+        var service = new CashuMeltPaymentService(client, new CashuMeltConfigService(factory), factory, null!, null!, null!, null!, null!, NullLogger<CashuMeltPaymentService>.Instance, new CashuMeltMintIssuance(client, assets), assets, new CashuMeltQuoteService(client, new CashuMeltConfigService(factory), factory, assets, NullLogger<CashuMeltQuoteService>.Instance));
         var (invoice, preimage) = LightningInvoiceFixture.Create(100);
         var request = new CashuMeltPaymentRequest { QuoteId = Guid.NewGuid().ToString("N"), StoreId = Guid.NewGuid().ToString("N"), InvoiceId = "invoice", CreatedAt = DateTimeOffset.UtcNow, AmountSats = 101, ForwardAmountSats = 100, ForwardBolt11 = invoice, MeltQuoteId = "original-payout", MintedProofsJson = assets.Protect("stored proofs"), MintIssuanceJson = assets.Protect("stored issuance") };
         mint.Quote ??= new MeltQuoteResponse("original-payout", 100, 1, "PAID", null, preimage, null, invoice);
