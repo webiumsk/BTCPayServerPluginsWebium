@@ -1,4 +1,4 @@
-For 1.4.0.0 wallet changes, first read the authenticated `GET .../cashumelt/safety` endpoint and require `safeToChangeWallet === true`. See [settlement and recovery requirements](SETTLEMENT_SAFETY.md). Mint quote poll URLs are intentionally absent for new records.
+For 1.4.0.1 wallet changes, first read the authenticated `GET .../cashumelt/safety` endpoint and require `safeToChangeWallet === true`. See [settlement and recovery requirements](SETTLEMENT_SAFETY.md). Mint quote poll URLs are intentionally absent for new records.
 
 # CashuMelt — agent / Satflux API notes
 

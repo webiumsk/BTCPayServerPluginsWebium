@@ -1,3 +1,11 @@
+## 1.4.0.1 - repair checkout quote creation
+
+BTCPay checkout previously bypassed the hardened quote creation service and wrote new quotes without original mint/payout snapshots. Paid quotes then stopped in MANUAL_REVIEW with an incorrect legacy-payment message. Checkout and settlement now share one quote service that commits immutable settings and an encrypted mint quote ID before exposing an opaque checkout ID. It validates recovery support, amounts and store configuration under the same store lease. The service avoids payment-handler dependency cycles.
+
+A previously funded 1.4.0 quote is not replaced or automatically assigned the current payout wallet. In the store's CashuMelt settings, use Cashu recovery to confirm that payment's original quote ID, mint URL and Lightning Address, then check/retry the same payment. Do not pay the funding invoice again. An already-issued legacy quote without original blinding data still needs mint-assisted recovery. This release does not alter production payments on installation or bypass outstanding-invoice checks.
+
+Checkout integration tests exercise real BTCPay prompt creation, durable snapshot/opaque IDs, fake mint issuance/payout, real BTCPay payment recording, a lost payout response, and merchant-confirmed recovery of a 1.4.0-style funded row. All external payment responses are simulated.
+
 ## 1.4.0.0 - settlement safety
 
 Durable NUT-09 issuance recovery, encrypted bearer assets, immutable payout settings, destination-bound settlement confirmation, cross-instance PostgreSQL locks, and a wallet-change safety API. Unknown spent-proof outcomes require evidence. Merchant recovery supports legacy original-settings confirmation and private export of small change. See [upgrade and recovery requirements](docs/SETTLEMENT_SAFETY.md); back up the database and Data Protection key ring and do not run mixed plugin versions.

@@ -68,7 +68,7 @@ public class CashuMeltFundingRecoveryTests
             var mint = new FundingMint();
             var client = new CashuMeltMintClient(new HttpClient(mint), NullLogger<CashuMeltMintClient>.Instance);
             var service = new CashuMeltPaymentService(client, config, factory, new InvoiceRepository(coreFactory, null!),
-                null!, null!, null!, null!, NullLogger<CashuMeltPaymentService>.Instance, new CashuMeltMintIssuance(client, assets), assets);
+                null!, null!, null!, null!, NullLogger<CashuMeltPaymentService>.Instance, new CashuMeltMintIssuance(client, assets), assets, new CashuMeltQuoteService(client, new CashuMeltConfigService(factory), factory, assets, NullLogger<CashuMeltQuoteService>.Instance));
             settings.Enabled = false;
             await config.SaveSettingsAsync(settings);
             Assert.Equal((null, null, "CashuMelt not configured for this store"), await service.CreateQuoteAsync(invoice.Id, "store", 100, "sat"));

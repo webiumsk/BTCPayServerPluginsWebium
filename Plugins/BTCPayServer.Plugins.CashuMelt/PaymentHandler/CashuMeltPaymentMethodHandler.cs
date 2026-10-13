@@ -3,7 +3,6 @@ using System;
 using System.Threading.Tasks;
 using BTCPayServer.Data;
 using BTCPayServer.Payments;
-using BTCPayServer.Plugins.CashuMelt.Data;
 using BTCPayServer.Services.Invoices;
 using BTCPayServer.Plugins.CashuMelt.Services;
 using Microsoft.Extensions.Logging;
@@ -15,8 +14,7 @@ namespace BTCPayServer.Plugins.CashuMelt.PaymentHandler;
 public class CashuMeltPaymentMethodHandler : IPaymentMethodHandler
 {
     private readonly CashuMeltConfigService _configService;
-    private readonly CashuMeltMintClient _mintClient;
-    private readonly CashuMeltDbContextFactory _dbContextFactory;
+    private readonly CashuMeltQuoteService _quotes;
     private readonly ILogger<CashuMeltPaymentMethodHandler> _logger;
 
     public JsonSerializer Serializer { get; }
@@ -24,13 +22,11 @@ public class CashuMeltPaymentMethodHandler : IPaymentMethodHandler
 
     public CashuMeltPaymentMethodHandler(
         CashuMeltConfigService configService,
-        CashuMeltMintClient mintClient,
-        CashuMeltDbContextFactory dbContextFactory,
+        CashuMeltQuoteService quotes,
         ILogger<CashuMeltPaymentMethodHandler> logger)
     {
         _configService = configService;
-        _mintClient = mintClient;
-        _dbContextFactory = dbContextFactory;
+        _quotes = quotes;
         _logger = logger;
         (_, Serializer) = BlobSerializer.CreateSerializer(null as NBitcoin.Network);
     }
@@ -108,40 +104,24 @@ public class CashuMeltPaymentMethodHandler : IPaymentMethodHandler
         long amountSats = CashuMeltAmountCalculator.ComputeMintAmount(
             invoice.Currency, invoice.Price, due, unit);
 
-        var quote = await _mintClient.CreateMintQuoteAsync(settings.MintUrl, amountSats, unit);
-        if (quote == null || string.IsNullOrEmpty(quote.Quote) || string.IsNullOrEmpty(quote.Request))
-        {
-            throw new PaymentMethodUnavailableException("Failed to create CashuMelt mint quote");
-        }
+        // The same durable creation path is used by checkout and settlement services.
+        // Never publish the mint's bearer quote ID or create a row without its payout snapshot.
+        var (quoteId, bolt11, error) = await _quotes.CreateQuoteAsync(invoice.Id, invoice.StoreId, amountSats, unit);
+        if (error is not null || quoteId is null || bolt11 is null)
+            throw new PaymentMethodUnavailableException(error ?? "Failed to create CashuMelt mint quote");
 
-        context.Prompt.Destination = quote.Quote;
+        context.Prompt.Destination = quoteId;
         context.Prompt.Details = JObject.FromObject(new CashuMeltPromptDetails
         {
-            QuoteId = quote.Quote,
-            Bolt11Invoice = quote.Request,
+            QuoteId = quoteId,
+            Bolt11Invoice = bolt11,
             AmountSats = amountSats,
             Unit = unit
         }, Serializer);
+        context.TrackedDestinations.Add(quoteId);
+        context.AdditionalSearchTerms.Add(quoteId);
 
-        context.TrackedDestinations.Add(quote.Quote);
-        context.AdditionalSearchTerms.Add(quote.Quote);
-
-        // Store in our DB for polling lookup
-        await using var ctx = _dbContextFactory.CreateContext();
-        await ctx.CashuMeltPaymentRequests.AddAsync(new Data.Entities.CashuMeltPaymentRequest
-        {
-            QuoteId = quote.Quote,
-            InvoiceId = invoice.Id,
-            StoreId = invoice.StoreId,
-            AmountSats = amountSats,
-            Unit = unit,
-            Bolt11Invoice = quote.Request,
-            State = quote.State,
-            CreatedAt = DateTimeOffset.UtcNow
-        });
-        await ctx.SaveChangesAsync();
-
-        _logger.LogInformation("Created CashuMelt prompt for invoice {InvoiceId}: quote {QuoteId}", invoice.Id, quote.Quote);
+        _logger.LogInformation("Created CashuMelt prompt for invoice {InvoiceId}: quote {QuoteId}", invoice.Id, quoteId);
     }
 
     public object ParsePaymentPromptDetails(JToken details)
