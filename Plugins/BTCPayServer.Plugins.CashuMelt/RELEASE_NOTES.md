@@ -1,3 +1,7 @@
+## 1.4.0.3 - Lightning checkout instructions
+
+Checkout now instructs the customer to pay with a Lightning wallet, describes successful payment as Lightning, and waits for payment confirmation. The merchant settlement bridge continues to use Cashu internally. Invoice creation, payout verification, recovery, fee handling, schema and environment variables are unchanged. This release includes the 1.4.0.2 merchant recovery API and explicit retry guard.
+
 ## 1.4.0.1 - repair checkout quote creation
 
 BTCPay checkout previously bypassed the hardened quote creation service and wrote new quotes without original mint/payout snapshots. Paid quotes then stopped in MANUAL_REVIEW with an incorrect legacy-payment message. Checkout and settlement now share one quote service that commits immutable settings and an encrypted mint quote ID before exposing an opaque checkout ID. It validates recovery support, amounts and store configuration under the same store lease. The service avoids payment-handler dependency cycles. Expected mint HTTP/JSON and invoice-validation failures produce controlled unavailable/error responses; requested cancellation propagates through both the recovery probe and mint quote request.
