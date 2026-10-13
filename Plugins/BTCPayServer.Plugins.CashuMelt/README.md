@@ -1,4 +1,4 @@
-**Upgrade 1.4.0.1:** read [settlement safety and merchant recovery](docs/SETTLEMENT_SAFETY.md) before installing. BTCPay temporarily holds encrypted spendable ecash; back up its key ring and database together.
+**Upgrade 1.4.0.3:** read [settlement safety and merchant recovery](docs/SETTLEMENT_SAFETY.md) before installing. BTCPay temporarily holds encrypted spendable ecash; back up its key ring and database together.
 
 # Cashu Melt — BTCPay Server Plugin
 
@@ -6,7 +6,7 @@
 
 ## Requirements
 
-- BTCPay Server ≥ 2.3.7 (targets .NET 10; see [Migrating to .NET 10](https://blog.btcpayserver.org/migrating-to-net10/))
+- BTCPay Server ≥ 2.4.5 (targets .NET 10; see [Migrating to .NET 10](https://blog.btcpayserver.org/migrating-to-net10/))
 - .NET 10 (SDK matching the plugin target)
 - PostgreSQL (already used by BTCPay Server)
 
@@ -53,9 +53,9 @@ dotnet publish -c Release -o bin/publish/BTCPayServer.Plugins.CashuMelt
 ## Payment Flow
 
 1. Customer opens checkout — a QR code with the mint Lightning invoice is shown.
-2. Customer pays from their Cashu wallet (scan QR or `lightning:` URI).
+2. Customer pays the Lightning invoice from a Lightning-capable wallet (scan QR or open the `lightning:` URI).
 3. Plugin polls the mint; on **429** / transient errors it returns a controlled poll response (no exception) and applies server-side backoff so the mint is not hammered every 2 seconds.
-4. When the quote is **PAID/ISSUED**, the plugin mints tokens (NUT-05), then melts (NUT-14) to the merchant Lightning address. **Only after a successful melt** does it record the payment in BTCPay and mark the plugin row **SETTLED** (so the invoice is not settled before the forward completes).
+4. When funding is verified, the plugin issues or restores tokens (NUT-04 / NUT-09), then melts them (NUT-05) to the merchant Lightning address. **Only after a successful melt** does it record the payment in BTCPay and mark the plugin row **SETTLED** (so the invoice is not settled before the forward completes).
 5. If BTCPay recording fails after a successful melt, the row is **MELT_COMPLETE** and polls / the retry API will retry accounting only (tokens are already spent).
 
 ### Settlement states (`SettlementState`)
@@ -77,7 +77,7 @@ dotnet publish -c Release -o bin/publish/BTCPayServer.Plugins.CashuMelt
 | Immediately after that | Plugin calls `AddPayment` + publishes `ReceivedPayment` → BTCPay moves invoice toward **Settled**. |
 | Plugin row `SETTLED` | Same successful path: forward + BTCPay row are done. |
 
-**Exception:** if the BTCPay invoice was already **Settled** or **Invalid** via another payment method, the plugin skips melt and marks its row `SETTLED` (log tag `cashumelt_skipped_invoice_finalized_elsewhere`).
+**Already-finalized invoice:** if BTCPay is already **Settled** or **Invalid**, a funded Cashu quote requires **MANUAL_REVIEW** for overpayment or refund handling. It is not treated as a successful payout.
 
 ### Polling, mint rate limits, checkout UX
 
