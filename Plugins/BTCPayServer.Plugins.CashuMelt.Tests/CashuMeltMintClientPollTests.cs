@@ -182,6 +182,7 @@ public sealed class CashuMeltMintClientPollTests
 
         Assert.Equal(11001, ex.MintErrorCode);
         Assert.Equal("proofs already spent", ex.Detail);
+        Assert.DoesNotContain("proofs already spent", ex.ToString());
     }
 
     [Fact]

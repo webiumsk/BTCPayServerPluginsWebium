@@ -47,4 +47,5 @@
         </ProjectReference>
     </ItemGroup>
 
+  <ItemGroup><Compile Include="../TestFixtures/LightningInvoiceFixture.cs" Link="LightningInvoiceFixture.cs" /></ItemGroup>
 </Project>

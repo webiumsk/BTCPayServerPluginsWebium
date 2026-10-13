@@ -142,7 +142,7 @@ public sealed class LnAddressPollerService : IHostedService
     {
         var now = DateTimeOffset.UtcNow;
         if (_backoff.TryGetValue(t.PaymentHash, out var b) && now < b.Next) return;
-        if (t.ExpiresAt < now)
+        if (t.ExpiresAt < now - LnAddressPersistence.ReconciliationWindow)
         {
             TrackedInvoiceRegistry.Remove(t.PaymentHash);
             _backoff.TryRemove(t.PaymentHash, out _);
@@ -163,9 +163,16 @@ public sealed class LnAddressPollerService : IHostedService
                 // Keep it retrievable as Paid for a grace window (BTCPay's poll path evicts an invoice
                 // whose GetInvoice returns null) and publish for any live listener.
                 var pruneAfter = (t.ExpiresAt > DateTimeOffset.UtcNow ? t.ExpiresAt : DateTimeOffset.UtcNow)
-                                 + TimeSpan.FromHours(1);
+                                 + LnAddressPersistence.ReconciliationWindow;
                 TrackedInvoiceRegistry.MarkSettled(t.PaymentHash, inv, pruneAfter);
-                TrackedInvoiceRegistry.PublishSettled(t, inv);
+                try { if (_persistence is not null) await _persistence.SaveAsync(); }
+                catch (Exception e)
+                {
+                    // The registry version remains dirty, so the cycle retries persistence.
+                    // A settings outage must not hide a verified payment from live listeners.
+                    _logger.LogWarning(e, "Failed to persist verified LnAddress payment {Hash}; save will retry", t.PaymentHash);
+                }
+                finally { TrackedInvoiceRegistry.PublishSettled(t, inv); }
             }
             else if (inv.Status == LightningInvoiceStatus.Expired)
             {

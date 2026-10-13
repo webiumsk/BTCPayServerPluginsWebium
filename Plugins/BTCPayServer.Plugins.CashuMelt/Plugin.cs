@@ -36,6 +36,7 @@ public class CashuMeltPlugin : BaseBTCPayServerPlugin
         // ── HTTP clients ────────────────────────────────────────────────────────
         services.AddTransient<HttpsDestinationHandler>();
         services.AddHttpClient<CashuMeltMintClient>(c => c.Timeout = TimeSpan.FromSeconds(30))
+            .RemoveAllLoggers() // Mint quote IDs in URLs can authorize issuance; do not log request URLs.
             .AddHttpMessageHandler<HttpsDestinationHandler>()
             .UseSSRFProtection()
             .ConfigurePrimaryHttpMessageHandler((h, _) => { ((SocketsHttpHandler)h).AllowAutoRedirect = false; });
@@ -49,6 +50,8 @@ public class CashuMeltPlugin : BaseBTCPayServerPlugin
         services.AddSingleton<CashuMeltConfigService>();
         services.AddSingleton<CashuMeltLightningAddressValidator>();
         services.AddSingleton<StoreLightningBackendService>();
+        services.AddSingleton<CashuMeltAssetProtector>();
+        services.AddTransient<CashuMeltMintIssuance>();
         services.AddTransient<CashuMeltPaymentService>();
         services.AddHostedService<CashuMeltReconciliationHostedService>();
 

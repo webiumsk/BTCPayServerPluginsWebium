@@ -76,8 +76,17 @@ internal static class CashuMeltEfMigrationBaseliner
             "20260805000000_AddNut08Change" =>
                 await TableExistsAsync(ctx, "CashuMeltChangeProofs", ct)
                 && await ColumnExistsAsync(ctx, "CashuMeltPaymentRequests", "BlankOutputsJson", ct),
+            "20261012210000_AddSettlementSafety" => await SettlementSafetyExistsAsync(ctx, ct),
             _ => false
         };
+
+    private static async Task<bool> SettlementSafetyExistsAsync(CashuMeltDbContext ctx, CancellationToken ct)
+    {
+        foreach (var column in new[] { "MintQuoteId", "MintUrl", "SettingsSnapshotJson", "MintIssuanceJson", "QuoteExpiresAt", "LastCheckedAt", "ForwardAmountSats", "MeltFeeReserveSats", "InputFeeSats" })
+            if (!await ColumnExistsAsync(ctx, "CashuMeltPaymentRequests", column, ct)) return false;
+        return await ColumnExistsAsync(ctx, "CashuMeltChangeProofs", "SweepIntentJson", ct)
+            && await ExistsQueryAsync(ctx, "SELECT EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname = {0} AND indexname = {1})", Schema, "IX_CashuMeltChangeProofs_MintUrl_KeysetId_C", ct);
+    }
 
     private static async Task<bool> TableExistsAsync(
         CashuMeltDbContext ctx, string table, CancellationToken ct) =>

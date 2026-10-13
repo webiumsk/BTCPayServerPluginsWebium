@@ -15,7 +15,7 @@
 
 <p class="text-muted">
     Customers pay a mint Lightning invoice; the plugin mints proofs only to forward them immediately to your Lightning address.
-    We do not operate a customer ecash wallet: proofs exist only briefly to complete melt and settlement.
+    BTCPay temporarily holds spendable ecash, including retained change and funds awaiting recovery. Back up the database and BTCPay data-protection key ring together. Satflux receives no wallet keys or ecash proofs.
 </p>
 <div class="alert @(ViewData["CashuMeltBackendCanPayout"] as bool? == true ? "alert-success" : "alert-warning")">
     <strong>Detected Lightning backend:</strong> @ViewData["CashuMeltBackendType"]<br />
@@ -94,7 +94,7 @@
 <p class="text-muted small">
     Background reconciliation retries <code>MELT_COMPLETE</code> and stale <code>PENDING</code> rows so checkout does not need to stay open.
     Use <strong>Retry settlement</strong> for manual recovery. After 20 consecutive auto-retry failures a row is flagged
-    <span class="badge bg-danger">Manual Review</span> and skipped until manually retried. Export CSV includes NUT-23 poll URLs for support.
+    <span class="badge bg-danger">Manual Review</span> and skipped until manually retried. Recovery keeps private mint claim identifiers out of payment exports.
 </p>
 
 <form method="get" asp-controller="UICashuMelt" asp-action="Settings" asp-route-storeId="@Model.Settings.StoreId" class="row g-2 align-items-end mb-3">
@@ -149,7 +149,7 @@
                     @row.SettlementState
                     @if (row.NeedsManualReview)
                     {
-                        <span class="badge bg-danger ms-1" title="Auto-retry exhausted (20 attempts). Use Retry settlement to try again.">Manual Review</span>
+                        <span class="badge bg-danger ms-1" title="Settlement evidence or recovery is required. Review the error before retrying.">Manual Review</span>
                     }
                     @if (row.RetryCount > 0 && row.SettlementState != "SETTLED")
                     {
@@ -164,7 +164,10 @@
                     @(row.SettlementError ?? "—")
                 </td>
                 <td class="small text-nowrap">
-                    <a href="@row.MintQuotePollUrl" target="_blank" rel="noreferrer noopener">Mint poll</a>
+                    @if (!string.IsNullOrEmpty(row.MintQuotePollUrl))
+                    {
+                        <a href="@row.MintQuotePollUrl" target="_blank" rel="noreferrer noopener">Mint poll</a>
+                    }
                     @if (!string.IsNullOrEmpty(row.Bolt11Invoice))
                     {
                         <text> · </text>
@@ -179,8 +182,8 @@
                             <input type="hidden" name="command" value="retry" />
                             <input type="hidden" name="quoteId" value="@row.QuoteId" />
                             <button type="submit" class="btn btn-sm @(row.NeedsManualReview ? "btn-danger" : "btn-outline-primary")"
-                                    title="@(row.NeedsManualReview ? "Manual review required — auto-retry exhausted. Clicking will reset retry count." : "Retry settlement")">
-                                @(row.NeedsManualReview ? "Manual retry" : "Retry settlement")
+                                    title="Recheck payment status or retry recovery. Legacy payments may require original settings confirmation.">
+                                Check / retry payment
                             </button>
                         </form>
                     }
@@ -190,7 +193,7 @@
                     }
                     else
                     {
-                        <span class="text-muted small" title="Proofs not stored; automatic retry is not safe.">No retry</span>
+                        <span class="text-muted small">@(row.SettlementState == "EXPIRED_UNPAID" ? "Expired unpaid" : "No retry")</span>
                     }
                 </td>
             </tr>
@@ -198,3 +201,22 @@
         </tbody>
     </table>
 </div>
+
+<details class="mt-4">
+    <summary>Cashu recovery</summary>
+    <p>Import exported change into your own Cashu wallet. Wallet changes stay blocked until the mint confirms it has been consumed. Keep the token file private.</p>
+    <form method="post" asp-action="Settings" asp-route-storeId="@Model.Settings.StoreId">
+        @Html.AntiForgeryToken()
+        <button class="btn btn-secondary" name="command" value="export-change">Download recoverable change tokens</button>
+        <button class="btn btn-secondary" name="command" value="confirm-change">Verify imported change</button>
+    </form>
+    <p class="mt-3">For a legacy payment with missing original settings, confirm the mint and payout address used when that payment was created. Do not enter a replacement wallet. Payments without durable issuance data may require recovery with the mint operator.</p>
+    <form method="post" asp-action="Settings" asp-route-storeId="@Model.Settings.StoreId">
+        @Html.AntiForgeryToken()
+        <label class="form-label">Legacy payment quote ID<input class="form-control" name="originalQuoteId" required /></label>
+        <label class="form-label">Original mint URL<input class="form-control" name="originalMintUrl" type="url" required /></label>
+        <label class="form-label">Original payout Lightning Address<input class="form-control" name="originalAddress" required /></label>
+        <label><input name="confirmOriginal" value="true" type="checkbox" required /> I confirm these were this payment's original settings.</label>
+        <button class="btn btn-secondary" name="command" value="confirm-original">Confirm original settings</button>
+    </form>
+</details>

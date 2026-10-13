@@ -37,6 +37,16 @@ public class CashuMeltPaymentRequest
     [MaxLength(200)]
     public string? SettlementReference { get; set; }
 
+    public string? MintQuoteId { get; set; }
+    public string? MintUrl { get; set; }
+    public string? SettingsSnapshotJson { get; set; }
+    public string? MintIssuanceJson { get; set; }
+    public DateTimeOffset? QuoteExpiresAt { get; set; }
+    public DateTimeOffset? LastCheckedAt { get; set; }
+    public long? ForwardAmountSats { get; set; }
+    public long? MeltFeeReserveSats { get; set; }
+    public long? InputFeeSats { get; set; }
+
     // ── Mint+Melt flow fields ──────────────────────────────────────────────────
 
     /// <summary>

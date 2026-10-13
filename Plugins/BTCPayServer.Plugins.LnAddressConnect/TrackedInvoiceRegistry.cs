@@ -95,8 +95,13 @@ public static class TrackedInvoiceRegistry
     {
         foreach (var kv in _settled)
             if (kv.Value.PruneAfter < now)
-                _settled.TryRemove(kv.Key, out _);
+            {
+                if (_settled.TryRemove(kv.Key, out _)) Interlocked.Increment(ref _version);
+            }
     }
+
+    public static IReadOnlyCollection<(LightningInvoice Invoice, DateTimeOffset RetainUntil)> SettledSnapshot() =>
+        _settled.Values.Where(x => x.PruneAfter > DateTimeOffset.UtcNow).Select(x => (x.Invoice, x.PruneAfter)).ToArray();
 
     public static IReadOnlyCollection<TrackedInvoice> SnapshotByHost(string host) =>
         _byHost.TryGetValue(host, out var inner) ? inner.Values.ToArray() : Array.Empty<TrackedInvoice>();

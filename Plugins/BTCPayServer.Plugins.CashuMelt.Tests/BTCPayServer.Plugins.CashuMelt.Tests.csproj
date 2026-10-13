@@ -4,11 +4,13 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <IsPackable>false</IsPackable>
+    <StaticWebAssetsEnabled>false</StaticWebAssetsEnabled>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
     <!-- StoreData blob (de)serialization reflects over BTCPayServer types that need
          these at runtime; BTCPay hosts them on the server, tests must ship them. -->
+    <PackageReference Include="BTCPayServer.Lightning.Common" Version="1.7.4" />
     <PackageReference Include="NBXplorer.Client" Version="5.0.11" />
     <PackageReference Include="MimeKit" Version="4.18.1" />
     <PackageReference Include="MailKit" Version="4.18.1" />
@@ -20,5 +22,20 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\BTCPayServer.Plugins.CashuMelt\BTCPayServer.Plugins.CashuMelt.csproj" />
+    <!-- Real invoice-monitoring tests need the host database runtime dependencies. -->
+        <ProjectReference Include="..\..\submodules\btcpayserver\BTCPayServer\BTCPayServer.csproj"
+                          Condition="Exists('..\..\submodules\btcpayserver\BTCPayServer\BTCPayServer.csproj')">
+            <AdditionalProperties>StaticWebAssetsEnabled=false</AdditionalProperties>
+        </ProjectReference>
+        <ProjectReference Include="..\..\..\btcpayserver\BTCPayServer\BTCPayServer.csproj"
+                          Condition="!Exists('..\..\submodules\btcpayserver\BTCPayServer\BTCPayServer.csproj') And Exists('..\..\..\btcpayserver\BTCPayServer\BTCPayServer.csproj')">
+            <AdditionalProperties>StaticWebAssetsEnabled=false</AdditionalProperties>
+        </ProjectReference>
+        <ProjectReference Include="..\..\..\BTCPayServerPluginsKukks\submodules\btcpayserver\BTCPayServer\BTCPayServer.csproj"
+                          Condition="!Exists('..\..\submodules\btcpayserver\BTCPayServer\BTCPayServer.csproj') And !Exists('..\..\..\btcpayserver\BTCPayServer\BTCPayServer.csproj')">
+            <AdditionalProperties>StaticWebAssetsEnabled=false</AdditionalProperties>
+        </ProjectReference>
+
   </ItemGroup>
+  <ItemGroup><Compile Include="../TestFixtures/LightningInvoiceFixture.cs" Link="LightningInvoiceFixture.cs" /></ItemGroup>
 </Project>

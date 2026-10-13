@@ -129,7 +129,7 @@ public class LnAddressConnectionStringHandler : ILightningConnectionStringHandle
             }
         }
 
-        return new LnAddressLightningClient(resolved, network, http, _loggerFactory);
+        return new LnAddressLightningClient(resolved, network, http, _loggerFactory, _settings is null ? null : new LnAddressPersistence(_settings));
     }
 
     private void EnsurePersistedInvoicesLoaded()

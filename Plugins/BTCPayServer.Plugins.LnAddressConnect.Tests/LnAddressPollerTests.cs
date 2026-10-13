@@ -12,6 +12,53 @@ namespace BTCPayServer.Plugins.LnAddressConnect.Tests;
 public class LnAddressPollerTests
 {
     [Fact]
+    public async Task Settings_outage_does_not_drop_paid_event_and_dirty_receipt_is_saved_on_retry()
+    {
+        var hash = "save_failure_" + Guid.NewGuid().ToString("N");
+        var settings = new FakeSettings { FailuresRemaining = 2 };
+        var t = new TrackedInvoice(hash, "original", $"https://retry.example/verify/{hash}", "retry.example",
+            "https://retry.example/pay", DateTimeOffset.UtcNow.AddHours(1), 21000);
+        TrackedInvoiceRegistry.Add(t);
+        var polls = 0;
+        LnAddressPollerService.PollOverride = (tracked, _) =>
+        {
+            if (tracked.PaymentHash != hash) return Task.FromResult<LightningInvoice?>(null);
+            Interlocked.Increment(ref polls);
+            return Task.FromResult<LightningInvoice?>(new LightningInvoice
+            {
+                Id = hash, PaymentHash = hash, Status = LightningInvoiceStatus.Paid,
+                AmountReceived = LightMoney.Satoshis(21), ExpiresAt = t.ExpiresAt
+            });
+        };
+        using var listener = new LnAddressListener(tracked => tracked.PaymentHash == hash);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var waiter = listener.WaitInvoice(timeout.Token);
+        var poller = new LnAddressPollerService(NullLogger<LnAddressPollerService>.Instance,
+            new SimpleHttpClientFactory(), TimeSpan.FromMilliseconds(20), new LnAddressPersistence(settings));
+        await poller.StartAsync(timeout.Token);
+        try
+        {
+            Assert.Equal(hash, (await waiter).PaymentHash);
+            Assert.True(TrackedInvoiceRegistry.TryGetSettled(hash, out _));
+            PersistedTrackedInvoices? stored;
+            do
+            {
+                await Task.Delay(20, timeout.Token);
+                stored = await settings.GetSettingAsync<PersistedTrackedInvoices>(LnAddressPersistence.SettingName);
+            } while (stored is null);
+            Assert.Contains(stored.PaidInvoices, p => p.PaymentHash == hash && p.AmountMsat == 21000);
+            Assert.Equal(1, polls);
+        }
+        finally
+        {
+            await poller.StopAsync(CancellationToken.None);
+            LnAddressPollerService.PollOverride = null;
+            TrackedInvoiceRegistry.MarkSettled(hash, new LightningInvoice(), DateTimeOffset.UtcNow.AddSeconds(-1));
+            TrackedInvoiceRegistry.TryGetSettled(hash, out _);
+        }
+    }
+
+    [Fact]
     public async Task Poller_publishes_settled_and_prunes()
     {
         var host = "poll.example";

@@ -41,6 +41,27 @@ public class LnAddressReceiverTests
         Assert.False(LnAddressReceiver.IsValidPreimage(null, hash));
     }
 
+    [Theory]
+    [InlineData("{\"status\":\"OK\",\"settled\":true,\"pr\":\"other\"}")]
+    [InlineData("{\"settled\":true,\"pr\":\"lnbc1\"}")]
+    [InlineData("{\"status\":\"ERROR\",\"settled\":true,\"pr\":\"lnbc1\"}")]
+    [InlineData("{\"status\":\"OK\",\"settled\":\"true\",\"pr\":\"lnbc1\"}")]
+    [InlineData("{\"status\":\"OK\",\"settled\":true,\"pr\":\"lnbc1\",\"preimage\":\"wrong\"}")]
+    public async Task Invalid_receipt_never_reports_payment_as_paid(string receipt)
+    {
+        var hash = Guid.NewGuid().ToString("N");
+        var host = "receipt.example";
+        var verify = $"https://{host}/verify/{hash}";
+        TrackedInvoiceRegistry.Add(new TrackedInvoice(hash, "lnbc1", verify, host, $"https://{host}/pay", DateTimeOffset.UtcNow.AddHours(1)));
+        try
+        {
+            var invoice = await Rx(host, new FakeHttp().Map(verify, receipt)).GetInvoice(hash, TestContext.Current.CancellationToken);
+            Assert.NotNull(invoice);
+            Assert.Equal(LightningInvoiceStatus.Unpaid, invoice.Status);
+        }
+        finally { TrackedInvoiceRegistry.Remove(hash); }
+    }
+
     [Fact]
     public async Task Amountless_invoice_is_not_supported()
     {
@@ -68,7 +89,7 @@ public class LnAddressReceiverTests
     }
 
     [Fact]
-    public async Task GetInvoice_error_status_returns_null()
+    public async Task GetInvoice_error_status_keeps_invoice_unpaid()
     {
         var host = "rx2.example";
         var hash = new string('b', 64);
@@ -80,7 +101,8 @@ public class LnAddressReceiverTests
 
         var inv = await rx.GetInvoice(hash, TestContext.Current.CancellationToken);
 
-        Assert.Null(inv);
+        Assert.NotNull(inv);
+        Assert.Equal(LightningInvoiceStatus.Unpaid, inv.Status);
         TrackedInvoiceRegistry.Remove(hash);
     }
 
@@ -110,7 +132,8 @@ public class LnAddressReceiverTests
         var cb = $"https://{host}/.well-known/lnurlp/alice/";
         var http = new FakeHttp()
             .Map($"https://{host}/.well-known/lnurlp/alice", PayMeta.Replace("{CB}", cb))
-            .Map($"{cb}?amount=1000", $"{{\"pr\":\"lnbc1\",\"verify\":\"{LnAddressVerify}\"}}");
+            .Map($"{cb}?amount=1000", $"{{\"pr\":\"lnbc1\",\"verify\":\"{LnAddressVerify}\"}}")
+            .Map(LnAddressVerify, "{\"status\":\"OK\",\"settled\":false,\"pr\":\"lnbc1\",\"preimage\":null}");
         var rx = Rx(host, http);
 
         var err = await rx.CheckVerifySupport(TestContext.Current.CancellationToken);
@@ -147,7 +170,7 @@ public class LnAddressReceiverTests
         TrackedInvoiceRegistry.Add(new TrackedInvoice(
             hash, SpecBolt11, $"https://{host}/verify/{hash}", host, $"https://{host}/.well-known/lnurlp/alice",
             DateTimeOffset.UtcNow.AddHours(1), 250_000_000));
-        var http = new FakeHttp().Map($"https://{host}/verify/{hash}", "{\"settled\":true,\"preimage\":null}");
+        var http = new FakeHttp().Map($"https://{host}/verify/{hash}", System.Text.Json.JsonSerializer.Serialize(new { status = "OK", settled = true, preimage = (string?)null, pr = SpecBolt11 }));
         var rx = Rx(host, http);
 
         var inv = await rx.GetInvoice(hash, TestContext.Current.CancellationToken);

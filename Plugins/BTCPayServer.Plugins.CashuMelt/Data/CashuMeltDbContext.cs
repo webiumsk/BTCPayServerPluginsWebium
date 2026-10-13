@@ -34,7 +34,7 @@ public class CashuMeltDbContext : DbContext
 
         modelBuilder.Entity<CashuMeltChangeProof>(entity =>
         {
-            entity.HasIndex(e => e.Secret).IsUnique();
+            entity.HasIndex(e => new { e.MintUrl, e.KeysetId, e.C }).IsUnique();
             entity.HasIndex(e => new { e.StoreId, e.State });
         });
     }

@@ -19,6 +19,7 @@ namespace BTCPayServer.Plugins.CashuMelt;
 public class PluginMigrationRunner : IStartupTask
 {
     private readonly CashuMeltDbContextFactory _dbContextFactory;
+    private readonly CashuMeltAssetProtector _assets;
     private readonly CashuMeltConfigService _configService;
     private readonly StoreRepository _storeRepository;
     private readonly PaymentMethodHandlerDictionary _handlers;
@@ -29,9 +30,10 @@ public class PluginMigrationRunner : IStartupTask
         CashuMeltConfigService configService,
         StoreRepository storeRepository,
         PaymentMethodHandlerDictionary handlers,
-        ILogger<PluginMigrationRunner> logger)
+        ILogger<PluginMigrationRunner> logger, CashuMeltAssetProtector assets)
     {
         _dbContextFactory = dbContextFactory;
+        _assets = assets;
         _configService    = configService;
         _storeRepository  = storeRepository;
         _handlers         = handlers;
@@ -59,6 +61,8 @@ public class PluginMigrationRunner : IStartupTask
         // Always run the idempotent schema creator: ensures all columns exist
         // regardless of whether the table was created by EF migrations or raw SQL.
         await CashuMeltSchemaCreator.EnsureSchemaAndTablesAsync(ctx, cancellationToken);
+
+        await CashuMeltAssetMigration.ProtectExistingAsync(_dbContextFactory, _assets, cancellationToken);
 
         // Ensure every store that has CashuMelt settings in the plugin DB also has the
         // CASHU payment method registered in BTCPay's DerivationStrategies.

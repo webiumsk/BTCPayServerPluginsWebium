@@ -9,6 +9,20 @@ permissions:
 jobs:
   plugins:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: cashu_safety
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: cashu-test-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d cashu_safety"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      CASHUMELT_TEST_CONNECTION: Host=127.0.0.1;Port=5432;Database=cashu_safety;Username=postgres;Password=cashu-test-only
     steps:
       - uses: actions/checkout@v4
       - run: git submodule update --init --depth 1 submodules/btcpayserver

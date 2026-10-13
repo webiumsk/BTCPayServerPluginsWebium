@@ -61,6 +61,17 @@ public static class CashuMeltSchemaCreator
         await ctx.Database.ExecuteSqlRawAsync($@"ALTER TABLE ""{schema}"".""CashuMeltPaymentRequests"" ADD COLUMN IF NOT EXISTS ""MeltQuoteId"" varchar(200)", cancellationToken);
         await ctx.Database.ExecuteSqlRawAsync($@"ALTER TABLE ""{schema}"".""CashuMeltPaymentRequests"" ADD COLUMN IF NOT EXISTS ""ForwardBolt11"" text", cancellationToken);
 
+        await ctx.Database.ExecuteSqlRawAsync($@"ALTER TABLE ""{schema}"".""CashuMeltPaymentRequests"" ADD COLUMN IF NOT EXISTS ""MintUrl"" text", cancellationToken);
+        await ctx.Database.ExecuteSqlRawAsync($@"ALTER TABLE ""{schema}"".""CashuMeltPaymentRequests"" ADD COLUMN IF NOT EXISTS ""SettingsSnapshotJson"" text", cancellationToken);
+        await ctx.Database.ExecuteSqlRawAsync($@"ALTER TABLE ""{schema}"".""CashuMeltPaymentRequests"" ADD COLUMN IF NOT EXISTS ""MintIssuanceJson"" text", cancellationToken);
+        await ctx.Database.ExecuteSqlRawAsync($@"ALTER TABLE ""{schema}"".""CashuMeltPaymentRequests"" ADD COLUMN IF NOT EXISTS ""QuoteExpiresAt"" timestamp with time zone", cancellationToken);
+        await ctx.Database.ExecuteSqlRawAsync($@"ALTER TABLE ""{schema}"".""CashuMeltPaymentRequests"" ADD COLUMN IF NOT EXISTS ""LastCheckedAt"" timestamp with time zone", cancellationToken);
+        await ctx.Database.ExecuteSqlRawAsync($@"ALTER TABLE ""{schema}"".""CashuMeltPaymentRequests"" ADD COLUMN IF NOT EXISTS ""ForwardAmountSats"" bigint", cancellationToken);
+        await ctx.Database.ExecuteSqlRawAsync($@"ALTER TABLE ""{schema}"".""CashuMeltPaymentRequests"" ADD COLUMN IF NOT EXISTS ""MeltFeeReserveSats"" bigint", cancellationToken);
+        await ctx.Database.ExecuteSqlRawAsync($@"ALTER TABLE ""{schema}"".""CashuMeltPaymentRequests"" ADD COLUMN IF NOT EXISTS ""InputFeeSats"" bigint", cancellationToken);
+
+        await ctx.Database.ExecuteSqlRawAsync($@"ALTER TABLE ""{schema}"".""CashuMeltPaymentRequests"" ADD COLUMN IF NOT EXISTS ""MintQuoteId"" text", cancellationToken);
+
         // Create indexes if they don't exist (PostgreSQL: CREATE INDEX IF NOT EXISTS)
         await ctx.Database.ExecuteSqlRawAsync($@"
             CREATE INDEX IF NOT EXISTS ""IX_CashuMeltPaymentRequests_InvoiceId"" 
@@ -109,10 +120,11 @@ public static class CashuMeltSchemaCreator
                 ""SweepReference"" varchar(200)
             )", cancellationToken);
         await ctx.Database.ExecuteSqlRawAsync($@"
-            CREATE UNIQUE INDEX IF NOT EXISTS ""IX_CashuMeltChangeProofs_Secret""
-            ON ""{schema}"".""CashuMeltChangeProofs"" (""Secret"")", cancellationToken);
-        await ctx.Database.ExecuteSqlRawAsync($@"
             CREATE INDEX IF NOT EXISTS ""IX_CashuMeltChangeProofs_StoreId_State""
             ON ""{schema}"".""CashuMeltChangeProofs"" (""StoreId"", ""State"")", cancellationToken);
+        await ctx.Database.ExecuteSqlRawAsync($@"ALTER TABLE ""{schema}"".""CashuMeltChangeProofs"" ADD COLUMN IF NOT EXISTS ""SweepIntentJson"" text", cancellationToken);
+        await ctx.Database.ExecuteSqlRawAsync($@"ALTER TABLE ""{schema}"".""CashuMeltChangeProofs"" ALTER COLUMN ""Secret"" TYPE text", cancellationToken);
+        await ctx.Database.ExecuteSqlRawAsync($@"DROP INDEX IF EXISTS ""{schema}"".""IX_CashuMeltChangeProofs_Secret""", cancellationToken);
+        await ctx.Database.ExecuteSqlRawAsync($@"CREATE UNIQUE INDEX IF NOT EXISTS ""IX_CashuMeltChangeProofs_MintUrl_KeysetId_C"" ON ""{schema}"".""CashuMeltChangeProofs"" (""MintUrl"", ""KeysetId"", ""C"")", cancellationToken);
     }
 }

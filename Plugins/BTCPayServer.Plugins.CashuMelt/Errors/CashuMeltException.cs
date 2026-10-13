@@ -36,7 +36,7 @@ public class CashuMeltMintProtocolException : System.Net.Http.HttpRequestExcepti
     public string? Detail { get; }
 
     public CashuMeltMintProtocolException(int mintErrorCode, string? detail, System.Net.HttpStatusCode statusCode)
-        : base($"Mint error {mintErrorCode}: {detail}", null, statusCode)
+        : base($"Mint error {mintErrorCode} (HTTP {(int)statusCode})", null, statusCode)
     {
         MintErrorCode = mintErrorCode;
         Detail = detail;

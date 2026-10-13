@@ -27,10 +27,10 @@ public sealed class LnAddressLightningClient : IExtendedLightningClient
         "LN address connections are receive-only — BTCPay only holds the merchant's Lightning address, no " +
         "account credentials. Sending, balance and channel operations are not supported.";
 
-    public LnAddressLightningClient(ResolvedLnAddress resolved, Network network, HttpClient http, ILoggerFactory lf)
+    public LnAddressLightningClient(ResolvedLnAddress resolved, Network network, HttpClient http, ILoggerFactory lf, LnAddressPersistence? persistence = null)
     {
         _resolved = resolved;
-        _receiver = new LnAddressReceiver(resolved, network, http, lf.CreateLogger(nameof(LnAddressReceiver)));
+        _receiver = new LnAddressReceiver(resolved, network, http, lf.CreateLogger(nameof(LnAddressReceiver)), persistence);
     }
 
     // ---- Receive ----

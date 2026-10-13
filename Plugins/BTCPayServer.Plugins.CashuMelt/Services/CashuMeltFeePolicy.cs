@@ -16,7 +16,7 @@ public static class CashuMeltFeePolicy
     {
         if (amountSat <= 0)
             return 2;
-        return Math.Max(2, (amountSat + 99) / 100); // integer ceil(amountSat / 100)
+        return Math.Max(2, amountSat / 100 + (amountSat % 100 == 0 ? 0 : 1)); // integer ceil(amountSat / 100)
     }
 
     /// <summary>

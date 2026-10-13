@@ -2,7 +2,9 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
+using BTCPayServer.Lightning;
 using BTCPayServer.Abstractions.Contracts;
 
 namespace BTCPayServer.Plugins.LnAddressConnect;
@@ -22,12 +24,17 @@ public sealed class LnAddressPersistence
     /// would otherwise stomp the shared blob).</summary>
     public static readonly string[] LegacySettingNames = ["Blitz.TrackedInvoices", "Flash.TrackedInvoices"];
 
+    public static readonly TimeSpan ReconciliationWindow = TimeSpan.FromDays(14);
+    private static readonly SemaphoreSlim SaveLock = new(1, 1);
     private readonly ISettingsRepository _settings;
 
     public LnAddressPersistence(ISettingsRepository settings) => _settings = settings;
 
     public async Task SaveAsync()
     {
+        await SaveLock.WaitAsync();
+        try
+        {
         var snapshot = new PersistedTrackedInvoices
         {
             Invoices = TrackedInvoiceRegistry.All().Select(t => new PersistedInvoice
@@ -39,9 +46,21 @@ public sealed class LnAddressPersistence
                 PayEndpoint = t.PayEndpoint,
                 ExpiresAtUnix = t.ExpiresAt.ToUnixTimeSeconds(),
                 AmountMsat = t.AmountMsat
+            }).ToList(),
+            PaidInvoices = TrackedInvoiceRegistry.SettledSnapshot().Select(x => new PersistedPaidInvoice
+            {
+                PaymentHash = x.Invoice.PaymentHash ?? x.Invoice.Id,
+                Bolt11 = x.Invoice.BOLT11,
+                AmountMsat = (x.Invoice.AmountReceived ?? x.Invoice.Amount)?.MilliSatoshi ?? 0,
+                Preimage = x.Invoice.Preimage,
+                PaidAt = x.Invoice.PaidAt,
+                ExpiresAt = x.Invoice.ExpiresAt,
+                RetainUntil = x.RetainUntil
             }).ToList()
         };
         await _settings.UpdateSetting(snapshot, SettingName);
+        }
+        finally { SaveLock.Release(); }
     }
 
     public async Task LoadAsync()
@@ -81,7 +100,7 @@ public sealed class LnAddressPersistence
             DateTimeOffset expiresAt;
             try { expiresAt = DateTimeOffset.FromUnixTimeSeconds(p.ExpiresAtUnix); }
             catch (ArgumentOutOfRangeException) { continue; }
-            if (expiresAt <= now) continue; // don't re-arm invoices that already expired while down
+            if (expiresAt < now - ReconciliationWindow) continue; // expiry is not proof that an offline invoice was unpaid
             if (string.IsNullOrEmpty(p.PaymentHash) || string.IsNullOrEmpty(p.VerifyUrl)) continue;
             // Same SSRF policy as at accept time — never re-arm a verify URL we would not accept now
             // (the persisted blob is not more trustworthy than the JSON it came from).
@@ -93,12 +112,25 @@ public sealed class LnAddressPersistence
             TrackedInvoiceRegistry.Add(new TrackedInvoice(
                 p.PaymentHash, p.Bolt11 ?? "", p.VerifyUrl, verifyHost, p.PayEndpoint ?? "", expiresAt, p.AmountMsat));
         }
+        foreach (var p in persisted.PaidInvoices ?? new())
+        {
+            if (p.RetainUntil <= now || string.IsNullOrEmpty(p.PaymentHash)) continue;
+            TrackedInvoiceRegistry.MarkSettled(p.PaymentHash, new LightningInvoice
+            {
+                Id = p.PaymentHash, PaymentHash = p.PaymentHash, BOLT11 = p.Bolt11,
+                Status = LightningInvoiceStatus.Paid,
+                Amount = p.AmountMsat > 0 ? LightMoney.MilliSatoshis(p.AmountMsat) : null,
+                AmountReceived = p.AmountMsat > 0 ? LightMoney.MilliSatoshis(p.AmountMsat) : null,
+                Preimage = p.Preimage, PaidAt = p.PaidAt, ExpiresAt = p.ExpiresAt
+            }, p.RetainUntil);
+        }
     }
 }
 
 public class PersistedTrackedInvoices
 {
     public List<PersistedInvoice> Invoices { get; set; } = new();
+    public List<PersistedPaidInvoice> PaidInvoices { get; set; } = new();
 }
 
 public class PersistedInvoice
@@ -110,4 +142,15 @@ public class PersistedInvoice
     public string PayEndpoint { get; set; } = "";
     public long ExpiresAtUnix { get; set; }
     public long AmountMsat { get; set; }
+}
+
+public class PersistedPaidInvoice
+{
+    public string PaymentHash { get; set; } = "";
+    public string? Bolt11 { get; set; }
+    public long AmountMsat { get; set; }
+    public string? Preimage { get; set; }
+    public DateTimeOffset? PaidAt { get; set; }
+    public DateTimeOffset ExpiresAt { get; set; }
+    public DateTimeOffset RetainUntil { get; set; }
 }
