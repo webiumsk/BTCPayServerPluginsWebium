@@ -86,7 +86,9 @@ The merchant must explicitly confirm the original values. Current store settings
 are only suggestions, not historical evidence. The plugin verifies the exact funding
 quote ID, BOLT11 invoice, amount and unit at the supplied mint before freezing recovery
 settings for that payment. This endpoint does not change store settings or pay a new invoice.
-A successful response is `{"confirmed":true}`. Then call the existing `/retry` endpoint;
+A successful response is `{"confirmed":true}`. The snapshotted row remains in
+`MANUAL_REVIEW`, so checkout polling and background reconciliation cannot pay it yet.
+Then call the existing `/retry` endpoint;
 if retry is interrupted, retry the same payment, without submitting original settings again.
 Repeated confirmation of an already snapshotted or settled payment is rejected.
 A quote belonging to another store returns 404. Invalid or conflicting settings return 400;

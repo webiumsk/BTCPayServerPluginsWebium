@@ -231,7 +231,11 @@ public class CashuMeltCheckoutIntegrationTests
                     var before = Assert.IsType<Microsoft.AspNetCore.Mvc.OkObjectResult>(await api.GetPayment(store.Id, row.QuoteId));
                     Assert.True(Assert.IsType<CashuMeltApiController.CashuMeltPaymentResponse>(before.Value).OriginalSettingsRequired);
                     Assert.IsType<Microsoft.AspNetCore.Mvc.OkObjectResult>(await Confirm(store.Id, true));
-                    await ctx.Entry(row).ReloadAsync(); Assert.Equal("PENDING", row.SettlementState);
+                    await ctx.Entry(row).ReloadAsync(); Assert.Equal("MANUAL_REVIEW", row.SettlementState);
+                    var checkBeforeRetry = await payments.CheckAndRecordPaymentAsync(row.QuoteId);
+                    Assert.False(checkBeforeRetry.Paid); Assert.Contains("use Check / retry payment", checkBeforeRetry.Error);
+                    Assert.Equal(0, mint.MintCalls); Assert.Equal(0, mint.MeltCalls);
+                    await ctx.Entry(row).ReloadAsync(); Assert.Equal("MANUAL_REVIEW", row.SettlementState);
                     var after = Assert.IsType<Microsoft.AspNetCore.Mvc.OkObjectResult>(await api.GetPayment(store.Id, row.QuoteId));
                     Assert.False(Assert.IsType<CashuMeltApiController.CashuMeltPaymentResponse>(after.Value).OriginalSettingsRequired);
                     Assert.IsType<Microsoft.AspNetCore.Mvc.BadRequestObjectResult>(await Confirm(store.Id, true));

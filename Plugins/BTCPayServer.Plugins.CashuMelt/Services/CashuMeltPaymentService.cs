@@ -422,9 +422,11 @@ public class CashuMeltPaymentService
         request.MintQuoteId = _assets.Protect(originalQuoteId);
         request.SettingsSnapshotJson = JsonSerializer.Serialize(snapshot);
         request.QuoteExpiresAt = quote.Quote.Expiry is > 0 ? DateTimeOffset.FromUnixTimeSeconds(quote.Quote.Expiry.Value) : null;
-        request.SettlementState = "PENDING";
-        request.NeedsManualReview = false;
-        request.SettlementError = null;
+        // Confirmation stores evidence only. Explicit retry authorizes resuming payout.
+        request.SettlementState = "MANUAL_REVIEW";
+        request.NeedsManualReview = true;
+        request.FailureReasonCode = null;
+        request.SettlementError = "Original settings verified; use Check / retry payment to resume settlement";
         await ctx.SaveChangesAsync(ct);
     }
 
