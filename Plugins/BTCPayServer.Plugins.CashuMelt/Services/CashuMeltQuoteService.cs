@@ -1,6 +1,8 @@
 #nullable enable
 using System;
 using System.Text.Json;
+using System.Net.Http;
+using static BTCPayServer.Plugins.CashuMelt.Services.CashuMeltMintClient;
 using System.Threading;
 using System.Threading.Tasks;
 using BTCPayServer.Plugins.CashuMelt.Data;
@@ -58,17 +60,45 @@ public sealed class CashuMeltQuoteService
             return (null, null, "Payment amount is too small to cover the Lightning payout reserve");
         if (unit != settings.Unit) return (null, null, "CashuMelt configuration changed during invoice creation");
         if (unit != "sat") return (null, null, "Lightning settlement currently requires a sat-denominated mint");
-        if (!await _mintClient.SupportsRestoreAsync(settings.MintUrl, ct))
-            return (null, null, "Mint must support NUT-09 recovery before accepting payments");
-
-        var quote = await _mintClient.CreateMintQuoteAsync(settings.MintUrl, amountSats, unit, ct);
-        if (quote is null || string.IsNullOrWhiteSpace(quote.Quote))
-            return (null, null, "Mint did not return a valid quote");
-
-        if (quote.HasBeenPaid || quote.HasBeenIssued) return (null, null, "Mint returned an already-funded quote");
-        if (quote.Request is null) return (null, null, "Mint did not return an invoice");
-        CashuMeltSettlementVerification.ValidateInvoice(quote.Request, amountSats);
-        if (quote.Unit != unit || quote.Amount != amountSats) return (null, null, "Mint quote amount or unit mismatch");
+        MintQuoteBolt11Response? quote;
+        DateTimeOffset? expiresAt;
+        try
+        {
+            if (!await _mintClient.SupportsRestoreAsync(settings.MintUrl, ct))
+                return (null, null, "Mint must support NUT-09 recovery before accepting payments");
+            quote = await _mintClient.CreateMintQuoteAsync(settings.MintUrl, amountSats, unit, ct);
+            if (quote is null || string.IsNullOrWhiteSpace(quote.Quote))
+                return (null, null, "Mint did not return a valid quote");
+            if (quote.HasBeenPaid || quote.HasBeenIssued) return (null, null, "Mint returned an already-funded quote");
+            if (quote.Request is null) return (null, null, "Mint did not return an invoice");
+            CashuMeltSettlementVerification.ValidateInvoice(quote.Request, amountSats);
+            if (quote.Unit != unit || quote.Amount != amountSats) return (null, null, "Mint quote amount or unit mismatch");
+            expiresAt = quote.Expiry is > 0 ? DateTimeOffset.FromUnixTimeSeconds(quote.Expiry.Value) : null;
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            return (null, null, "Mint quote request timed out; try again later");
+        }
+        catch (HttpRequestException)
+        {
+            return (null, null, "Could not verify mint recovery support; try again later");
+        }
+        catch (JsonException)
+        {
+            return (null, null, "Mint returned an invalid recovery response");
+        }
+        catch (FormatException)
+        {
+            return (null, null, "Mint returned an invalid Lightning invoice");
+        }
+        catch (ArgumentException)
+        {
+            return (null, null, "Mint returned invalid payment quote data");
+        }
+        catch (InvalidOperationException)
+        {
+            return (null, null, "Mint returned an invalid Lightning invoice");
+        }
 
         var req = new CashuMeltPaymentRequest
         {
@@ -76,7 +106,7 @@ public sealed class CashuMeltQuoteService
             MintQuoteId = _assets.Protect(quote.Quote),
             MintUrl = settings.MintUrl,
             SettingsSnapshotJson = JsonSerializer.Serialize(settings),
-            QuoteExpiresAt = quote.Expiry is > 0 ? DateTimeOffset.FromUnixTimeSeconds(quote.Expiry.Value) : null,
+            QuoteExpiresAt = expiresAt,
             InvoiceId      = invoiceId,
             StoreId        = storeId,
             AmountSats     = amountSats,

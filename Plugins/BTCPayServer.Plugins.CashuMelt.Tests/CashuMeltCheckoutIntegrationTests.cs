@@ -31,6 +31,10 @@ public class CashuMeltCheckoutIntegrationTests
         public readonly string PrivateQuoteId = "private-" + Guid.NewGuid().ToString("N");
         public bool RestoreSupported = true;
         public bool WrongQuoteAmount;
+        public bool WrongInvoiceAmount, InvalidInvoice, InvalidInfoJson, InfoTimeout;
+        public HttpStatusCode InfoStatus = HttpStatusCode.OK;
+        public string? CancelPhase;
+        public Action? Cancel;
         public bool Funded;
         public bool LoseMeltResponse;
         public int QuoteCalls, MintCalls, MeltCalls;
@@ -43,12 +47,20 @@ public class CashuMeltCheckoutIntegrationTests
             object response;
             var path = request.RequestUri!.AbsolutePath;
             if (path == "/v1/info")
+            {
+                if (CancelPhase == "info") { Cancel!(); throw new OperationCanceledException(ct); }
+                if (InfoTimeout) throw new TaskCanceledException("Simulated unrequested HTTP timeout");
+                if (InfoStatus != HttpStatusCode.OK) return new HttpResponseMessage(InfoStatus);
+                if (InvalidInfoJson) return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("not JSON") };
                 response = new { nuts = new Dictionary<string, object> { ["9"] = new { supported = RestoreSupported } } };
+            }
             else if (path == "/v1/mint/quote/bolt11" && request.Method == HttpMethod.Post)
             {
+                if (CancelPhase == "mint") { Cancel!(); throw new OperationCanceledException(ct); }
                 var body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(ct));
                 _amount = body.RootElement.GetProperty("amount").GetInt64();
-                (_fundingInvoice, _) = LightningInvoiceFixture.Create(_amount);
+                (_fundingInvoice, _) = LightningInvoiceFixture.Create(_amount + (WrongInvoiceAmount ? 1 : 0));
+                if (InvalidInvoice) _fundingInvoice = "not-a-Lightning-invoice";
                 QuoteCalls++;
                 response = FundingQuote();
             }
@@ -217,21 +229,45 @@ public class CashuMeltCheckoutIntegrationTests
         var config = new CashuMeltConfigService(factory);
         var settings = new CashuMeltStoreSettings { StoreId = Guid.NewGuid().ToString("N"), MintUrl = "https://mint.example", LightningAddress = "merchant@linky.example", Enabled = true };
         await config.SaveSettingsAsync(settings);
-        foreach (var unsupported in new[] { true, false })
+        foreach (var mint in new[] { new CheckoutMint { RestoreSupported = false }, new CheckoutMint { WrongQuoteAmount = true },
+                     new CheckoutMint { InfoStatus = HttpStatusCode.ServiceUnavailable }, new CheckoutMint { InvalidInfoJson = true },
+                     new CheckoutMint { InfoTimeout = true }, new CheckoutMint { WrongInvoiceAmount = true }, new CheckoutMint { InvalidInvoice = true } })
         {
-            var mint = new CheckoutMint { RestoreSupported = !unsupported, WrongQuoteAmount = !unsupported };
             var assets = new CashuMeltAssetProtector(new EphemeralDataProtectionProvider());
             var quotes = new CashuMeltQuoteService(new CashuMeltMintClient(mint.CreateClient("mint"), NullLogger<CashuMeltMintClient>.Instance), config, factory, assets, NullLogger<CashuMeltQuoteService>.Instance);
             var handler = new CashuMeltPaymentMethodHandler(config, quotes, NullLogger<CashuMeltPaymentMethodHandler>.Instance);
             var invoice = new InvoiceEntity { Id = Guid.NewGuid().ToString("N"), StoreId = settings.StoreId, Currency = "BTC", Price = 0.00000296m };
             invoice.UpdateTotals();
-                var invoiceLogs = new InvoiceLogs();
+            var invoiceLogs = new InvoiceLogs();
             var context = new PaymentMethodContext(new StoreData { Id = settings.StoreId }, new StoreBlob(), new JObject(), handler, invoice, invoiceLogs, null!);
             await context.BeforeFetchingRates(); await context.CreatePaymentPrompt(checkPaymentMethodConflicts: false);
             Assert.Equal(PaymentMethodContext.ContextStatus.Failed, context.Status);
             Assert.Null(context.Prompt.Destination); Assert.Null(context.Prompt.Details); Assert.Empty(context.TrackedDestinations);
             Assert.False(await ctx.CashuMeltPaymentRequests.AnyAsync(r => r.InvoiceId == invoice.Id));
-            Assert.True(mint.QuoteCalls == (unsupported ? 0 : 1), string.Join("\n", invoiceLogs.ToList()));
+            Assert.Contains(invoiceLogs.ToList(), log => log.Log.Contains("Payment method unavailable"));
+            Assert.DoesNotContain(invoiceLogs.ToList(), log => log.Log.Contains("Unexpected exception"));
         }
     }
+    [CashuDatabaseFact]
+    public async Task Requested_cancellation_during_recovery_probe_or_quote_creation_is_never_mapped_to_an_error_tuple()
+    {
+        var factory = new CashuMeltDbContextFactory(Options.Create(new DatabaseOptions
+        { ConnectionString = Environment.GetEnvironmentVariable("CASHUMELT_TEST_CONNECTION")! }));
+        await using var ctx = factory.CreateContext(); await CashuMeltSchemaCreator.EnsureSchemaAndTablesAsync(ctx);
+        var config = new CashuMeltConfigService(factory);
+        var settings = new CashuMeltStoreSettings { StoreId = Guid.NewGuid().ToString("N"), MintUrl = "https://mint.example", LightningAddress = "merchant@linky.example", Enabled = true };
+        await config.SaveSettingsAsync(settings);
+        foreach (var phase in new[] { "info", "mint" })
+        {
+            using var cancel = new CancellationTokenSource();
+            var mint = new CheckoutMint { CancelPhase = phase, Cancel = cancel.Cancel };
+            var assets = new CashuMeltAssetProtector(new EphemeralDataProtectionProvider());
+            var quotes = new CashuMeltQuoteService(new CashuMeltMintClient(mint.CreateClient("mint"), NullLogger<CashuMeltMintClient>.Instance),
+                config, factory, assets, NullLogger<CashuMeltQuoteService>.Instance);
+            var invoiceId = Guid.NewGuid().ToString("N");
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => quotes.CreateQuoteAsync(invoiceId, settings.StoreId, 296, "sat", cancel.Token));
+            Assert.False(await ctx.CashuMeltPaymentRequests.AnyAsync(r => r.InvoiceId == invoiceId));
+        }
+    }
+
 }
