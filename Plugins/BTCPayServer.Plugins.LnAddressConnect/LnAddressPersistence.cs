@@ -51,7 +51,7 @@ public sealed class LnAddressPersistence
             {
                 PaymentHash = x.Invoice.PaymentHash ?? x.Invoice.Id,
                 Bolt11 = x.Invoice.BOLT11,
-                AmountMsat = x.Invoice.Amount?.MilliSatoshi ?? 0,
+                AmountMsat = (x.Invoice.AmountReceived ?? x.Invoice.Amount)?.MilliSatoshi ?? 0,
                 Preimage = x.Invoice.Preimage,
                 PaidAt = x.Invoice.PaidAt,
                 ExpiresAt = x.Invoice.ExpiresAt,
@@ -119,7 +119,8 @@ public sealed class LnAddressPersistence
             {
                 Id = p.PaymentHash, PaymentHash = p.PaymentHash, BOLT11 = p.Bolt11,
                 Status = LightningInvoiceStatus.Paid,
-                Amount = LightMoney.MilliSatoshis(p.AmountMsat), AmountReceived = LightMoney.MilliSatoshis(p.AmountMsat),
+                Amount = p.AmountMsat > 0 ? LightMoney.MilliSatoshis(p.AmountMsat) : null,
+                AmountReceived = p.AmountMsat > 0 ? LightMoney.MilliSatoshis(p.AmountMsat) : null,
                 Preimage = p.Preimage, PaidAt = p.PaidAt, ExpiresAt = p.ExpiresAt
             }, p.RetainUntil);
         }

@@ -81,13 +81,15 @@ public sealed class CashuMeltReconciliationHostedService : BackgroundService
             await paymentService.CheckAndRecordPaymentAsync(quoteId, ct);
         }
 
-        // Lightly poll stale PENDING rows (quote not paid yet; expires naturally).
+        // Poll stale funding quotes, including legacy/failed rows without recovery assets.
         // No retry count tracked here — unpaid rows expire only after both mint and BTCPay monitoring end.
         if (tick % 3 == 0)
         {
             var stale = DateTimeOffset.UtcNow.AddMinutes(-2);
             var pendingIds = await ctx.CashuMeltPaymentRequests.AsNoTracking()
-                .Where(r => r.SettlementState == "PENDING"
+                .Where(r => (r.SettlementState == "PENDING"
+                            || ((r.SettlementState == "FAILED" || (r.SettlementState == "MANUAL_REVIEW" && r.SettingsSnapshotJson == null))
+                                && r.MintedProofsJson == null && r.MintIssuanceJson == null && r.BlankOutputsJson == null && r.MeltQuoteId == null))
                             && r.CreatedAt < stale)
                 .OrderBy(r => r.LastCheckedAt ?? r.CreatedAt)
                 .Take(25)

@@ -140,7 +140,16 @@ public class CashuMeltDatabaseSafetyTests
         ctx.CashuMeltChangeProofs.Add(row); await ctx.SaveChangesAsync();
         Assert.Equal((0, 1), await config.GetUnresolvedFundsAsync(store, default));
         settings.Enabled = false;
+        await config.SaveSettingsAsync(settings); // Stop new exposure without changing destination.
+        Assert.False((await config.GetSettingsAsync(store))!.Enabled);
+        Assert.Equal((0, 1), await config.GetUnresolvedFundsAsync(store, default));
+        settings.Enabled = true;
         await Assert.ThrowsAsync<InvalidOperationException>(() => config.SaveSettingsAsync(settings));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => config.DeleteSettingsAsync(store));
+        settings.Enabled = false;
+        settings.LightningAddress = "replacement@example.com";
+        await Assert.ThrowsAsync<InvalidOperationException>(() => config.SaveSettingsAsync(settings));
+        settings.LightningAddress = "a@example.com";
         row.State = "RECOVERED"; row.Secret = "consumed"; await ctx.SaveChangesAsync();
         Assert.Equal((0, 0), await config.GetUnresolvedFundsAsync(store, default));
         await config.SaveSettingsAsync(settings);

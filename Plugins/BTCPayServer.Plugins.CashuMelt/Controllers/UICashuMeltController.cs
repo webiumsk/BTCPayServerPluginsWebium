@@ -366,9 +366,6 @@ public class UICashuMeltController : Controller
                 r.SettlementState,
                 r.SettlementError,
                 r.CreatedAt,
-                r.MintedProofsJson,
-                r.MintIssuanceJson,
-                r.SettingsSnapshotJson,
                 r.Bolt11Invoice,
                 r.NeedsManualReview,
                 r.RetryCount,
@@ -385,7 +382,7 @@ public class UICashuMeltController : Controller
                 r.SettlementState,
                 r.SettlementError,
                 r.CreatedAt,
-                r.SettingsSnapshotJson is not null && (r.SettlementState != "FAILED" || !string.IsNullOrEmpty(r.MintedProofsJson) || !string.IsNullOrEmpty(r.MintIssuanceJson)) && r.SettlementState != "SETTLED",
+                r.SettlementState is "PENDING" or "FAILED" or "MANUAL_REVIEW" or "MELT_COMPLETE",
                 r.Bolt11Invoice,
                 string.Empty,
                 r.NeedsManualReview,
@@ -414,7 +411,4 @@ public class UICashuMeltController : Controller
         };
     }
 
-    private static bool CanRetryForRow(string settlementState, string? mintedProofsJson) =>
-        settlementState != "SETTLED"
-        && !(settlementState == "FAILED" && string.IsNullOrEmpty(mintedProofsJson));
 }

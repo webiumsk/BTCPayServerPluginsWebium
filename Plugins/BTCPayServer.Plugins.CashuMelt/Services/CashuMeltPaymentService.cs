@@ -19,6 +19,8 @@ using BTCPayServer.Services.Invoices;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Npgsql;
+using NBitcoin;
+using BTCPayServer.Lightning;
 using static BTCPayServer.Plugins.CashuMelt.Services.CashuMeltMintClient;
 
 namespace BTCPayServer.Plugins.CashuMelt.Services;
@@ -194,13 +196,14 @@ public class CashuMeltPaymentService
             req.LastCheckedAt = DateTimeOffset.UtcNow;
             await ctx.SaveChangesAsync(ct);
 
-            if (req.SettlementState is "MANUAL_REVIEW" or "EXPIRED_UNPAID")
+            if (req.SettlementState == "EXPIRED_UNPAID" || (req.SettlementState == "MANUAL_REVIEW"
+                && (req.SettingsSnapshotJson is not null || HasRecoveryAssets(req))))
                 return (false, req.SettlementError, null);
 
             if (req.SettlementState == "SETTLED")
                 return (true, null, null);
 
-            if (req.SettlementState == "FAILED")
+            if (req.SettlementState == "FAILED" && HasRecoveryAssets(req))
                 return (false, req.SettlementError, null);
 
             // Melt already succeeded; only BTCPay accounting was flaky — retry recording only.
@@ -237,9 +240,14 @@ public class CashuMeltPaymentService
             }
 
             var settings = req.SettingsSnapshotJson is null ? null : JsonSerializer.Deserialize<CashuMeltStoreSettings>(req.SettingsSnapshotJson);
-            if (settings is null || req.MintUrl != settings.MintUrl)
+            var originalSettingsMissing = settings is null;
+            if (!originalSettingsMissing && req.MintUrl != settings!.MintUrl)
                 return await RequireManualReviewAsync(ctx, req, "Original mint and payout configuration must be confirmed for this legacy payment", ct);
-            if (req.Unit != "sat") return await RequireManualReviewAsync(ctx, req, "USD mint settlement requires explicit currency conversion; payment preserved", ct);
+            // Legacy configuration is used only to look up the exact original funding invoice.
+            // It is never adopted as payout authorization, even if the quote is paid.
+            settings ??= await _configService.GetSettingsAsync(req.StoreId, ct);
+            if (settings is null || (originalSettingsMissing && req.MintUrl is not null && req.MintUrl != settings.MintUrl))
+                return await RequireManualReviewAsync(ctx, req, "Original mint and payout configuration must be confirmed for this legacy payment", ct);
 
             try
             {
@@ -289,18 +297,32 @@ public class CashuMeltPaymentService
                 return await RequireManualReviewAsync(ctx, req, "Mint quote does not match the original invoice", ct);
             if (!mintQuote.HasBeenPaid)
             {
-                if (req.QuoteExpiresAt < DateTimeOffset.UtcNow && mintQuote.State == "UNPAID"
-                    && string.IsNullOrEmpty(req.MintedProofsJson) && string.IsNullOrEmpty(req.MintIssuanceJson)
-                    && string.IsNullOrEmpty(req.BlankOutputsJson) && req.MeltQuoteId is null)
+                if (CashuMeltSettlementVerification.IsExpiredUnpaid(req, mintQuote,
+                    _assets.Unprotect(req.MintQuoteId ?? req.QuoteId), DateTimeOffset.MinValue, DateTimeOffset.UtcNow))
                 {
                     var originalInvoice = await _invoiceRepository.GetInvoice(req.InvoiceId);
-                    if (originalInvoice is not null && originalInvoice.MonitoringExpiration < DateTimeOffset.UtcNow)
+                    if (originalInvoice is not null && CashuMeltSettlementVerification.IsExpiredUnpaid(req, mintQuote,
+                        _assets.Unprotect(req.MintQuoteId ?? req.QuoteId), originalInvoice.MonitoringExpiration, DateTimeOffset.UtcNow))
                     {
                         req.SettlementState = "EXPIRED_UNPAID";
+                        req.NeedsManualReview = false;
+                        req.SettlementError = null;
+                        req.FailureReasonCode = null;
                         await ctx.SaveChangesAsync(ct);
                     }
                 }
                 return (false, null, null);
+            }
+            if (originalSettingsMissing)
+                return await RequireManualReviewAsync(ctx, req, "Original mint and payout configuration must be confirmed for this legacy payment", ct);
+            if (req.Unit != "sat") return await RequireManualReviewAsync(ctx, req, "USD mint settlement requires explicit currency conversion; payment preserved", ct);
+            if (req.SettlementState == "FAILED")
+            {
+                req.SettlementState = "PENDING";
+                req.NeedsManualReview = false;
+                req.SettlementError = null;
+                req.FailureReasonCode = null;
+                await ctx.SaveChangesAsync(ct);
             }
 
             var invoice = await _invoiceRepository.GetInvoice(req.InvoiceId);
@@ -388,7 +410,8 @@ public class CashuMeltPaymentService
     }
 
     /// <summary>
-    /// Retries settlement for a store quote: <c>PENDING</c>, <c>FAILED</c> (when minted proofs exist), or <c>MELT_COMPLETE</c> (BTCPay accounting only).
+    /// Retries settlement or verifies unfunded/legacy quotes without adopting new payout settings.
+    /// <c>MELT_COMPLETE</c> retries only BTCPay accounting; terminal unpaid records stay terminal.
     /// Used by the Greenfield retry endpoint and the store CashuMelt settings UI.
     /// </summary>
     public async Task<CashuMeltRetryOutcome> RetrySettlementAsync(string storeId, string quoteId, CancellationToken ct = default)
@@ -402,9 +425,6 @@ public class CashuMeltPaymentService
         if (r is null)
             return new CashuMeltRetryOutcome(CashuMeltRetryKind.NotFound);
 
-        if (r.SettingsSnapshotJson is null)
-            return new CashuMeltRetryOutcome(CashuMeltRetryKind.CannotRetryMissingProofs, Error: "Confirm the original mint and payout address before retrying this legacy payment");
-
         if (r.SettlementState == "SETTLED")
             return new CashuMeltRetryOutcome(CashuMeltRetryKind.AlreadySettled, Settled: true);
 
@@ -415,8 +435,15 @@ public class CashuMeltPaymentService
             return new CashuMeltRetryOutcome(CashuMeltRetryKind.Completed, paidMc, errMc, raMc);
         }
 
-        if (string.IsNullOrEmpty(r.MintedProofsJson) && string.IsNullOrEmpty(r.MintIssuanceJson) && r.SettlementState == "FAILED")
-            return new CashuMeltRetryOutcome(CashuMeltRetryKind.CannotRetryMissingProofs);
+        if (r.SettlementState == "EXPIRED_UNPAID")
+            return new CashuMeltRetryOutcome(CashuMeltRetryKind.Completed, false);
+
+        if (r.SettingsSnapshotJson is null || (r.SettlementState == "FAILED" && !HasRecoveryAssets(r)))
+        {
+            await quoteLease.DisposeAsync();
+            var (paidFunding, errorFunding, retryAfterFunding) = await CheckAndRecordPaymentAsync(quoteId, ct);
+            return new CashuMeltRetryOutcome(CashuMeltRetryKind.Completed, paidFunding, errorFunding, retryAfterFunding);
+        }
 
         // Manual retry resets escalation state so background reconciliation can resume.
         r.SettlementState = "PENDING";
@@ -431,6 +458,7 @@ public class CashuMeltPaymentService
         return new CashuMeltRetryOutcome(CashuMeltRetryKind.Completed, paid, error, retryAfter);
     }
 
+    /// <summary>Freezes merchant-confirmed original settings only for legacy payments awaiting manual review.</summary>
     public async Task ConfirmOriginalSettingsAsync(string storeId, string quoteId, string mintUrl, string address, CancellationToken ct)
     {
         await using var quoteLease = await CashuMeltDatabaseLease.TryAcquireAsync(_dbContextFactory, "cashumelt:quote:" + quoteId, false, ct)
@@ -440,17 +468,19 @@ public class CashuMeltPaymentService
         await using var ctx = await CreateReadyContextAsync(ct);
         var request = await ctx.CashuMeltPaymentRequests.FirstOrDefaultAsync(r => r.StoreId == storeId && r.QuoteId == quoteId, ct)
             ?? throw new InvalidOperationException("Payment not found");
-        if (request.SettingsSnapshotJson is not null) throw new InvalidOperationException("Original settings are already frozen");
+        if (request.SettlementState != "MANUAL_REVIEW" || request.SettingsSnapshotJson is not null)
+            throw new InvalidOperationException("Only legacy payments awaiting original settings can be confirmed");
         mintUrl = CashuMeltMintPolicy.NormalizeMintUrl(mintUrl);
         CashuMeltMintPolicy.ValidateStoreMintAgainstTrustedList(new CashuMeltStoreSettings { MintUrl = mintUrl });
-        var quote = await _mintClient.GetMintQuoteForPollAsync(mintUrl, request.QuoteId, ct);
-        if (!quote.Success || quote.Quote is null || quote.Quote.Request != request.Bolt11Invoice || quote.Quote.Amount != request.AmountSats || quote.Quote.Unit != request.Unit)
+        var originalQuoteId = _assets.Unprotect(request.MintQuoteId ?? request.QuoteId);
+        var quote = await _mintClient.GetMintQuoteForPollAsync(mintUrl, originalQuoteId, ct);
+        if (!quote.Success || quote.Quote is null || quote.Quote.Quote != originalQuoteId || quote.Quote.Request != request.Bolt11Invoice || quote.Quote.Amount != request.AmountSats || quote.Quote.Unit != request.Unit)
             throw new InvalidOperationException("The supplied mint does not identify the original funding invoice");
         var resolver = new LightningAddressResolver(_httpClientFactory.CreateClient(nameof(LightningAddressResolver)));
         await CashuMeltSettingsValidation.ValidateLightningAddressResolvableAsync(address, resolver, ct);
         var snapshot = new CashuMeltStoreSettings { StoreId = storeId, MintUrl = mintUrl, LightningAddress = address.Trim(), Unit = request.Unit, Enabled = true };
         request.MintUrl = mintUrl;
-        request.MintQuoteId = _assets.Protect(request.QuoteId);
+        request.MintQuoteId = _assets.Protect(originalQuoteId);
         request.SettingsSnapshotJson = JsonSerializer.Serialize(snapshot);
         request.QuoteExpiresAt = quote.Quote.Expiry is > 0 ? DateTimeOffset.FromUnixTimeSeconds(quote.Quote.Expiry.Value) : null;
         request.SettlementState = "PENDING";
@@ -459,8 +489,7 @@ public class CashuMeltPaymentService
         await ctx.SaveChangesAsync(ct);
     }
 
-    // Merchant-only recovery. Exporting does not resolve custody: safety remains blocked
-    // until the mint confirms that the merchant's wallet has consumed every proof.
+    /// <summary>Exports merchant change without releasing the safety guard until consumption is verified.</summary>
     public async Task<string[]> ExportChangeAsync(string storeId, CancellationToken ct)
     {
         await using var lease = await CashuMeltDatabaseLease.TryAcquireAsync(_dbContextFactory, "cashumelt:sweep", false, ct)
@@ -468,7 +497,29 @@ public class CashuMeltPaymentService
         await using var storeLease = await CashuMeltDatabaseLease.TryAcquireAsync(_dbContextFactory, "cashumelt:store:" + storeId, true, ct)
             ?? throw new InvalidOperationException("Settings update is in progress");
         await using var ctx = await CreateReadyContextAsync(ct);
-        var rows = await ctx.CashuMeltChangeProofs.Where(p => p.StoreId == storeId && p.Unit == "sat" && (p.State == "AVAILABLE" || p.State == "EXPORTED")).ToListAsync(ct);
+        var rows = await ctx.CashuMeltChangeProofs.Where(p => p.StoreId == storeId && p.Unit == "sat"
+            && (p.State == "AVAILABLE" || p.State == "EXPORTED" || p.State == "MANUAL_REVIEW")).ToListAsync(ct);
+        var exportableManualIds = new HashSet<long>();
+        foreach (var group in rows.Where(r => r.State == "MANUAL_REVIEW")
+                     .GroupBy(r => new { r.MintUrl, r.SweepReference }))
+        {
+            var recoveryRows = group.ToList();
+            try
+            {
+                await AssertSweepReleasedAsync(recoveryRows, ct);
+                var proofs = recoveryRows.Select(p => new CashuMeltProof(p.Amount, p.KeysetId, _assets.Unprotect(p.Secret), p.C)).ToArray();
+                if (await TryGetAggregateProofStateAsync(group.Key.MintUrl, proofs, ct) == "UNSPENT")
+                    foreach (var row in recoveryRows) exportableManualIds.Add(row.Id);
+            }
+            catch (InvalidOperationException)
+            {
+                // Preserve uncertain sweeps while still exporting independently available change.
+            }
+        }
+        var hadManualChange = rows.Any(r => r.State == "MANUAL_REVIEW");
+        rows = rows.Where(r => r.State != "MANUAL_REVIEW" || exportableManualIds.Contains(r.Id)).ToList();
+        if (rows.Count == 0 && hadManualChange)
+            throw new InvalidOperationException("No manual-review change is confirmed exportable; recover the original sweep or contact the mint");
         var tokens = rows.GroupBy(p => p.MintUrl).Select(group =>
         {
             var proofs = group.Select(p => new CashuMeltProof(p.Amount, p.KeysetId, _assets.Unprotect(p.Secret), p.C)).ToArray();
@@ -480,6 +531,7 @@ public class CashuMeltPaymentService
         return tokens;
     }
 
+    /// <summary>Verifies all exported proofs were consumed and no original sweep remains uncertain.</summary>
     public async Task ConfirmChangeRecoveredAsync(string storeId, CancellationToken ct)
     {
         await using var lease = await CashuMeltDatabaseLease.TryAcquireAsync(_dbContextFactory, "cashumelt:sweep", false, ct)
@@ -494,9 +546,34 @@ public class CashuMeltPaymentService
             if (await TryGetAggregateProofStateAsync(group.Key, proofs, ct) != "SPENT")
                 throw new InvalidOperationException("Exported change has not been fully consumed by the merchant wallet");
         }
-        foreach (var row in rows) { row.State = "RECOVERED"; row.Secret = "consumed"; }
+        foreach (var group in rows.Where(r => r.SweepReference is not null || r.SweepIntentJson is not null)
+                     .GroupBy(r => new { r.MintUrl, r.SweepReference }))
+            await AssertSweepReleasedAsync(group.ToList(), ct);
+        foreach (var row in rows) { row.State = "RECOVERED"; row.Secret = "consumed"; row.SweepIntentJson = null; }
         await ctx.SaveChangesAsync(ct);
     }
+
+    /// <summary>Allows export only when the original expired sweep cannot be retried and is explicitly unpaid.</summary>
+    private async Task AssertSweepReleasedAsync(List<CashuMeltChangeProof> rows, CancellationToken ct)
+    {
+        if (rows.All(r => r.SweepReference is null && r.SweepIntentJson is null)) return;
+        var rawIntent = rows[0].SweepIntentJson;
+        if (rawIntent is null || rows.Any(r => r.SweepIntentJson != rawIntent || r.SweepReference != rows[0].SweepReference))
+            throw new InvalidOperationException("Original sweep identity is unavailable; mint-assisted recovery is required");
+        var intent = JsonSerializer.Deserialize<SweepIntent>(_assets.Unprotect(rawIntent));
+        if (intent is null || intent.QuoteId != rows[0].SweepReference)
+            throw new InvalidOperationException("Original sweep identity does not match");
+        var quote = await _mintClient.GetMeltQuoteAsync(rows[0].MintUrl, intent.QuoteId, ct);
+        if (quote?.State != "UNPAID" || quote.Quote != intent.QuoteId || (quote.Request is not null && quote.Request != intent.Bolt11))
+            throw new InvalidOperationException("Original sweep is not confirmed unpaid; retain its recovery intent");
+        CashuMeltSettlementVerification.ValidateInvoice(intent.Bolt11, quote.Amount, requireUnexpired: false);
+        if (BOLT11PaymentRequest.Parse(intent.Bolt11, Network.Main).ExpiryDate >= DateTimeOffset.UtcNow)
+            throw new InvalidOperationException("Original sweep invoice has not expired; retry or wait before exporting");
+    }
+
+    private static bool HasRecoveryAssets(CashuMeltPaymentRequest request) =>
+        request.MintedProofsJson is not null || request.MintIssuanceJson is not null
+        || request.BlankOutputsJson is not null || request.MeltQuoteId is not null;
 
     private async Task<(bool Paid, string? Error, int? RetryAfterSeconds)> RequireManualReviewAsync(
         CashuMeltDbContext ctx, CashuMeltPaymentRequest req, string error, CancellationToken ct)
@@ -1313,7 +1390,7 @@ public class CashuMeltPaymentService
     {
         await using var lease = await CashuMeltDatabaseLease.TryAcquireAsync(_dbContextFactory, "cashumelt:store:" + storeId, true, ct);
         if (lease is null) return;
-        var settings = await _configService.GetEnabledSettingsAsync(storeId, ct);
+        var settings = await _configService.GetSettingsAsync(storeId, ct);
         if (settings is null || string.IsNullOrWhiteSpace(settings.LightningAddress))
             return;
         if (CashuMeltMintPolicy.NormalizeMintUrl(settings.MintUrl) != mintUrl)

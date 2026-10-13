@@ -4,6 +4,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <IsPackable>false</IsPackable>
+    <StaticWebAssetsEnabled>false</StaticWebAssetsEnabled>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
@@ -21,6 +22,20 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\BTCPayServer.Plugins.CashuMelt\BTCPayServer.Plugins.CashuMelt.csproj" />
+    <!-- Real invoice-monitoring tests need the host database runtime dependencies. -->
+        <ProjectReference Include="..\..\submodules\btcpayserver\BTCPayServer\BTCPayServer.csproj"
+                          Condition="Exists('..\..\submodules\btcpayserver\BTCPayServer\BTCPayServer.csproj')">
+            <AdditionalProperties>StaticWebAssetsEnabled=false</AdditionalProperties>
+        </ProjectReference>
+        <ProjectReference Include="..\..\..\btcpayserver\BTCPayServer\BTCPayServer.csproj"
+                          Condition="!Exists('..\..\submodules\btcpayserver\BTCPayServer\BTCPayServer.csproj') And Exists('..\..\..\btcpayserver\BTCPayServer\BTCPayServer.csproj')">
+            <AdditionalProperties>StaticWebAssetsEnabled=false</AdditionalProperties>
+        </ProjectReference>
+        <ProjectReference Include="..\..\..\BTCPayServerPluginsKukks\submodules\btcpayserver\BTCPayServer\BTCPayServer.csproj"
+                          Condition="!Exists('..\..\submodules\btcpayserver\BTCPayServer\BTCPayServer.csproj') And !Exists('..\..\..\btcpayserver\BTCPayServer\BTCPayServer.csproj')">
+            <AdditionalProperties>StaticWebAssetsEnabled=false</AdditionalProperties>
+        </ProjectReference>
+
   </ItemGroup>
   <ItemGroup><Compile Include="../TestFixtures/LightningInvoiceFixture.cs" Link="LightningInvoiceFixture.cs" /></ItemGroup>
 </Project>

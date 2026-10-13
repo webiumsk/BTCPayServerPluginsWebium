@@ -3,6 +3,8 @@ using System.Text;
 using System.Text.Json;
 using BTCPayServer.Abstractions.Models;
 using BTCPayServer.Plugins.CashuMelt.Data;
+using BTCPayServer.Plugins.CashuMelt.Controllers;
+using Microsoft.AspNetCore.Mvc;
 using BTCPayServer.Plugins.CashuMelt.Data.Entities;
 using BTCPayServer.Plugins.CashuMelt.Services;
 using BTCPayServer.Plugins.TestFixtures;
@@ -63,6 +65,103 @@ public class CashuMeltPayoutRecoveryTests
         mint.Quote ??= new MeltQuoteResponse("original-payout", 100, 1, "PAID", null, preimage, null, invoice);
         ctx.CashuMeltPaymentRequests.Add(request); await ctx.SaveChangesAsync();
         return (service, ctx, request, new[] { new CashuMeltProof(101, "keyset", "secret", "signature") }, new CashuMeltStoreSettings { MintUrl = "https://mint.example", LightningAddress = "unchanged@example.com" });
+    }
+
+    [CashuDatabaseFact]
+    public async Task Payment_detail_never_exposes_a_mint_claim_url()
+    {
+        var setup = await Setup(new Mint()); await using var ctx = setup.Context;
+        setup.Request.MintQuoteId = "protected:private-claim-id";
+        setup.Request.MintUrl = "https://original-mint.example";
+        await ctx.SaveChangesAsync();
+        var factory = new CashuMeltDbContextFactory(Options.Create(new DatabaseOptions
+        { ConnectionString = Environment.GetEnvironmentVariable("CASHUMELT_TEST_CONNECTION")! }));
+        var controller = new CashuMeltApiController(new CashuMeltConfigService(factory), factory, setup.Service, null!, null!, null!);
+        var result = Assert.IsType<OkObjectResult>(await controller.GetPayment(setup.Request.StoreId, setup.Request.QuoteId));
+        var body = Assert.IsType<CashuMeltApiController.CashuMeltPaymentResponse>(result.Value);
+        Assert.Equal(setup.Request.QuoteId, body.QuoteId);
+        Assert.Null(body.MintQuotePollUrl);
+        Assert.DoesNotContain("private-claim-id", JsonSerializer.Serialize(body));
+    }
+
+    [CashuDatabaseFact]
+    public async Task Confirm_original_cannot_reset_finished_or_already_frozen_payments()
+    {
+        var setup = await Setup(new Mint()); await using var ctx = setup.Context;
+        foreach (var state in new[] { "SETTLED", "MELT_COMPLETE", "PENDING", "FAILED", "EXPIRED_UNPAID" })
+        {
+            setup.Request.SettlementState = state;
+            setup.Request.SettingsSnapshotJson = null;
+            await ctx.SaveChangesAsync();
+            await Assert.ThrowsAsync<InvalidOperationException>(() => setup.Service.ConfirmOriginalSettingsAsync(
+                setup.Request.StoreId, setup.Request.QuoteId, "https://mint.example", "a@example.com", default));
+            await ctx.Entry(setup.Request).ReloadAsync();
+            Assert.Equal(state, setup.Request.SettlementState);
+            Assert.Null(setup.Request.SettingsSnapshotJson);
+            Assert.NotNull(setup.Request.MintIssuanceJson);
+        }
+        setup.Request.SettlementState = "MANUAL_REVIEW";
+        setup.Request.SettingsSnapshotJson = "original snapshot";
+        await ctx.SaveChangesAsync();
+        await Assert.ThrowsAsync<InvalidOperationException>(() => setup.Service.ConfirmOriginalSettingsAsync(
+            setup.Request.StoreId, setup.Request.QuoteId, "https://mint.example", "a@example.com", default));
+        await ctx.Entry(setup.Request).ReloadAsync();
+        Assert.Equal("MANUAL_REVIEW", setup.Request.SettlementState);
+        Assert.Equal("original snapshot", setup.Request.SettingsSnapshotJson);
+    }
+
+    [CashuDatabaseFact]
+    public async Task Manual_change_can_be_exported_only_after_expired_original_sweep_is_unpaid_and_unspent()
+    {
+        var mint = new Mint(); var setup = await Setup(mint); await using var ctx = setup.Context;
+        var (expiredInvoice, _) = LightningInvoiceFixture.Create(100, TimeSpan.Zero);
+        mint.Quote = mint.Quote! with { State = "UNPAID", PaymentPreimage = null, Request = expiredInvoice };
+        var intent = JsonSerializer.Serialize(new { QuoteId = "original-payout", Bolt11 = expiredInvoice, Blinding = (object?)null });
+        var row = new CashuMeltChangeProof
+        {
+            StoreId = setup.Request.StoreId, MintUrl = setup.Settings.MintUrl, Amount = 101, KeysetId = "keyset",
+            C = Guid.NewGuid().ToString("N"), Secret = "merchant-bearer", State = "MANUAL_REVIEW",
+            SweepReference = "original-payout", SweepIntentJson = intent, CreatedAt = DateTimeOffset.UtcNow
+        };
+        ctx.CashuMeltChangeProofs.Add(row); await ctx.SaveChangesAsync();
+        mint.ProofState = "PENDING";
+        await Assert.ThrowsAsync<InvalidOperationException>(() => setup.Service.ExportChangeAsync(row.StoreId, default));
+        mint.ProofState = "UNSPENT"; mint.Quote = mint.Quote with { State = "PENDING" };
+        await Assert.ThrowsAsync<InvalidOperationException>(() => setup.Service.ExportChangeAsync(row.StoreId, default));
+        mint.Quote = mint.Quote with { State = "UNPAID", Quote = "wrong" };
+        await Assert.ThrowsAsync<InvalidOperationException>(() => setup.Service.ExportChangeAsync(row.StoreId, default));
+        mint.Quote = mint.Quote with { Quote = "original-payout", Request = setup.Request.ForwardBolt11 };
+        row.SweepIntentJson = JsonSerializer.Serialize(new { QuoteId = "original-payout", Bolt11 = setup.Request.ForwardBolt11, Blinding = (object?)null });
+        await ctx.SaveChangesAsync();
+        await Assert.ThrowsAsync<InvalidOperationException>(() => setup.Service.ExportChangeAsync(row.StoreId, default));
+        mint.Quote = mint.Quote with { Request = expiredInvoice }; row.SweepIntentJson = intent; await ctx.SaveChangesAsync();
+        Assert.Single(await setup.Service.ExportChangeAsync(row.StoreId, default));
+        await ctx.Entry(row).ReloadAsync(); Assert.Equal("EXPORTED", row.State); Assert.NotNull(row.SweepIntentJson);
+        mint.ProofState = "SPENT"; mint.Quote = mint.Quote with { State = "PAID" };
+        await Assert.ThrowsAsync<InvalidOperationException>(() => setup.Service.ConfirmChangeRecoveredAsync(row.StoreId, default));
+        mint.Quote = mint.Quote with { State = "UNPAID" };
+        await setup.Service.ConfirmChangeRecoveredAsync(row.StoreId, default);
+        await ctx.Entry(row).ReloadAsync(); Assert.Equal("RECOVERED", row.State); Assert.Null(row.SweepIntentJson);
+    }
+
+    [CashuDatabaseFact]
+    public async Task Uncertain_manual_sweep_does_not_prevent_export_of_independently_available_change()
+    {
+        var setup = await Setup(new Mint { ProofState = "UNKNOWN" }); await using var ctx = setup.Context;
+        var available = new CashuMeltChangeProof { StoreId = setup.Request.StoreId, MintUrl = setup.Settings.MintUrl,
+            Amount = 1, KeysetId = "keyset", C = Guid.NewGuid().ToString("N"), Secret = "available-secret", State = "AVAILABLE", CreatedAt = DateTimeOffset.UtcNow };
+        var uncertain = new CashuMeltChangeProof { StoreId = setup.Request.StoreId, MintUrl = setup.Settings.MintUrl,
+            Amount = 1, KeysetId = "keyset", C = Guid.NewGuid().ToString("N"), Secret = "uncertain-secret", State = "MANUAL_REVIEW",
+            SweepReference = "missing-original-intent", CreatedAt = DateTimeOffset.UtcNow };
+        ctx.CashuMeltChangeProofs.AddRange(available, uncertain); await ctx.SaveChangesAsync();
+        var token = Assert.Single(await setup.Service.ExportChangeAsync(available.StoreId, default));
+        var encoded = token[6..].Replace('-', '+').Replace('_', '/');
+        var payload = JsonDocument.Parse(Convert.FromBase64String(encoded.PadRight((encoded.Length + 3) / 4 * 4, '=')));
+        var proof = Assert.Single(payload.RootElement.GetProperty("token")[0].GetProperty("proofs").EnumerateArray());
+        Assert.Equal("available-secret", proof.GetProperty("secret").GetString());
+        await ctx.Entry(available).ReloadAsync(); await ctx.Entry(uncertain).ReloadAsync();
+        Assert.Equal("EXPORTED", available.State); Assert.Equal("MANUAL_REVIEW", uncertain.State);
+        Assert.Equal("uncertain-secret", uncertain.Secret);
     }
 
     [CashuDatabaseFact]

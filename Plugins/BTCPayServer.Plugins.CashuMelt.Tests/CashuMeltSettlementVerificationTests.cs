@@ -1,4 +1,5 @@
 using BTCPayServer.Plugins.CashuMelt.Services;
+using BTCPayServer.Plugins.CashuMelt.Data.Entities;
 using BTCPayServer.Plugins.TestFixtures;
 using Xunit;
 using static BTCPayServer.Plugins.CashuMelt.Services.CashuMeltMintClient;
@@ -7,6 +8,33 @@ namespace BTCPayServer.Plugins.CashuMelt.Tests;
 
 public class CashuMeltSettlementVerificationTests
 {
+    [Theory]
+    [InlineData("PENDING")]
+    [InlineData("FAILED")]
+    [InlineData("MANUAL_REVIEW")]
+    public void Unpaid_legacy_or_failed_quote_without_mint_expiry_can_resolve_only_after_monitoring(string state)
+    {
+        var (invoice, _) = LightningInvoiceFixture.Create(100);
+        var request = new CashuMeltPaymentRequest { QuoteId = "q", Bolt11Invoice = invoice, AmountSats = 100, SettlementState = state };
+        var quote = new MintQuoteBolt11Response("q", invoice, 100, "sat", "UNPAID", null, 0, 0);
+        var now = DateTimeOffset.UtcNow.AddHours(2);
+        var past = now.AddMinutes(-1);
+        Assert.True(CashuMeltSettlementVerification.IsExpiredUnpaid(request, quote, "q", past, now));
+        Assert.False(CashuMeltSettlementVerification.IsExpiredUnpaid(request, quote, "q", now.AddMinutes(1), now));
+        Assert.False(CashuMeltSettlementVerification.IsExpiredUnpaid(request, quote, "q", DateTimeOffset.MinValue, DateTimeOffset.UtcNow));
+        foreach (var invalid in new[] { quote with { State = "PAID" }, quote with { State = "ISSUED" },
+                     quote with { AmountPaid = 100 }, quote with { AmountIssued = 100 }, quote with { Quote = "other" },
+                     quote with { Request = null! }, quote with { Amount = 101 }, quote with { Unit = "usd" },
+                     quote with { Expiry = now.AddMinutes(1).ToUnixTimeSeconds() } })
+            Assert.False(CashuMeltSettlementVerification.IsExpiredUnpaid(request, invalid, "q", past, now));
+        request.MeltQuoteId = "uncertain-payout";
+        Assert.False(CashuMeltSettlementVerification.IsExpiredUnpaid(request, quote, "q", past, now));
+        request.MeltQuoteId = null; request.MintIssuanceJson = "recoverable";
+        Assert.False(CashuMeltSettlementVerification.IsExpiredUnpaid(request, quote, "q", past, now));
+        request.MintIssuanceJson = null; request.QuoteExpiresAt = now.AddMinutes(1);
+        Assert.False(CashuMeltSettlementVerification.IsExpiredUnpaid(request, quote, "q", past, now));
+    }
+
     [Fact]
     public void Fee_buffer_ceiling_cannot_overflow_on_mint_controlled_amounts()
     {

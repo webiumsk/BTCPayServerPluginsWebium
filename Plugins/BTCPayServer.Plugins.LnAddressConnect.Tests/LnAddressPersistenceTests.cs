@@ -12,6 +12,33 @@ public class LnAddressPersistenceTests
 {
     static string Uniq(string p) => p + Guid.NewGuid().ToString("N").Substring(0, 8);
 
+    [Theory]
+    [InlineData(21000L)]
+    [InlineData(null)]
+    public async Task Legacy_paid_receipt_preserves_received_amount_or_unknown_amount(long? receivedMsat)
+    {
+        var hash = Uniq("legacy_paid_");
+        var settings = new FakeSettings();
+        var paid = new BTCPayServer.Lightning.LightningInvoice
+        {
+            Id = hash, PaymentHash = hash, Status = BTCPayServer.Lightning.LightningInvoiceStatus.Paid,
+            Amount = null,
+            AmountReceived = receivedMsat is null ? null : BTCPayServer.Lightning.LightMoney.MilliSatoshis(receivedMsat.Value),
+            ExpiresAt = DateTimeOffset.UtcNow.AddHours(-1)
+        };
+        TrackedInvoiceRegistry.MarkSettled(hash, paid, DateTimeOffset.UtcNow.AddDays(14));
+        var persistence = new LnAddressPersistence(settings);
+        await persistence.SaveAsync();
+        TrackedInvoiceRegistry.MarkSettled(hash, paid, DateTimeOffset.UtcNow.AddSeconds(-1));
+        Assert.False(TrackedInvoiceRegistry.TryGetSettled(hash, out _));
+        await persistence.LoadAsync();
+        Assert.True(TrackedInvoiceRegistry.TryGetSettled(hash, out var restored));
+        Assert.Equal(paid.AmountReceived, restored.AmountReceived);
+        Assert.Equal(paid.AmountReceived, restored.Amount);
+        TrackedInvoiceRegistry.MarkSettled(hash, paid, DateTimeOffset.UtcNow.AddSeconds(-1));
+        TrackedInvoiceRegistry.TryGetSettled(hash, out _);
+    }
+
     [Fact]
     public async Task Paid_receipt_survives_a_restart_and_is_not_repolled()
     {
@@ -175,7 +202,8 @@ public class LnAddressPersistenceTests
 /// <summary>In-memory ISettingsRepository that round-trips through JSON (like the real one) for tests.</summary>
 sealed class FakeSettings : ISettingsRepository
 {
-    private readonly Dictionary<string, string> _store = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _store = new();
+    public int FailuresRemaining;
 
     public Task<T?> GetSettingAsync<T>(string? name = null) where T : class
         => Task.FromResult(_store.TryGetValue(name ?? typeof(T).FullName!, out var v)
@@ -184,6 +212,8 @@ sealed class FakeSettings : ISettingsRepository
 
     public Task UpdateSetting<T>(T obj, string? name = null) where T : class
     {
+        if (FailuresRemaining > 0 && Interlocked.Decrement(ref FailuresRemaining) >= 0)
+            throw new InvalidOperationException("Simulated settings outage");
         _store[name ?? typeof(T).FullName!] = Newtonsoft.Json.JsonConvert.SerializeObject(obj);
         return Task.CompletedTask;
     }

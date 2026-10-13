@@ -165,8 +165,14 @@ public sealed class LnAddressPollerService : IHostedService
                 var pruneAfter = (t.ExpiresAt > DateTimeOffset.UtcNow ? t.ExpiresAt : DateTimeOffset.UtcNow)
                                  + LnAddressPersistence.ReconciliationWindow;
                 TrackedInvoiceRegistry.MarkSettled(t.PaymentHash, inv, pruneAfter);
-                if (_persistence is not null) await _persistence.SaveAsync();
-                TrackedInvoiceRegistry.PublishSettled(t, inv);
+                try { if (_persistence is not null) await _persistence.SaveAsync(); }
+                catch (Exception e)
+                {
+                    // The registry version remains dirty, so the cycle retries persistence.
+                    // A settings outage must not hide a verified payment from live listeners.
+                    _logger.LogWarning(e, "Failed to persist verified LnAddress payment {Hash}; save will retry", t.PaymentHash);
+                }
+                finally { TrackedInvoiceRegistry.PublishSettled(t, inv); }
             }
             else if (inv.Status == LightningInvoiceStatus.Expired)
             {
