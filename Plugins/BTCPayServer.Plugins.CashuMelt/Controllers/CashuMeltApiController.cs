@@ -1,6 +1,7 @@
 #nullable enable
 using System;
 using System.Linq;
+using System.Net.Http;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -10,6 +11,7 @@ using BTCPayServer.Data;
 using BTCPayServer.Payments;
 using BTCPayServer.Plugins.CashuMelt.Data;
 using BTCPayServer.Plugins.CashuMelt.Data.Entities;
+using BTCPayServer.Plugins.CashuMelt.Errors;
 using BTCPayServer.Plugins.CashuMelt.PaymentHandler;
 using BTCPayServer.Plugins.CashuMelt.Services;
 using BTCPayServer.Services.Invoices;
@@ -243,7 +245,8 @@ public class CashuMeltApiController : ControllerBase
                 r.SettledAt,
                 r.RetryCount,
                 r.NeedsManualReview,
-                r.FailureReasonCode
+                r.FailureReasonCode,
+                OriginalSettingsRequired = r.SettlementState == "MANUAL_REVIEW" && r.SettingsSnapshotJson == null
             })
             .ToListAsync(ct);
 
@@ -263,7 +266,8 @@ public class CashuMeltApiController : ControllerBase
                 null,
                 r.RetryCount,
                 r.NeedsManualReview,
-                r.FailureReasonCode))
+                r.FailureReasonCode,
+                r.OriginalSettingsRequired))
             .ToList();
 
         return Ok(new { total, offset, limit, items });
@@ -284,7 +288,8 @@ public class CashuMeltApiController : ControllerBase
             r.QuoteId, r.InvoiceId, r.AmountSats, r.Unit,
             r.State, r.SettlementState, r.SettlementError, r.SettlementReference,
             r.CreatedAt, r.PaidAt, r.SettledAt, null,
-            r.RetryCount, r.NeedsManualReview, r.FailureReasonCode));
+            r.RetryCount, r.NeedsManualReview, r.FailureReasonCode,
+            r.SettlementState == "MANUAL_REVIEW" && r.SettingsSnapshotJson is null));
     }
 
     /// <summary>
@@ -305,6 +310,42 @@ public class CashuMeltApiController : ControllerBase
             CashuMeltRetryKind.Completed => Ok(new { settled = outcome.Settled, error = outcome.Error, retryAfterSeconds = outcome.RetryAfterSeconds }),
             _ => StatusCode(500, new { error = "Unexpected retry outcome" })
         };
+    }
+
+    /// <summary>
+    /// Confirms a legacy payment's original mint and payout address without changing store settings.
+    /// The mint must identify the exact original funding invoice; settlement is retried separately.
+    /// </summary>
+    [HttpPost("payments/{quoteId}/confirm-original")]
+    [Consumes("application/json")]
+    public async Task<IActionResult> ConfirmOriginalSettings(string storeId, string quoteId, CancellationToken ct = default)
+    {
+        JsonElement body;
+        try { body = await JsonSerializer.DeserializeAsync<JsonElement>(Request.Body, cancellationToken: ct); }
+        catch (JsonException) { return BadRequest(new { error = "Request body must be valid JSON" }); }
+        if (body.ValueKind != JsonValueKind.Object
+            || !body.TryGetProperty("confirmedOriginal", out var confirmed) || confirmed.ValueKind != JsonValueKind.True)
+            return BadRequest(new { error = "Confirm that these are the original payment settings" });
+        if (!body.TryGetProperty("mintUrl", out var mint) || mint.ValueKind != JsonValueKind.String
+            || string.IsNullOrWhiteSpace(mint.GetString())
+            || !body.TryGetProperty("lightningAddress", out var address) || address.ValueKind != JsonValueKind.String
+            || string.IsNullOrWhiteSpace(address.GetString()))
+            return BadRequest(new { error = "Original mint URL and payout Lightning Address are required" });
+        await using (var ctx = _dbContextFactory.CreateContext())
+            if (!await ctx.CashuMeltPaymentRequests.AnyAsync(r => r.StoreId == storeId && r.QuoteId == quoteId, ct))
+                return NotFound(new { error = "Payment request not found" });
+        try
+        {
+            await _paymentService.ConfirmOriginalSettingsAsync(storeId, quoteId, mint.GetString()!, address.GetString()!, ct);
+            return Ok(new { confirmed = true });
+        }
+        catch (CashuMeltRecoveryUnavailableException ex)
+        { return StatusCode(503, new { error = ex.Message, retryAfterSeconds = ex.RetryAfterSeconds }); }
+        catch (InvalidOperationException ex) { return BadRequest(new { error = ex.Message }); }
+        catch (HttpRequestException) { return StatusCode(503, new { error = "Original mint or payout provider is unavailable; try again later" }); }
+        catch (JsonException) { return StatusCode(503, new { error = "Original mint or payout provider returned invalid verification data" }); }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        { return StatusCode(504, new { error = "Original payment verification timed out; try again later" }); }
     }
 
     // ── DTOs ────────────────────────────────────────────────────────────────────
@@ -334,5 +375,6 @@ public class CashuMeltApiController : ControllerBase
         string? MintQuotePollUrl,
         int RetryCount,
         bool NeedsManualReview,
-        string? FailureReasonCode);
+        string? FailureReasonCode,
+        bool OriginalSettingsRequired = false);
 }

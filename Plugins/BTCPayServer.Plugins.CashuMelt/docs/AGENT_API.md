@@ -67,3 +67,30 @@ On **`PUT /settings`**, use **camelCase** JSON keys (`mintUrl`, `lightningAddres
 - **Default**: 2–5 s between polls is reasonable; **if `retryAfterSeconds` is returned**, wait at least that many seconds before the next poll.
 - Server also enforces **per-quote backoff** on mint HTTP 429/500/502/503/504 so rapid polls do not hit the mint every 2 s.
 - **Mint unreachable** (DNS, firewall, `Network is unreachable`): checkout poll stays **200 OK** with `paid: false` and `retryAfterSeconds` (typically 5). Logs use `cashumelt_mint_poll_transient` without a full exception stack (≥ 1.2.0.4).
+
+
+## Merchant recovery API (1.4.0.2)
+
+Payment list/detail responses include `originalSettingsRequired`. It is true only for
+`MANUAL_REVIEW` rows without their original settings snapshot. Other manual review
+reasons still need their own evidence and must not be treated as legacy settings recovery.
+
+`POST /api/v1/stores/{storeId}/plugins/cashumelt/payments/{quoteId}/confirm-original`
+requires `Content-Type: application/json`, uses the existing `CanModifyStoreSettings` authorization and accepts:
+
+```json
+{"mintUrl":"https://original-mint.example/Bitcoin","lightningAddress":"merchant@example.com","confirmedOriginal":true}
+```
+
+The merchant must explicitly confirm the original values. Current store settings
+are only suggestions, not historical evidence. The plugin verifies the exact funding
+quote ID, BOLT11 invoice, amount and unit at the supplied mint before freezing recovery
+settings for that payment. This endpoint does not change store settings or pay a new invoice.
+A successful response is `{"confirmed":true}`. The snapshotted row remains in
+`MANUAL_REVIEW`, so checkout polling and background reconciliation cannot pay it yet.
+Then call the existing `/retry` endpoint;
+if retry is interrupted, retry the same payment, without submitting original settings again.
+Repeated confirmation of an already snapshotted or settled payment is rejected.
+A quote belonging to another store returns 404. Invalid or conflicting settings return 400;
+provider HTTP/JSON failure returns 503, timeout 504. Caller cancellation is preserved.
+No proofs, blinding data or private mint quote IDs are returned by the new endpoint.
