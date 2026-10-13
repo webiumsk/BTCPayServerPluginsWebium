@@ -411,6 +411,8 @@ public class CashuMeltPaymentService
         CashuMeltMintPolicy.ValidateStoreMintAgainstTrustedList(new CashuMeltStoreSettings { MintUrl = mintUrl });
         var originalQuoteId = _assets.Unprotect(request.MintQuoteId ?? request.QuoteId);
         var quote = await _mintClient.GetMintQuoteForPollAsync(mintUrl, originalQuoteId, ct);
+        if (quote.TransientFailure)
+            throw new CashuMeltRecoveryUnavailableException(quote.RetryAfterSeconds);
         if (!quote.Success || quote.Quote is null || quote.Quote.Quote != originalQuoteId || quote.Quote.Request != request.Bolt11Invoice || quote.Quote.Amount != request.AmountSats || quote.Quote.Unit != request.Unit)
             throw new InvalidOperationException("The supplied mint does not identify the original funding invoice");
         var resolver = new LightningAddressResolver(_httpClientFactory.CreateClient(nameof(LightningAddressResolver)));

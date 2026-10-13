@@ -6,6 +6,7 @@ using BTCPayServer.Abstractions.Models;
 using BTCPayServer.Data;
 using BTCPayServer.Logging;
 using BTCPayServer.Payments;
+using BTCPayServer.Plugins.CashuMelt.Controllers;
 using BTCPayServer.Plugins.CashuMelt.Data;
 using BTCPayServer.Plugins.CashuMelt.Data.Entities;
 using BTCPayServer.Plugins.CashuMelt.PaymentHandler;
@@ -30,7 +31,7 @@ public class CashuMeltCheckoutIntegrationTests
     {
         public readonly string PrivateQuoteId = "private-" + Guid.NewGuid().ToString("N");
         public bool RestoreSupported = true;
-        public bool WrongQuoteAmount;
+        public bool WrongQuoteAmount, QuoteUnavailable;
         public bool WrongInvoiceAmount, InvalidInvoice, InvalidInfoJson, InfoTimeout;
         public HttpStatusCode InfoStatus = HttpStatusCode.OK;
         public string? CancelPhase;
@@ -65,7 +66,10 @@ public class CashuMeltCheckoutIntegrationTests
                 response = FundingQuote();
             }
             else if (path == "/v1/mint/quote/bolt11/" + PrivateQuoteId)
+            {
+                if (QuoteUnavailable) return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable);
                 response = FundingQuote();
+            }
             else if (path == "/v1/keys")
             {
                 var keys = Enumerable.Range(0, 12).ToDictionary(i => (1L << i).ToString(),
@@ -202,8 +206,38 @@ public class CashuMeltCheckoutIntegrationTests
                 {
                     Assert.False(result.Paid); Assert.Contains("Original mint and payout configuration", result.Error);
                     Assert.Equal(0, mint.MintCalls); Assert.Equal(0, mint.MeltCalls);
-                    await payments.ConfirmOriginalSettingsAsync(store.Id, row.QuoteId, settings.MintUrl, "merchant@linky.example", default);
+                    var api = new CashuMeltApiController(config, factory, payments, null!, null!, null!);
+                    async Task<Microsoft.AspNetCore.Mvc.IActionResult> Confirm(string requestedStore, bool consent)
+                    {
+                        api.ControllerContext = new Microsoft.AspNetCore.Mvc.ControllerContext
+                        { HttpContext = new Microsoft.AspNetCore.Http.DefaultHttpContext() };
+                        api.Request.Body = new System.IO.MemoryStream(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new
+                        { mintUrl = settings.MintUrl, lightningAddress = "merchant@linky.example", confirmedOriginal = consent })));
+                        return await api.ConfirmOriginalSettings(requestedStore, row.QuoteId);
+                    }
+                    Assert.IsType<Microsoft.AspNetCore.Mvc.BadRequestObjectResult>(await Confirm(store.Id, false));
+                    Assert.IsType<Microsoft.AspNetCore.Mvc.NotFoundObjectResult>(await Confirm("different-store", true));
+                    mint.QuoteUnavailable = true;
+                    var unavailable = Assert.IsType<Microsoft.AspNetCore.Mvc.ObjectResult>(await Confirm(store.Id, true));
+                    Assert.Equal(503, unavailable.StatusCode);
+                    await ctx.Entry(row).ReloadAsync(); Assert.Null(row.SettingsSnapshotJson);
+                    Assert.Equal("MANUAL_REVIEW", row.SettlementState);
+                    mint.QuoteUnavailable = false;
+                    mint.WrongQuoteAmount = true;
+                    Assert.IsType<Microsoft.AspNetCore.Mvc.BadRequestObjectResult>(await Confirm(store.Id, true));
+                    await ctx.Entry(row).ReloadAsync(); Assert.Null(row.SettingsSnapshotJson);
+                    Assert.Equal(0, mint.MintCalls); Assert.Equal(0, mint.MeltCalls);
+                    mint.WrongQuoteAmount = false;
+                    var before = Assert.IsType<Microsoft.AspNetCore.Mvc.OkObjectResult>(await api.GetPayment(store.Id, row.QuoteId));
+                    Assert.True(Assert.IsType<CashuMeltApiController.CashuMeltPaymentResponse>(before.Value).OriginalSettingsRequired);
+                    Assert.IsType<Microsoft.AspNetCore.Mvc.OkObjectResult>(await Confirm(store.Id, true));
+                    await ctx.Entry(row).ReloadAsync(); Assert.Equal("PENDING", row.SettlementState);
+                    var after = Assert.IsType<Microsoft.AspNetCore.Mvc.OkObjectResult>(await api.GetPayment(store.Id, row.QuoteId));
+                    Assert.False(Assert.IsType<CashuMeltApiController.CashuMeltPaymentResponse>(after.Value).OriginalSettingsRequired);
+                    Assert.IsType<Microsoft.AspNetCore.Mvc.BadRequestObjectResult>(await Confirm(store.Id, true));
+                    Assert.IsType<Microsoft.AspNetCore.Mvc.OkObjectResult>(await api.RetryPayment(store.Id, row.QuoteId));
                     result = await payments.CheckAndRecordPaymentAsync(row.QuoteId);
+                    Assert.IsType<Microsoft.AspNetCore.Mvc.BadRequestObjectResult>(await Confirm(store.Id, true));
                 }
                 if (scenario.LostResponse) { Assert.False(result.Paid); Assert.Null(result.Error); result = await payments.CheckAndRecordPaymentAsync(row.QuoteId); }
                 Assert.True(result.Paid, result.Error); Assert.Null(result.Error);
