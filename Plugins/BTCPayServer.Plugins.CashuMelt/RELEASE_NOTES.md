@@ -1,3 +1,20 @@
+## 1.4.0.4 - Merchant change recovery API
+
+- Add store-scoped, Greenfield-only change summary, export and verification routes.
+- Expose exact sat amount strings, the unchanged 100 sat sweep threshold and explicit
+  counts for unsupported units, unknown states and retained terminal sweep intents.
+- Reuse native recovery and advisory locks. Export keeps the safety hold; verification
+  requires mint-confirmed consumption and does not imply all store obligations are clear.
+- Require strict JSON confirmation and return private, non-cacheable responses with
+  fixed safe errors. Recovery proof-state failures log metadata only.
+- Preserve native UI behavior, recovery evidence, keys and schema. Exact BTCPay 2.4.5
+  host remains required for the maintained compatibility build.
+
+Read [the API contract](docs/AGENT_API.md#merchant-change-recovery-api-1404) and
+[settlement safety](docs/SETTLEMENT_SAFETY.md) before installation. Provider deployment
+must precede new Satflux controls. Back up the database and Data Protection key ring;
+no mixed worker versions or downgrade while recovery operations are active.
+
 ## 1.4.0.3 - Lightning checkout instructions
 
 Checkout now instructs the customer to pay with a Lightning wallet, describes successful payment as Lightning, and waits for payment confirmation. The merchant settlement bridge continues to use Cashu internally. Invoice creation, payout verification, recovery, fee handling, schema and environment variables are unchanged. This release includes the 1.4.0.2 merchant recovery API and explicit retry guard.

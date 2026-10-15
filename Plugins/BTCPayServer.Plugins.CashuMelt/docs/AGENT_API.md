@@ -94,3 +94,66 @@ Repeated confirmation of an already snapshotted or settled payment is rejected.
 A quote belonging to another store returns 404. Invalid or conflicting settings return 400;
 provider HTTP/JSON failure returns 503, timeout 504. Caller cancellation is preserved.
 No proofs, blinding data or private mint quote IDs are returned by the new endpoint.
+
+
+## Merchant change recovery API (1.4.0.4)
+
+These separate routes accept **only Greenfield API-key authentication**, with the
+existing store-scoped `CanModifyStoreSettings` permission. Cookie authentication
+is not a fallback. All responses, including authorization/validation errors, are
+private and non-cacheable. Integrators must never log exported tokens, request or
+response bodies, or transport exception details. Never automatically retry recovery
+POSTs after an uncertain result; require fresh merchant authorization instead.
+
+`GET /api/v1/stores/{storeId}/plugins/cashumelt/change` returns schema version 1:
+
+```json
+{
+  "version": 1,
+  "pendingSat": "5",
+  "sweptSat": "0",
+  "minimumSweepSat": "100",
+  "unresolvedRecords": 2,
+  "availableRecords": 2,
+  "exportedRecords": 0,
+  "sweepingRecords": 0,
+  "manualReviewRecords": 0,
+  "unsupportedUnitRecords": 0,
+  "otherUnresolvedRecords": 0
+}
+```
+
+Amounts are canonical nonnegative signed-64-bit decimal **strings**, preserving
+precision in JavaScript. Pending and swept amounts match the native sat-only totals;
+the automatic sweep threshold is unchanged. The four named state counters are also
+sat-only. Unsupported-unit counts include unresolved non-sat records. Other counts
+include unresolved sat records in unknown states and terminal records retaining a
+sweep intent. These counters partition unresolved records; they are not amounts.
+A failed/invalid aggregate returns an unavailable error, never fabricated zero.
+No mint URLs, identifiers, proofs or recovery intents appear in the summary.
+
+`POST .../change/export` and `POST .../change/verify` require
+`Content-Type: application/json` with exactly `{"confirmed":true}`. False, string
+or numeric confirmations, duplicate properties, unknown properties and form data
+are rejected. Export returns `{"tokens":["cashuA..."]}`, including an explicit empty
+array when nothing is exportable. Tokens are bearer assets: download privately and
+import into the merchant's own compatible Cashu wallet. Export is repeatable and
+**retains wallet-change holds**. It neither discards small balances nor pays Lightning.
+
+Verify returns `{"verified":true}` only after the existing recovery service confirms
+exported proofs are consumed and preserves any uncertain original sweep. Unspent,
+pending, unknown or incomplete mint evidence cannot release the hold. Verification
+covers exported change only: unsupported/unknown records or unresolved payments may
+still block a wallet change. Refresh the existing `/safety` endpoint separately and
+require a fresh safety check on the actual settings write.
+
+Error responses contain fixed `code` and `error` values: `400`
+`cashu_change_confirmation_required`, `409` `cashu_change_export_blocked` or
+`cashu_change_verification_blocked`, and `503` `cashu_change_unavailable`. No caught
+exception details or raw mint responses are included. Existing native recovery,
+Data Protection keys, database evidence and advisory locks remain unchanged.
+
+Install the provider before enabling consumer controls. Older plugins lack these
+routes; consumers must display unsupported capability instead of zero balances.
+Back up the plugin database and Data Protection keys together. Do not downgrade or
+mix plugin worker versions during recovery. There is no new database migration.
