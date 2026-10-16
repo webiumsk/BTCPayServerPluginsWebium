@@ -1,4 +1,4 @@
-**Upgrade 1.4.0.3:** read [settlement safety and merchant recovery](docs/SETTLEMENT_SAFETY.md) before installing. BTCPay temporarily holds encrypted spendable ecash; back up its key ring and database together.
+**Upgrade 1.4.0.4:** read [settlement safety and merchant recovery](docs/SETTLEMENT_SAFETY.md) before installing. BTCPay temporarily holds encrypted spendable ecash; back up its key ring and database together.
 
 # Cashu Melt — BTCPay Server Plugin
 
@@ -162,3 +162,5 @@ POST /api/v1/stores/{storeId}/plugins/cashumelt/payments/{quoteId}/retry
 ```
 
 Poll JSON and retry response extensions: [docs/AGENT_API.md](docs/AGENT_API.md).
+
+Change summary, private token export and consumption verification are available through the [Greenfield-only merchant change recovery API](docs/AGENT_API.md#merchant-change-recovery-api-1404). Native recovery remains available; balances below 100 sat retain the wallet-change safety hold until recovered.

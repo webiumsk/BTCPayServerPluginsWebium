@@ -10,6 +10,7 @@ using BTCPayServer.Plugins.CashuMelt.Data;
 using BTCPayServer.Plugins.CashuMelt.PaymentHandler;
 using BTCPayServer.Plugins.CashuMelt.Services;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.AspNetCore.Hosting;
 
 namespace BTCPayServer.Plugins.CashuMelt;
 
@@ -24,6 +25,8 @@ public class CashuMeltPlugin : BaseBTCPayServerPlugin
 
     public override void Execute(IServiceCollection services)
     {
+        services.AddTransient<IStartupFilter, CashuMeltChangePrivacyStartupFilter>();
+
         // ── Database ────────────────────────────────────────────────────────────
         services.AddSingleton<CashuMeltDbContextFactory>();
         services.AddDbContext<CashuMeltDbContext>((provider, o) =>

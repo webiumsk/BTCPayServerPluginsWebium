@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
@@ -428,6 +429,46 @@ public class CashuMeltPaymentService
         request.FailureReasonCode = null;
         request.SettlementError = "Original settings verified; use Check / retry payment to resume settlement";
         await ctx.SaveChangesAsync(ct);
+    }
+
+    /// <summary>Read-only aggregate: never load proof material or expose mint/store identities.</summary>
+    public async Task<CashuMeltChangeSummary> GetChangeSummaryAsync(string storeId, CancellationToken ct)
+    {
+        await using var ctx = _dbContextFactory.CreateContext();
+        var groups = await ctx.CashuMeltChangeProofs.AsNoTracking()
+            .Where(p => p.StoreId == storeId)
+            .GroupBy(p => new { p.Unit, p.State, HasIntent = p.SweepIntentJson != null })
+            .Select(g => new { g.Key.Unit, g.Key.State, g.Key.HasIntent,
+                Count = g.Count(), Amount = g.Sum(p => p.Amount), Minimum = g.Min(p => p.Amount) })
+            .ToListAsync(ct);
+        long pending = 0, swept = 0;
+        int unresolved = 0, available = 0, exported = 0, sweeping = 0, manual = 0, unsupported = 0, other = 0;
+        checked
+        {
+            foreach (var group in groups)
+            {
+                if (group.Minimum < 0) throw new InvalidOperationException("Invalid change amount");
+                var isUnresolved = group.State is not ("SWEPT" or "RECOVERED") || group.HasIntent;
+                if (isUnresolved) unresolved += group.Count;
+                if (group.Unit != "sat")
+                {
+                    if (isUnresolved) unsupported += group.Count;
+                    continue;
+                }
+                switch (group.State)
+                {
+                    case "AVAILABLE": available += group.Count; pending += group.Amount; break;
+                    case "EXPORTED": exported += group.Count; pending += group.Amount; break;
+                    case "SWEEPING": sweeping += group.Count; pending += group.Amount; break;
+                    case "MANUAL_REVIEW": manual += group.Count; pending += group.Amount; break;
+                    default: if (isUnresolved) other += group.Count; break;
+                }
+                if (group.State == "SWEPT") swept += group.Amount;
+            }
+        }
+        return new CashuMeltChangeSummary(1, pending.ToString(CultureInfo.InvariantCulture),
+            swept.ToString(CultureInfo.InvariantCulture), MinChangeSweepSat.ToString(CultureInfo.InvariantCulture),
+            unresolved, available, exported, sweeping, manual, unsupported, other);
     }
 
     /// <summary>Exports merchant change without releasing the safety guard until consumption is verified.</summary>
@@ -1496,7 +1537,7 @@ public class CashuMeltPaymentService
         catch (Exception ex)
         {
             // NUT-07 is optional for callers - unknown state falls back to other signals.
-            _logger.LogDebug(ex, "NUT-07 checkstate unavailable at {MintUrl}", mintUrl);
+            _logger.LogDebug("NUT-07 checkstate unavailable: {ErrorType}", ex.GetType().Name);
             return null;
         }
     }
