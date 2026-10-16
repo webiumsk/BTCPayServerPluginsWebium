@@ -8,7 +8,7 @@
   <PropertyGroup>
     <Product>Cashu Melt</Product>
     <Description>Cashu-assisted checkout: mint quote, forward to merchant Lightning address after melt, optional fee caps and trusted mint list, background reconciliation. BTCPay temporarily holds encrypted ecash until payout or recovery.</Description>
-    <Version>1.4.0.4</Version>
+    <Version>1.4.0.5</Version>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
   </PropertyGroup>
 

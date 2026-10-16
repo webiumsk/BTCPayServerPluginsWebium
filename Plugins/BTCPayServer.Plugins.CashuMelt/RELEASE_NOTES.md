@@ -1,3 +1,21 @@
+## 1.4.0.5 - Phase-aware payment recovery and blocker diagnostics
+
+- Reach existing original-payout reconciliation or restore-only issuance recovery
+  without obsolete funding lookups when complete encrypted, quote-bound evidence exists.
+- Preserve missing/corrupt/legacy evidence holds; never interpret funding HTTP 400/404
+  as unpaid or settled. Old proof-only rows lacking issuance binding still need review.
+- Serialize automatic retry counting, escalation and dispatch under the quote lease;
+  preserve the 20-attempt cap and separate explicit manual resets.
+- Add private-material-free payment blocker reasons, structural phases and safety
+  breakdown counts to existing read endpoints. Completed rows may still retain evidence.
+- Preserve exact payout identity, accounting idempotency, native recovery, schema,
+  original destinations, existing safety predicates and the exact BTCPay 2.4.5 host.
+
+Read [payment recovery limits](docs/AGENT_API.md#payment-recovery-and-blocker-diagnostics-1405)
+before upgrading. Source/package readiness does not establish recovery of any live
+payment. Keep the plugin database and Data Protection keys together; do not mix worker
+versions or downgrade during active recovery. No database migration is required.
+
 ## 1.4.0.4 - Merchant change recovery API
 
 - Add store-scoped, Greenfield-only change summary, export and verification routes.
