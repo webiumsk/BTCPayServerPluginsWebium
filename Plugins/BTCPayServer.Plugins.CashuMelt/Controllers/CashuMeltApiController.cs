@@ -196,8 +196,12 @@ public class CashuMeltApiController : ControllerBase
     [HttpGet("safety")]
     public async Task<IActionResult> SettlementSafety(string storeId, CancellationToken ct)
     {
-        var (payments, change) = await _configService.GetUnresolvedFundsAsync(storeId, ct);
-        return Ok(new { safeToChangeWallet = payments == 0 && change == 0, unresolvedPayments = payments, unresolvedChange = change });
+        var counts = await _configService.GetPaymentSafetyCountsAsync(storeId, ct);
+        var change = await _configService.GetUnresolvedChangeCountAsync(storeId, ct);
+        return Ok(new { safeToChangeWallet = counts.UnresolvedPayments == 0 && change == 0,
+            unresolvedPayments = counts.UnresolvedPayments, unresolvedChange = change,
+            failedPayments = counts.FailedPayments, otherNonTerminalPayments = counts.OtherNonTerminalPayments,
+            terminalRecoveryPayments = counts.TerminalRecoveryPayments });
     }
 
     // ── Payment requests ────────────────────────────────────────────────────────
@@ -246,6 +250,11 @@ public class CashuMeltApiController : ControllerBase
                 r.RetryCount,
                 r.NeedsManualReview,
                 r.FailureReasonCode,
+                HasOriginalSettings = r.SettingsSnapshotJson != null,
+                HasProofs = r.MintedProofsJson != null,
+                HasIssuance = r.MintIssuanceJson != null,
+                HasChangeOutputs = r.BlankOutputsJson != null,
+                HasPayoutQuote = r.MeltQuoteId != null,
                 OriginalSettingsRequired = r.SettlementState == "MANUAL_REVIEW" && r.SettingsSnapshotJson == null
             })
             .ToListAsync(ct);
@@ -267,7 +276,9 @@ public class CashuMeltApiController : ControllerBase
                 r.RetryCount,
                 r.NeedsManualReview,
                 r.FailureReasonCode,
-                r.OriginalSettingsRequired))
+                r.OriginalSettingsRequired,
+                CashuMeltPaymentSafety.Describe(new(r.SettlementState, r.HasOriginalSettings, r.HasProofs,
+                    r.HasIssuance, r.HasChangeOutputs, r.HasPayoutQuote))))
             .ToList();
 
         return Ok(new { total, offset, limit, items });
@@ -279,8 +290,14 @@ public class CashuMeltApiController : ControllerBase
         string storeId, string quoteId, CancellationToken ct = default)
     {
         await using var ctx = _dbContextFactory.CreateContext();
-        var r = await ctx.CashuMeltPaymentRequests
-            .FirstOrDefaultAsync(x => x.QuoteId == quoteId && x.StoreId == storeId, ct);
+        var r = await ctx.CashuMeltPaymentRequests.AsNoTracking()
+            .Where(x => x.QuoteId == quoteId && x.StoreId == storeId)
+            .Select(r => new { r.QuoteId, r.InvoiceId, r.AmountSats, r.Unit, r.State, r.SettlementState,
+                r.SettlementError, r.SettlementReference, r.CreatedAt, r.PaidAt, r.SettledAt,
+                r.RetryCount, r.NeedsManualReview, r.FailureReasonCode,
+                HasOriginalSettings = r.SettingsSnapshotJson != null, HasProofs = r.MintedProofsJson != null,
+                HasIssuance = r.MintIssuanceJson != null, HasChangeOutputs = r.BlankOutputsJson != null,
+                HasPayoutQuote = r.MeltQuoteId != null }).FirstOrDefaultAsync(ct);
 
         if (r is null) return NotFound(new { error = "Payment request not found" });
 
@@ -289,7 +306,9 @@ public class CashuMeltApiController : ControllerBase
             r.State, r.SettlementState, r.SettlementError, r.SettlementReference,
             r.CreatedAt, r.PaidAt, r.SettledAt, null,
             r.RetryCount, r.NeedsManualReview, r.FailureReasonCode,
-            r.SettlementState == "MANUAL_REVIEW" && r.SettingsSnapshotJson is null));
+            r.SettlementState == "MANUAL_REVIEW" && !r.HasOriginalSettings,
+            CashuMeltPaymentSafety.Describe(new(r.SettlementState, r.HasOriginalSettings, r.HasProofs,
+                r.HasIssuance, r.HasChangeOutputs, r.HasPayoutQuote))));
     }
 
     /// <summary>
@@ -376,5 +395,11 @@ public class CashuMeltApiController : ControllerBase
         int RetryCount,
         bool NeedsManualReview,
         string? FailureReasonCode,
-        bool OriginalSettingsRequired = false);
+        bool OriginalSettingsRequired = false,
+        [property: System.Text.Json.Serialization.JsonIgnore, Newtonsoft.Json.JsonIgnore] CashuMeltPaymentSafety.Diagnostic? Diagnostic = null)
+    {
+        public bool BlocksWalletChange => Diagnostic?.BlocksWalletChange ?? false;
+        public string[] WalletChangeBlockReasons => Diagnostic?.WalletChangeBlockReasons ?? [];
+        public string RecoveryPhase => Diagnostic?.RecoveryPhase ?? "funding_verification";
+    }
 }

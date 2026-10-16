@@ -20,7 +20,7 @@ namespace BTCPayServer.Plugins.CashuMelt.Services;
 /// </summary>
 public sealed class CashuMeltReconciliationHostedService : BackgroundService
 {
-    private const int MaxAutoRetries = 20;
+    private const int MaxAutoRetries = CashuMeltPaymentService.MaxAutomaticRetries;
 
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<CashuMeltReconciliationHostedService> _logger;
@@ -71,18 +71,14 @@ public sealed class CashuMeltReconciliationHostedService : BackgroundService
             .Where(r => r.SettlementState == "MELT_COMPLETE" && !r.NeedsManualReview)
             .OrderBy(r => r.CreatedAt)
             .Take(35)
-            .Select(r => r.QuoteId)
+            .Select(r => new { r.QuoteId, r.StoreId })
             .ToListAsync(ct);
 
-        foreach (var quoteId in meltCompleteIds)
-        {
-            if (!await IncrementRetryAndShouldProceedAsync(dbFactory, quoteId, ct))
-                continue;
-            await paymentService.CheckAndRecordPaymentAsync(quoteId, ct);
-        }
+        foreach (var row in meltCompleteIds)
+            await paymentService.RetrySettlementAutomaticallyAsync(row.StoreId, row.QuoteId, ct);
 
         // Poll stale funding quotes, including legacy/failed rows without recovery assets.
-        // No retry count tracked here — unpaid rows expire only after both mint and BTCPay monitoring end.
+        // Unfunded rows remain uncounted; durable recovery uses the capped, quote-locked entry point.
         if (tick % 3 == 0)
         {
             var stale = DateTimeOffset.UtcNow.AddMinutes(-2);
@@ -90,14 +86,20 @@ public sealed class CashuMeltReconciliationHostedService : BackgroundService
                 .Where(r => (r.SettlementState == "PENDING"
                             || ((r.SettlementState == "FAILED" || (r.SettlementState == "MANUAL_REVIEW" && r.SettingsSnapshotJson == null))
                                 && r.MintedProofsJson == null && r.MintIssuanceJson == null && r.BlankOutputsJson == null && r.MeltQuoteId == null))
-                            && r.CreatedAt < stale)
+                            && r.CreatedAt < stale
+                            && !(r.NeedsManualReview && (r.MintedProofsJson != null || r.MintIssuanceJson != null
+                                || r.BlankOutputsJson != null || r.MeltQuoteId != null)))
                 .OrderBy(r => r.LastCheckedAt ?? r.CreatedAt)
                 .Take(25)
-                .Select(r => r.QuoteId)
+                .Select(r => new { r.QuoteId, r.StoreId,
+                    HasAssets = r.MintedProofsJson != null || r.MintIssuanceJson != null || r.BlankOutputsJson != null || r.MeltQuoteId != null })
                 .ToListAsync(ct);
 
-            foreach (var quoteId in pendingIds)
-                await paymentService.CheckAndRecordPaymentAsync(quoteId, ct);
+            foreach (var row in pendingIds)
+            {
+                if (row.HasAssets) await paymentService.RetrySettlementAutomaticallyAsync(row.StoreId, row.QuoteId, ct);
+                else await paymentService.CheckAndRecordPaymentAsync(row.QuoteId, ct);
+            }
         }
 
         // Sweep accumulated NUT-08 change proofs to the merchant Lightning address (~15 min
@@ -130,45 +132,8 @@ public sealed class CashuMeltReconciliationHostedService : BackgroundService
                 .ToListAsync(ct);
 
             foreach (var row in failedRows)
-            {
-                if (!await IncrementRetryAndShouldProceedAsync(dbFactory, row.QuoteId, ct))
-                    continue;
-                await paymentService.RetrySettlementAsync(row.StoreId, row.QuoteId, ct);
-            }
+                await paymentService.RetrySettlementAutomaticallyAsync(row.StoreId, row.QuoteId, ct);
         }
     }
 
-    /// <summary>
-    /// Increments the retry count for the given quote. Returns false (and sets
-    /// <c>NeedsManualReview</c>) when the count reaches <see cref="MaxAutoRetries"/>.
-    /// </summary>
-    private async Task<bool> IncrementRetryAndShouldProceedAsync(
-        CashuMeltDbContextFactory dbFactory,
-        string quoteId,
-        CancellationToken ct)
-    {
-        await using var ctx = dbFactory.CreateContext();
-        var req = await ctx.CashuMeltPaymentRequests
-            .FirstOrDefaultAsync(r => r.QuoteId == quoteId, ct);
-
-        if (req is null || req.NeedsManualReview || req.SettlementState == "SETTLED")
-            return false;
-
-        req.RetryCount++;
-
-        if (req.RetryCount >= MaxAutoRetries)
-        {
-            req.NeedsManualReview = true;
-            req.FailureReasonCode = CashuMeltFailureReasons.MaxRetriesExceeded;
-            req.SettlementError   = CashuMeltFailureReasons.Describe(CashuMeltFailureReasons.MaxRetriesExceeded);
-            await ctx.SaveChangesAsync(ct);
-            _logger.LogWarning(
-                "cashumelt_manual_review_required quote={QuoteId} invoice={InvoiceId} retryCount={RetryCount} settlementState={State} — exceeded {Max} auto-retry attempts",
-                quoteId, req.InvoiceId, req.RetryCount, req.SettlementState, MaxAutoRetries);
-            return false;
-        }
-
-        await ctx.SaveChangesAsync(ct);
-        return true;
-    }
 }

@@ -157,3 +157,50 @@ Install the provider before enabling consumer controls. Older plugins lack these
 routes; consumers must display unsupported capability instead of zero balances.
 Back up the plugin database and Data Protection keys together. Do not downgrade or
 mix plugin worker versions during recovery. There is no new database migration.
+
+
+## Payment recovery and blocker diagnostics (1.4.0.5)
+
+Existing `/safety` adds `failedPayments`, `otherNonTerminalPayments` and
+`terminalRecoveryPayments`. These disjoint nonnegative counts sum to
+`unresolvedPayments`; two FAILED rows do not necessarily explain every obligation.
+Terminal rows can retain recovery material and still block a wallet change.
+
+Existing payment list/detail adds:
+
+- `blocksWalletChange`: the unchanged server wallet-change predicate.
+- `walletChangeBlockReasons`: unique strings drawn from `non_terminal_settlement`,
+  `retained_minted_proofs`, `retained_issuance_intent`, `retained_change_outputs`,
+  `retained_payout_quote`. The last condition applies only while not SETTLED.
+- `recoveryPhase`: one of `complete`, `expired_unpaid`, `terminal_recovery_review`,
+  `original_settings_required`, `accounting_pending`, `payout_reconciliation`,
+  `proofs_retained`, `issuance_restore`, `recovery_evidence_review`,
+  `funding_verification`.
+
+These structural classifications never authorize recovery or prove a balance exists.
+Only presence booleans are projected internally; no new identifiers, proofs, private
+quote IDs or intent contents are exposed. Older plugin metadata is unknown, not an
+unblocked claim.
+
+A funding status HTTP 400/404 is not evidence of unpaid, paid or spent state. Retry
+can bypass obsolete funding lookup only with matching original store/mint/unit,
+signed original invoice, encrypted issuance intent bound to the original funding
+quote and exact amount, and complete proofs matching that intent's outputs.
+Restoration reuses the existing intent in restore-only mode; empty/partial/invalid
+NUT-09 restoration cannot issue replacement tokens. Existing payout recovery checks
+the exact saved payout and never replaces an unknown/pending/expired intent. Without
+an existing payout, complete fresh UNSPENT evidence is required before using the
+original snapshot destination. Settled/invalid original invoices require review.
+
+Missing snapshots, corrupt/mismatched evidence, older proof-only records lacking a
+valid issuance binding, or payout/change-output evidence without usable proofs stay
+held for manual investigation. Without usable durable evidence, normal funding
+verification and strict expired-unpaid criteria remain unchanged. If original mint
+history remains unavailable, this update cannot certify those obligations clear.
+The change-token API does not export or release payment-held proofs.
+
+Automatic recovery now counts/checks/dispatches under the quote advisory lease,
+retains the existing 20-attempt escalation, and cannot reset itself. Asset-bearing
+PENDING work uses the same cap; unfunded funding polls remain uncounted. Explicit
+authorized manual retry resets attempts. Accounting-only work preserves its existing
+cap and never reissues/melts. No schema, threshold, route or wallet-safety weakening.

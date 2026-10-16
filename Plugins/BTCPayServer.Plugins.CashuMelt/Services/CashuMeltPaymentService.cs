@@ -111,8 +111,11 @@ public class CashuMeltPaymentService
     // ──────────────────────────────────────────────────────────────
 
     /// <returns>Paid, user-visible error (if any), optional seconds for checkout to backoff mint polls.</returns>
-    public async Task<(bool Paid, string? Error, int? RetryAfterSeconds)> CheckAndRecordPaymentAsync(
-        string quoteId, CancellationToken ct = default)
+    public Task<(bool Paid, string? Error, int? RetryAfterSeconds)> CheckAndRecordPaymentAsync(
+        string quoteId, CancellationToken ct = default) => CheckAndRecordPaymentCoreAsync(quoteId, false, ct);
+
+    private async Task<(bool Paid, string? Error, int? RetryAfterSeconds)> CheckAndRecordPaymentCoreAsync(
+        string quoteId, bool quoteLeaseHeld, CancellationToken ct)
     {
         var sem = _quoteProcessingLocks.GetOrAdd(quoteId, _ => new SemaphoreSlim(1, 1));
         if (!await sem.WaitAsync(0, ct))
@@ -126,8 +129,9 @@ public class CashuMeltPaymentService
             if (req is null)
                 return (false, "Quote not found", null);
 
-            await using var quoteLease = await CashuMeltDatabaseLease.TryAcquireAsync(_dbContextFactory, "cashumelt:quote:" + quoteId, false, ct);
-            if (quoteLease is null) return (false, null, 3);
+            await using var quoteLease = quoteLeaseHeld ? null
+                : await CashuMeltDatabaseLease.TryAcquireAsync(_dbContextFactory, "cashumelt:quote:" + quoteId, false, ct);
+            if (!quoteLeaseHeld && quoteLease is null) return (false, null, 3);
             await using var storeLease = await CashuMeltDatabaseLease.TryAcquireAsync(_dbContextFactory, "cashumelt:store:" + req.StoreId, true, ct);
             if (storeLease is null) return (false, null, 3);
             await ctx.Entry(req).ReloadAsync(ct);
@@ -140,6 +144,9 @@ public class CashuMeltPaymentService
 
             if (req.SettlementState == "SETTLED")
                 return (true, null, null);
+
+            if (req.NeedsManualReview && (HasRecoveryAssets(req) || req.SettlementState == "MELT_COMPLETE"))
+                return (false, req.SettlementError, null);
 
             if (req.SettlementState == "FAILED" && HasRecoveryAssets(req))
                 return (false, req.SettlementError, null);
@@ -177,7 +184,9 @@ public class CashuMeltPaymentService
                 return (false, null, 3);
             }
 
-            var settings = req.SettingsSnapshotJson is null ? null : JsonSerializer.Deserialize<CashuMeltStoreSettings>(req.SettingsSnapshotJson);
+            CashuMeltStoreSettings? settings;
+            try { settings = req.SettingsSnapshotJson is null ? null : JsonSerializer.Deserialize<CashuMeltStoreSettings>(req.SettingsSnapshotJson); }
+            catch (Exception) { return await RequireManualReviewAsync(ctx, req, "Original configuration is invalid; recovery evidence retained", ct); }
             var originalSettingsMissing = settings is null;
             if (!originalSettingsMissing && req.MintUrl != settings!.MintUrl)
                 return await RequireManualReviewAsync(ctx, req, "Original mint and payout configuration must be confirmed for this legacy payment", ct);
@@ -195,6 +204,9 @@ public class CashuMeltPaymentService
             {
                 return (false, ex.Message, null);
             }
+
+            if (!originalSettingsMissing && HasRecoveryAssets(req))
+                return await RecoverDurablePaymentAsync(settings!, req, ctx, ct);
 
             if (_mintQuotePollBackoff.TryGetValue(quoteId, out var backoff) && DateTimeOffset.UtcNow < backoff.NextAllowedUtc)
             {
@@ -352,48 +364,143 @@ public class CashuMeltPaymentService
     /// <c>MELT_COMPLETE</c> retries only BTCPay accounting; terminal unpaid records stay terminal.
     /// Used by the Greenfield retry endpoint and the store CashuMelt settings UI.
     /// </summary>
-    public async Task<CashuMeltRetryOutcome> RetrySettlementAsync(string storeId, string quoteId, CancellationToken ct = default)
+    public Task<CashuMeltRetryOutcome> RetrySettlementAsync(string storeId, string quoteId, CancellationToken ct = default)
+        => RetrySettlementCoreAsync(storeId, quoteId, false, ct);
+
+    internal const int MaxAutomaticRetries = 20;
+
+    internal Task<CashuMeltRetryOutcome> RetrySettlementAutomaticallyAsync(string storeId, string quoteId, CancellationToken ct = default)
+        => RetrySettlementCoreAsync(storeId, quoteId, true, ct);
+
+    private async Task<CashuMeltRetryOutcome> RetrySettlementCoreAsync(string storeId, string quoteId, bool automatic, CancellationToken ct)
     {
         await using var quoteLease = await CashuMeltDatabaseLease.TryAcquireAsync(_dbContextFactory, "cashumelt:quote:" + quoteId, false, ct);
         if (quoteLease is null) return new CashuMeltRetryOutcome(CashuMeltRetryKind.Completed, false, null, 3);
         await using var ctx = _dbContextFactory.CreateContext();
-        var r = await ctx.CashuMeltPaymentRequests
-            .FirstOrDefaultAsync(x => x.QuoteId == quoteId && x.StoreId == storeId, ct);
+        var r = await ctx.CashuMeltPaymentRequests.FirstOrDefaultAsync(x => x.QuoteId == quoteId && x.StoreId == storeId, ct);
+        if (r is null) return new CashuMeltRetryOutcome(CashuMeltRetryKind.NotFound);
+        if (r.SettlementState == "SETTLED") return new CashuMeltRetryOutcome(CashuMeltRetryKind.AlreadySettled, Settled: true);
+        if (r.SettlementState == "EXPIRED_UNPAID") return new CashuMeltRetryOutcome(CashuMeltRetryKind.Completed, false);
 
-        if (r is null)
-            return new CashuMeltRetryOutcome(CashuMeltRetryKind.NotFound);
-
-        if (r.SettlementState == "SETTLED")
-            return new CashuMeltRetryOutcome(CashuMeltRetryKind.AlreadySettled, Settled: true);
+        if (automatic)
+        {
+            // Count, escalation check and dispatch remain under the same session quote lease.
+            if (r.NeedsManualReview || r.SettlementState is not ("FAILED" or "PENDING" or "MELT_COMPLETE"))
+                return new CashuMeltRetryOutcome(CashuMeltRetryKind.Completed, false, r.SettlementError);
+            if (r.RetryCount < MaxAutomaticRetries) r.RetryCount++;
+            if (r.RetryCount >= MaxAutomaticRetries)
+            {
+                r.NeedsManualReview = true;
+                r.FailureReasonCode = CashuMeltFailureReasons.MaxRetriesExceeded;
+                r.SettlementError = CashuMeltFailureReasons.Describe(CashuMeltFailureReasons.MaxRetriesExceeded);
+                await ctx.SaveChangesAsync(ct);
+                _logger.LogWarning("cashumelt_manual_review_required retryCount={RetryCount} settlementState={State}", r.RetryCount, r.SettlementState);
+                return new CashuMeltRetryOutcome(CashuMeltRetryKind.Completed, false, r.SettlementError);
+            }
+        }
+        else r.RetryCount = 0;
 
         if (r.SettlementState == "MELT_COMPLETE")
         {
-            await quoteLease.DisposeAsync();
-            var (paidMc, errMc, raMc) = await CheckAndRecordPaymentAsync(quoteId, ct);
-            return new CashuMeltRetryOutcome(CashuMeltRetryKind.Completed, paidMc, errMc, raMc);
+            if (!automatic) r.NeedsManualReview = false;
         }
-
-        if (r.SettlementState == "EXPIRED_UNPAID")
-            return new CashuMeltRetryOutcome(CashuMeltRetryKind.Completed, false);
-
-        if (r.SettingsSnapshotJson is null || (r.SettlementState == "FAILED" && !HasRecoveryAssets(r)))
+        else if (r.SettingsSnapshotJson is not null && !(r.SettlementState == "FAILED" && !HasRecoveryAssets(r)))
         {
-            await quoteLease.DisposeAsync();
-            var (paidFunding, errorFunding, retryAfterFunding) = await CheckAndRecordPaymentAsync(quoteId, ct);
-            return new CashuMeltRetryOutcome(CashuMeltRetryKind.Completed, paidFunding, errorFunding, retryAfterFunding);
+            r.SettlementState = "PENDING";
+            r.SettlementError = null;
+            r.NeedsManualReview = false;
+            r.FailureReasonCode = null;
+        }
+        await ctx.SaveChangesAsync(ct);
+        var (paid, error, retryAfter) = await CheckAndRecordPaymentCoreAsync(quoteId, true, ct);
+        return new CashuMeltRetryOutcome(CashuMeltRetryKind.Completed, paid, error, retryAfter);
+    }
+
+    /// <summary>Restore only durable original evidence; funding lookup failure is never settlement evidence.</summary>
+    private async Task<(bool Paid, string? Error, int? RetryAfterSeconds)> RecoverDurablePaymentAsync(
+        CashuMeltStoreSettings settings, CashuMeltPaymentRequest req, CashuMeltDbContext ctx, CancellationToken ct)
+    {
+        const string invalidEvidence = "Original recovery evidence is missing or invalid; manual review required";
+        CashuMeltProof[] proofs;
+        InvoiceEntity? invoice;
+        try
+        {
+            if (settings.StoreId != req.StoreId || settings.MintUrl != req.MintUrl || settings.Unit != req.Unit
+                || req.Unit != "sat" || req.AmountSats <= 0 || string.IsNullOrWhiteSpace(settings.LightningAddress)
+                || string.IsNullOrWhiteSpace(req.MintQuoteId) || string.IsNullOrWhiteSpace(_assets.Unprotect(req.MintQuoteId)))
+                return await RequireManualReviewAsync(ctx, req, invalidEvidence, ct);
+            CashuMeltSettlementVerification.ValidateInvoice(req.Bolt11Invoice!, req.AmountSats, requireUnexpired: false);
+            if (req.MintIssuanceJson is null || !req.MintIssuanceJson.StartsWith("protected:v1:", StringComparison.Ordinal))
+                return await RequireManualReviewAsync(ctx, req, invalidEvidence, ct);
+            var intent = JsonSerializer.Deserialize<CashuMeltMintIssuance.Intent>(_assets.Unprotect(req.MintIssuanceJson))
+                ?? throw new InvalidOperationException();
+            if (intent.MintUrl != settings.MintUrl || intent.QuoteId != _assets.Unprotect(req.MintQuoteId)
+                || intent.Unit != req.Unit || intent.Amount != req.AmountSats || intent.Keyset.Unit != req.Unit
+                || string.IsNullOrWhiteSpace(intent.Keyset.Id) || intent.Outputs.Length is < 1 or > 64
+                || intent.Outputs.Any(o => o.Amount <= 0 || string.IsNullOrWhiteSpace(o.Secret)
+                    || o.Blinded.Amount != o.Amount || o.Blinded.Id != intent.Keyset.Id
+                    || !intent.Keyset.Keys.ContainsKey(o.Amount.ToString(System.Globalization.CultureInfo.InvariantCulture)))
+                || intent.Outputs.Select(o => o.Secret).Distinct(StringComparer.Ordinal).Count() != intent.Outputs.Length
+                || intent.Outputs.Aggregate(0L, (total, o) => checked(total + o.Amount)) != req.AmountSats)
+                return await RequireManualReviewAsync(ctx, req, invalidEvidence, ct);
+            foreach (var output in intent.Outputs)
+            {
+                using var blinding = new Key(Convert.FromHexString(output.R));
+                _ = new PubKey(output.Blinded.B_);
+                _ = new PubKey(intent.Keyset.Keys[output.Amount.ToString(System.Globalization.CultureInfo.InvariantCulture)]);
+            }
+            invoice = await _invoiceRepository.GetInvoice(req.InvoiceId);
+            if (invoice is null) return (false, "BTCPay invoice not found", null);
+            if (invoice.StoreId != req.StoreId || invoice.Status is InvoiceStatus.Settled or InvoiceStatus.Invalid)
+                return await RequireManualReviewAsync(ctx, req, "Invoice already settled, invalid or mismatched: recovery requires review", ct);
+            if (req.MeltQuoteId is not null && (string.IsNullOrWhiteSpace(req.MeltQuoteId) || req.ForwardAmountSats is not > 0
+                || req.ForwardAmountSats > req.AmountSats || string.IsNullOrWhiteSpace(req.ForwardBolt11)))
+                return await RequireManualReviewAsync(ctx, req, invalidEvidence, ct);
+            if (req.MeltQuoteId is not null)
+                CashuMeltSettlementVerification.ValidateInvoice(req.ForwardBolt11!, req.ForwardAmountSats!.Value, requireUnexpired: false);
+            if (req.MeltQuoteId is null && req.BlankOutputsJson is not null)
+                return await RequireManualReviewAsync(ctx, req, invalidEvidence, ct);
+            if (req.MintedProofsJson is not null)
+            {
+                if (!req.MintedProofsJson.StartsWith("protected:v1:", StringComparison.Ordinal))
+                    return await RequireManualReviewAsync(ctx, req, invalidEvidence, ct);
+                proofs = JsonSerializer.Deserialize<CashuMeltProof[]>(_assets.Unprotect(req.MintedProofsJson), ProofJsonOptions)
+                    ?? throw new InvalidOperationException();
+            }
+            else if (req.MintIssuanceJson is not null)
+            {
+                if (!req.MintIssuanceJson.StartsWith("protected:v1:", StringComparison.Ordinal))
+                    return await RequireManualReviewAsync(ctx, req, invalidEvidence, ct);
+                // alreadyIssued=true forbids issuing new tokens when restore is empty or partial.
+                var restored = await MintProofsAsync(settings, req, "ISSUED", ctx, ct);
+                if (restored.Proofs is null || restored.Error is not null)
+                    return await RequireManualReviewAsync(ctx, req, "Durable issuance could not be restored; recovery evidence retained", ct);
+                proofs = restored.Proofs;
+            }
+            else return await RequireManualReviewAsync(ctx, req, invalidEvidence, ct);
+            if (proofs.Length != intent.Outputs.Length || proofs.Any(p => p.Amount <= 0 || string.IsNullOrWhiteSpace(p.Id)
+                    || string.IsNullOrWhiteSpace(p.Secret) || string.IsNullOrWhiteSpace(p.C))
+                || proofs.Select(p => p.Secret).Distinct(StringComparer.Ordinal).Count() != proofs.Length
+                || proofs.Aggregate(0L, (total, p) => checked(total + p.Amount)) != req.AmountSats
+                || proofs.Any(p => p.Id != intent.Keyset.Id || intent.Outputs.Count(o => o.Secret == p.Secret && o.Amount == p.Amount) != 1))
+                return await RequireManualReviewAsync(ctx, req, invalidEvidence, ct);
+            foreach (var proof in proofs) _ = new PubKey(proof.C);
+        }
+        catch (Exception)
+        {
+            return await RequireManualReviewAsync(ctx, req, invalidEvidence, ct);
         }
 
-        // Manual retry resets escalation state so background reconciliation can resume.
-        r.SettlementState = "PENDING";
-        r.SettlementError = null;
-        r.NeedsManualReview = false;
-        r.RetryCount = 0;
-        r.FailureReasonCode = null;
+        if (req.MeltQuoteId is null && await TryGetAggregateProofStateAsync(settings.MintUrl, proofs, ct) != "UNSPENT")
+            return (false, "Original proofs are not confirmed unspent; recovery evidence retained", 3);
+        var (ok, error, transient) = await MeltToMerchantAsync(settings, req, invoice, proofs, ctx, ct);
+        if (!ok) return transient ? (false, null, 3) : (false, error, null);
+        var recorded = await TryRecordPaymentInBtcPayAsync(req, await _invoiceRepository.GetInvoice(req.InvoiceId) ?? invoice, ct);
+        if (!recorded) return (false, null, 3);
+        req.SettlementState = "SETTLED";
+        req.SettledAt = DateTimeOffset.UtcNow;
         await ctx.SaveChangesAsync(ct);
-
-        await quoteLease.DisposeAsync();
-        var (paid, error, retryAfter) = await CheckAndRecordPaymentAsync(quoteId, ct);
-        return new CashuMeltRetryOutcome(CashuMeltRetryKind.Completed, paid, error, retryAfter);
+        return (true, null, null);
     }
 
     /// <summary>Freezes merchant-confirmed original settings only for legacy payments awaiting manual review.</summary>

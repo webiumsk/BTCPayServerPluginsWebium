@@ -110,25 +110,43 @@ public class CashuMeltConfigService
 
     // Unissued funding quotes can still receive payment: absence of proofs alone is not
     // evidence that a failed checkout is safe. Reconciliation must verify EXPIRED_UNPAID.
-    private static readonly Expression<Func<CashuMeltPaymentRequest, bool>> UnresolvedPayment = r =>
-        (r.SettlementState == null || (r.SettlementState != "SETTLED" && r.SettlementState != "EXPIRED_UNPAID"))
-        || r.MintedProofsJson != null || r.MintIssuanceJson != null || r.BlankOutputsJson != null
-        || (r.MeltQuoteId != null && r.SettlementState != "SETTLED");
-
     private static readonly Expression<Func<CashuMeltChangeProof, bool>> UnresolvedChange = r =>
         (r.State != "SWEPT" && r.State != "RECOVERED") || r.SweepIntentJson != null;
 
     public async Task<(int Payments, int Change)> GetUnresolvedFundsAsync(string storeId, CancellationToken ct)
     {
         await using var ctx = _dbContextFactory.CreateContext();
-        var payments = await ctx.CashuMeltPaymentRequests.Where(r => r.StoreId == storeId).CountAsync(UnresolvedPayment, ct);
+        var payments = await ctx.CashuMeltPaymentRequests.Where(r => r.StoreId == storeId).CountAsync(CashuMeltPaymentSafety.Unresolved, ct);
         var change = await ctx.CashuMeltChangeProofs.Where(r => r.StoreId == storeId).CountAsync(UnresolvedChange, ct);
         return (payments, change);
     }
 
+    public async Task<int> GetUnresolvedChangeCountAsync(string storeId, CancellationToken ct)
+    {
+        await using var ctx = _dbContextFactory.CreateContext();
+        return await ctx.CashuMeltChangeProofs.Where(r => r.StoreId == storeId).CountAsync(UnresolvedChange, ct);
+    }
+
+    public sealed record PaymentSafetyCounts(int UnresolvedPayments, int FailedPayments,
+        int OtherNonTerminalPayments, int TerminalRecoveryPayments);
+
+    public async Task<PaymentSafetyCounts> GetPaymentSafetyCountsAsync(string storeId, CancellationToken ct)
+    {
+        await using var ctx = _dbContextFactory.CreateContext();
+        var groups = await ctx.CashuMeltPaymentRequests.AsNoTracking().Where(r => r.StoreId == storeId)
+            .Where(CashuMeltPaymentSafety.Unresolved)
+            .GroupBy(r => r.SettlementState == "FAILED" ? "failed"
+                : r.SettlementState == "SETTLED" || r.SettlementState == "EXPIRED_UNPAID" ? "terminal" : "other")
+            .Select(g => new { Category = g.Key, Count = g.Count() }).ToListAsync(ct);
+        var failed = groups.SingleOrDefault(g => g.Category == "failed")?.Count ?? 0;
+        var terminal = groups.SingleOrDefault(g => g.Category == "terminal")?.Count ?? 0;
+        var other = groups.SingleOrDefault(g => g.Category == "other")?.Count ?? 0;
+        return new PaymentSafetyCounts(checked(failed + terminal + other), failed, other, terminal);
+    }
+
     private static async Task AssertNoUnresolvedFundsAsync(CashuMeltDbContext ctx, string storeId, CancellationToken ct)
     {
-        if (await ctx.CashuMeltPaymentRequests.Where(r => r.StoreId == storeId).AnyAsync(UnresolvedPayment, ct)
+        if (await ctx.CashuMeltPaymentRequests.Where(r => r.StoreId == storeId).AnyAsync(CashuMeltPaymentSafety.Unresolved, ct)
             || await ctx.CashuMeltChangeProofs.Where(r => r.StoreId == storeId).AnyAsync(UnresolvedChange, ct))
             throw new InvalidOperationException("Outstanding Cashu settlements or change must be recovered before changing this wallet");
     }
