@@ -9,7 +9,6 @@ using BTCPayServer.Plugins.CashuMelt.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Mvc.Filters;
 
 namespace BTCPayServer.Plugins.CashuMelt.Controllers;
 
@@ -18,14 +17,8 @@ namespace BTCPayServer.Plugins.CashuMelt.Controllers;
 [Authorize(AuthenticationSchemes = AuthenticationSchemes.GreenfieldAPIKeys)]
 [Authorize(Policy = Policies.CanModifyStoreSettings)]
 [Route("api/v1/stores/{storeId}/plugins/cashumelt/change")]
-public sealed class CashuMeltChangeApiController(CashuMeltPaymentService paymentService) : Controller
+public sealed class CashuMeltChangeApiController(CashuMeltPaymentService paymentService) : ControllerBase
 {
-    public override void OnActionExecuting(ActionExecutingContext context)
-    {
-        SetPrivateHeaders();
-        base.OnActionExecuting(context);
-    }
-
     private void SetPrivateHeaders()
     {
         Response.Headers.CacheControl = "private, no-store, no-cache";
