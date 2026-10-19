@@ -87,6 +87,7 @@ public sealed class CashuMeltReconciliationHostedService : BackgroundService
                             || ((r.SettlementState == "FAILED" || (r.SettlementState == "MANUAL_REVIEW" && r.SettingsSnapshotJson == null))
                                 && r.MintedProofsJson == null && r.MintIssuanceJson == null && r.BlankOutputsJson == null && r.MeltQuoteId == null))
                             && r.CreatedAt < stale
+                            && !(r.SettlementState == "FAILED" && r.FailureReasonCode == CashuMeltFailureReasons.MintPollError)
                             && !(r.NeedsManualReview && (r.MintedProofsJson != null || r.MintIssuanceJson != null
                                 || r.BlankOutputsJson != null || r.MeltQuoteId != null)))
                 .OrderBy(r => r.LastCheckedAt ?? r.CreatedAt)
