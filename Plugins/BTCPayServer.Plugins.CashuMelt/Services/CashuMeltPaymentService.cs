@@ -252,7 +252,8 @@ public class CashuMeltPaymentService
                 _mintQuotePollBackoff.TryRemove(quoteId, out _);
                 var hardErr = pollResult.ErrorMessage ?? "Failed to get quote status from mint";
                 await MarkFailedAsync(ctx, req, CashuMeltObservability.PhaseMintPoll, hardErr, ct,
-                    CashuMeltFailureReasons.MintPollError, needsManualReview: true);
+                    CashuMeltFailureReasons.MintPollError, needsManualReview: true,
+                    refreshExistingFailed: pollResult.StatusCode == (int)HttpStatusCode.BadRequest);
                 return (false, hardErr, null);
             }
 
@@ -709,12 +710,14 @@ public class CashuMeltPaymentService
         string error,
         CancellationToken ct,
         string? reasonCode = null,
-        bool needsManualReview = false)
+        bool needsManualReview = false,
+        bool refreshExistingFailed = false)
     {
         if (req.SettlementState == "SETTLED")
             return;
 
         var refreshExistingMintPollFailure = req.SettlementState == "FAILED"
+            && refreshExistingFailed
             && reasonCode == CashuMeltFailureReasons.MintPollError
             && req.FailureReasonCode is null or CashuMeltFailureReasons.MintPollError;
         if (req.SettlementState == "FAILED" && !refreshExistingMintPollFailure)

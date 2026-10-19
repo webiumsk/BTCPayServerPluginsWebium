@@ -123,7 +123,7 @@ public class CashuMeltFundingRecoveryTests
                 MintUrl = settings.MintUrl,
                 MintQuoteId = assets.Protect(invalidQuoteId),
                 SettingsSnapshotJson = JsonSerializer.Serialize(settings),
-                SettlementState = "PENDING",
+                SettlementState = "FAILED",
                 CreatedAt = DateTimeOffset.UtcNow.AddHours(-1)
             };
             ctx.CashuMeltPaymentRequests.Add(invalidQuote);

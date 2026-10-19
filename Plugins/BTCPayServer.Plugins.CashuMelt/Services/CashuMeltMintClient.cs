@@ -92,18 +92,18 @@ public class CashuMeltMintClient
                 _logger.LogWarning(
                     "cashumelt_mint_poll_transient phase=mint_poll HTTP {Status} quote {QuoteId} retryAfter={RetryAfter}s",
                     code, QuoteLogId(quoteId), ra);
-                return new MintQuotePollResult(false, true, ra, null, null);
+                return new MintQuotePollResult(false, true, ra, null, null, code);
             }
 
             if (!resp.IsSuccessStatusCode)
             {
                 _logger.LogWarning("Mint quote poll HTTP {Status} quote fingerprint={QuoteId}", code, QuoteLogId(quoteId));
-                return new MintQuotePollResult(false, false, null, $"Mint returned HTTP {code}", null);
+                return new MintQuotePollResult(false, false, null, $"Mint returned HTTP {code}", null, code);
             }
 
             await using var stream = await resp.Content.ReadAsStreamAsync(ct);
             var quote = await JsonSerializer.DeserializeAsync<MintQuoteBolt11Response>(stream, JsonOptions, ct);
-            return new MintQuotePollResult(true, false, null, null, quote);
+            return new MintQuotePollResult(true, false, null, null, quote, code);
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
@@ -407,7 +407,8 @@ public class CashuMeltMintClient
         bool TransientFailure,
         int? RetryAfterSeconds,
         string? ErrorMessage,
-        MintQuoteBolt11Response? Quote);
+        MintQuoteBolt11Response? Quote,
+        int? StatusCode = null);
 
     public record MintKeysResponse(MintKeyset[] Keysets);
 
