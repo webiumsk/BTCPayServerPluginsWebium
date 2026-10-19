@@ -1,4 +1,4 @@
-**Upgrade 1.4.0.5:** read [settlement safety and merchant recovery](docs/SETTLEMENT_SAFETY.md) before installing. BTCPay temporarily holds encrypted spendable ecash; back up its key ring and database together.
+**Upgrade 1.4.0.7:** read [settlement safety and merchant recovery](docs/SETTLEMENT_SAFETY.md) before installing. BTCPay temporarily holds encrypted spendable ecash; back up its key ring and database together.
 
 # Cashu Melt — BTCPay Server Plugin
 
