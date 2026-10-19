@@ -147,7 +147,17 @@ public class CashuMeltPaymentService
             // issue another mint request on every checkout poll after it was escalated.
             if (req.SettlementState == "FAILED"
                 && req.FailureReasonCode == CashuMeltFailureReasons.MintPollError)
+            {
+                // Upgrade-era failed rows predate the manual-review marker. Heal
+                // only that flag; retain the stored error and recovery evidence.
+                if (!req.NeedsManualReview)
+                {
+                    req.NeedsManualReview = true;
+                    await ctx.SaveChangesAsync(ct);
+                }
+
                 return (false, req.SettlementError, null);
+            }
 
             if (req.SettlementState == "SETTLED")
                 return (true, null, null);
@@ -388,6 +398,12 @@ public class CashuMeltPaymentService
         if (r is null) return new CashuMeltRetryOutcome(CashuMeltRetryKind.NotFound);
         if (r.SettlementState == "SETTLED") return new CashuMeltRetryOutcome(CashuMeltRetryKind.AlreadySettled, Settled: true);
         if (r.SettlementState == "EXPIRED_UNPAID") return new CashuMeltRetryOutcome(CashuMeltRetryKind.Completed, false);
+
+        if (r.FailureReasonCode == CashuMeltFailureReasons.MintPollError && !r.NeedsManualReview)
+        {
+            r.NeedsManualReview = true;
+            await ctx.SaveChangesAsync(ct);
+        }
 
         if (automatic)
         {
@@ -695,10 +711,17 @@ public class CashuMeltPaymentService
         string? reasonCode = null,
         bool needsManualReview = false)
     {
-        if (req.SettlementState is "SETTLED" or "FAILED")
+        if (req.SettlementState == "SETTLED")
+            return;
+
+        var refreshExistingMintPollFailure = req.SettlementState == "FAILED"
+            && reasonCode == CashuMeltFailureReasons.MintPollError
+            && req.FailureReasonCode is null or CashuMeltFailureReasons.MintPollError;
+        if (req.SettlementState == "FAILED" && !refreshExistingMintPollFailure)
             return;
         var e = error.Length > 500 ? error[..500] : error;
-        req.SettlementState = "FAILED";
+        if (!refreshExistingMintPollFailure)
+            req.SettlementState = "FAILED";
         req.SettlementError = e;
         req.FailureReasonCode = reasonCode;
         req.NeedsManualReview = needsManualReview;

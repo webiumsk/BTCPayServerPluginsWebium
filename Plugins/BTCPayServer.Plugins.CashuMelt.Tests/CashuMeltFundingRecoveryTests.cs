@@ -148,6 +148,8 @@ public class CashuMeltFundingRecoveryTests
             // must still leave these terminal quote-poll failures alone.
             invalidQuote.NeedsManualReview = false;
             invalidQuote.RetryCount = 0;
+            invalidQuote.MintedProofsJson = "preserve-recovery-evidence";
+            var errorBeforeLegacyPoll = invalidQuote.SettlementError;
             await ctx.SaveChangesAsync();
             var legacyRowPoll = await service.CheckAndRecordPaymentAsync(invalidQuoteId);
             Assert.Equal("Mint returned HTTP 400", legacyRowPoll.Error);
@@ -156,10 +158,14 @@ public class CashuMeltFundingRecoveryTests
             Assert.Equal(callsAfterFailure, mint.Calls);
             await ctx.Entry(invalidQuote).ReloadAsync();
             Assert.Equal("FAILED", invalidQuote.SettlementState);
-            Assert.False(invalidQuote.NeedsManualReview);
+            Assert.Equal(errorBeforeLegacyPoll, invalidQuote.SettlementError);
+            Assert.True(invalidQuote.NeedsManualReview);
+            Assert.Equal("preserve-recovery-evidence", invalidQuote.MintedProofsJson);
             Assert.Equal(0, invalidQuote.RetryCount);
 
             // The explicit merchant action clears the terminal hold and rechecks the same quote.
+            invalidQuote.MintedProofsJson = null;
+            await ctx.SaveChangesAsync();
             await service.RetrySettlementAsync("store", invalidQuoteId);
             await ctx.Entry(invalidQuote).ReloadAsync();
             Assert.Equal(callsAfterFailure + 1, mint.Calls);
