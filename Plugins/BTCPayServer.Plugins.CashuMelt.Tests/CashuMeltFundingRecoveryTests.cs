@@ -89,6 +89,7 @@ public class CashuMeltFundingRecoveryTests
                 await service.RetrySettlementAsync("store", id); await ctx.Entry(row).ReloadAsync();
                 Assert.Equal("EXPIRED_UNPAID", row.SettlementState);
             }
+
             var failed = new CashuMeltPaymentRequest { QuoteId = "failed", StoreId = "store", InvoiceId = invoice.Id,
                 AmountSats = 100, Bolt11Invoice = bolt11, SettlementState = "FAILED", CreatedAt = DateTimeOffset.UtcNow };
             ctx.CashuMeltPaymentRequests.Add(failed); await ctx.SaveChangesAsync();
@@ -107,6 +108,69 @@ public class CashuMeltFundingRecoveryTests
             await service.CheckAndRecordPaymentAsync("failed"); await ctx.Entry(failed).ReloadAsync();
             Assert.Equal("MANUAL_REVIEW", failed.SettlementState);
             Assert.Null(failed.SettingsSnapshotJson); Assert.Equal((1, 0), await config.GetUnresolvedFundsAsync("store", default));
+
+            // A permanent funding-status 400 is unknown payment state, not proof of unpaid.
+            // Stop automatic/checkout polling while preserving the merchant's explicit retry.
+            var invalidQuoteId = "invalid-status-quote";
+            var invalidQuote = new CashuMeltPaymentRequest
+            {
+                QuoteId = invalidQuoteId,
+                StoreId = "store",
+                InvoiceId = invoice.Id,
+                AmountSats = 100,
+                Unit = "sat",
+                Bolt11Invoice = bolt11,
+                MintUrl = settings.MintUrl,
+                MintQuoteId = assets.Protect(invalidQuoteId),
+                SettingsSnapshotJson = JsonSerializer.Serialize(settings),
+                SettlementState = "FAILED",
+                CreatedAt = DateTimeOffset.UtcNow.AddHours(-1)
+            };
+            ctx.CashuMeltPaymentRequests.Add(invalidQuote);
+            await ctx.SaveChangesAsync();
+            mint.Quote = new MintQuoteBolt11Response(invalidQuoteId, bolt11, 100, "sat", "UNPAID", null, 0, 0);
+            mint.Status = HttpStatusCode.BadRequest;
+
+            var firstPoll = await service.CheckAndRecordPaymentAsync(invalidQuoteId);
+            await ctx.Entry(invalidQuote).ReloadAsync();
+            Assert.Equal("Mint returned HTTP 400", firstPoll.Error);
+            Assert.Equal("FAILED", invalidQuote.SettlementState);
+            Assert.True(invalidQuote.NeedsManualReview);
+            Assert.Equal("mint_poll_error", invalidQuote.FailureReasonCode);
+            var callsAfterFailure = mint.Calls;
+
+            var repeatedPoll = await service.CheckAndRecordPaymentAsync(invalidQuoteId);
+            Assert.Equal("Mint returned HTTP 400", repeatedPoll.Error);
+            Assert.Equal(callsAfterFailure, mint.Calls);
+
+            // Upgrade-era rows have the failure code but were created before the
+            // manual-review flag was set. Both checkout and background retry paths
+            // must still leave these terminal quote-poll failures alone.
+            invalidQuote.NeedsManualReview = false;
+            invalidQuote.RetryCount = 0;
+            invalidQuote.MintedProofsJson = "preserve-recovery-evidence";
+            var errorBeforeLegacyPoll = invalidQuote.SettlementError;
+            await ctx.SaveChangesAsync();
+            var legacyRowPoll = await service.CheckAndRecordPaymentAsync(invalidQuoteId);
+            Assert.Equal("Mint returned HTTP 400", legacyRowPoll.Error);
+            var automaticRetry = await service.RetrySettlementAutomaticallyAsync("store", invalidQuoteId);
+            Assert.False(automaticRetry.Settled);
+            Assert.Equal(callsAfterFailure, mint.Calls);
+            await ctx.Entry(invalidQuote).ReloadAsync();
+            Assert.Equal("FAILED", invalidQuote.SettlementState);
+            Assert.Equal(errorBeforeLegacyPoll, invalidQuote.SettlementError);
+            Assert.True(invalidQuote.NeedsManualReview);
+            Assert.Equal("preserve-recovery-evidence", invalidQuote.MintedProofsJson);
+            Assert.Equal(0, invalidQuote.RetryCount);
+
+            // The explicit merchant action clears the terminal hold and rechecks the same quote.
+            invalidQuote.MintedProofsJson = null;
+            await ctx.SaveChangesAsync();
+            await service.RetrySettlementAsync("store", invalidQuoteId);
+            await ctx.Entry(invalidQuote).ReloadAsync();
+            Assert.Equal(callsAfterFailure + 1, mint.Calls);
+            Assert.Equal("FAILED", invalidQuote.SettlementState);
+            Assert.True(invalidQuote.NeedsManualReview);
         }
         finally
         {

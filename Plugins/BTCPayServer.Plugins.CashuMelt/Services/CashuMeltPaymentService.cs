@@ -142,6 +142,23 @@ public class CashuMeltPaymentService
                 && (req.SettingsSnapshotJson is not null || HasRecoveryAssets(req))))
                 return (false, req.SettlementError, null);
 
+            // A permanent funding-quote poll error is not evidence that the invoice was unpaid.
+            // Keep the unknown payment available for an explicit merchant retry, but do not
+            // issue another mint request on every checkout poll after it was escalated.
+            if (req.SettlementState == "FAILED"
+                && req.FailureReasonCode == CashuMeltFailureReasons.MintPollError)
+            {
+                // Upgrade-era failed rows predate the manual-review marker. Heal
+                // only that flag; retain the stored error and recovery evidence.
+                if (!req.NeedsManualReview)
+                {
+                    req.NeedsManualReview = true;
+                    await ctx.SaveChangesAsync(ct);
+                }
+
+                return (false, req.SettlementError, null);
+            }
+
             if (req.SettlementState == "SETTLED")
                 return (true, null, null);
 
@@ -235,7 +252,8 @@ public class CashuMeltPaymentService
                 _mintQuotePollBackoff.TryRemove(quoteId, out _);
                 var hardErr = pollResult.ErrorMessage ?? "Failed to get quote status from mint";
                 await MarkFailedAsync(ctx, req, CashuMeltObservability.PhaseMintPoll, hardErr, ct,
-                    CashuMeltFailureReasons.MintPollError);
+                    CashuMeltFailureReasons.MintPollError, needsManualReview: true,
+                    refreshExistingFailed: pollResult.StatusCode == (int)HttpStatusCode.BadRequest);
                 return (false, hardErr, null);
             }
 
@@ -382,10 +400,18 @@ public class CashuMeltPaymentService
         if (r.SettlementState == "SETTLED") return new CashuMeltRetryOutcome(CashuMeltRetryKind.AlreadySettled, Settled: true);
         if (r.SettlementState == "EXPIRED_UNPAID") return new CashuMeltRetryOutcome(CashuMeltRetryKind.Completed, false);
 
+        if (r.FailureReasonCode == CashuMeltFailureReasons.MintPollError && !r.NeedsManualReview)
+        {
+            r.NeedsManualReview = true;
+            await ctx.SaveChangesAsync(ct);
+        }
+
         if (automatic)
         {
             // Count, escalation check and dispatch remain under the same session quote lease.
-            if (r.NeedsManualReview || r.SettlementState is not ("FAILED" or "PENDING" or "MELT_COMPLETE"))
+            if (r.NeedsManualReview
+                || r.FailureReasonCode == CashuMeltFailureReasons.MintPollError
+                || r.SettlementState is not ("FAILED" or "PENDING" or "MELT_COMPLETE"))
                 return new CashuMeltRetryOutcome(CashuMeltRetryKind.Completed, false, r.SettlementError);
             if (r.RetryCount < MaxAutomaticRetries) r.RetryCount++;
             if (r.RetryCount >= MaxAutomaticRetries)
@@ -404,7 +430,9 @@ public class CashuMeltPaymentService
         {
             if (!automatic) r.NeedsManualReview = false;
         }
-        else if (r.SettingsSnapshotJson is not null && !(r.SettlementState == "FAILED" && !HasRecoveryAssets(r)))
+        else if (r.SettingsSnapshotJson is not null
+            && !(r.SettlementState == "FAILED" && !HasRecoveryAssets(r)
+                && r.FailureReasonCode != CashuMeltFailureReasons.MintPollError))
         {
             r.SettlementState = "PENDING";
             r.SettlementError = null;
@@ -681,14 +709,25 @@ public class CashuMeltPaymentService
         string phase,
         string error,
         CancellationToken ct,
-        string? reasonCode = null)
+        string? reasonCode = null,
+        bool needsManualReview = false,
+        bool refreshExistingFailed = false)
     {
-        if (req.SettlementState is "SETTLED" or "FAILED")
+        if (req.SettlementState == "SETTLED")
+            return;
+
+        var refreshExistingMintPollFailure = req.SettlementState == "FAILED"
+            && refreshExistingFailed
+            && reasonCode == CashuMeltFailureReasons.MintPollError
+            && req.FailureReasonCode is null or CashuMeltFailureReasons.MintPollError;
+        if (req.SettlementState == "FAILED" && !refreshExistingMintPollFailure)
             return;
         var e = error.Length > 500 ? error[..500] : error;
-        req.SettlementState = "FAILED";
+        if (!refreshExistingMintPollFailure)
+            req.SettlementState = "FAILED";
         req.SettlementError = e;
         req.FailureReasonCode = reasonCode;
+        req.NeedsManualReview = needsManualReview;
         await ctx.SaveChangesAsync(ct);
         _logger.LogWarning(
             "{Event} phase={Phase} invoice={InvoiceId} quote={QuoteId} amountSat={AmountSat} reasonCode={ReasonCode} msg={Detail}",
