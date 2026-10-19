@@ -1,3 +1,10 @@
+## 1.4.0.7 - Stop retrying invalid mint quotes automatically
+
+- Stop background polling and automatic settlement retries when a mint rejects a quote with HTTP 400.
+- Keep affected legacy failures visible for manual review and preserve their recovery evidence; merchants can still explicitly retry.
+- Refresh a legacy failed row only for HTTP 400. HTTP 404 and other failures retain their existing classification and safety holds.
+- No database migration or payment-data rewrite.
+
 ## 1.4.0.5 - Phase-aware payment recovery and blocker diagnostics
 
 - Reach existing original-payout reconciliation or restore-only issuance recovery
