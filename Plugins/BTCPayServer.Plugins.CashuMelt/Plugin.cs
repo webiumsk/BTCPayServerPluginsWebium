@@ -66,7 +66,6 @@ public class CashuMeltPlugin : BaseBTCPayServerPlugin
 
         // ── UI extensions (injected into BTCPay layout slots) ──────────────────
         services.AddUIExtension("store-wallets-nav",      "CashuMelt/StoreNavExtension");
-        services.AddUIExtension("checkout-payment",       "CashuMelt/CashuPreferLightningRedirect");
         services.AddUIExtension("checkout-end",           "CashuMelt/CashuMeltCheckoutExtension");
         services.AddUIExtension("store-invoices-payments","CashuMelt/ViewCashuMeltPaymentData");
 

@@ -1,5 +1,6 @@
 #nullable enable
 using System;
+using System.Linq;
 using System.Text.Json;
 using System.Net.Http;
 using static BTCPayServer.Plugins.CashuMelt.Services.CashuMeltMintClient;
@@ -7,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using BTCPayServer.Plugins.CashuMelt.Data;
 using BTCPayServer.Plugins.CashuMelt.Data.Entities;
+using BTCPayServer.Plugins.CashuMelt.PaymentHandler;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Npgsql;
@@ -30,6 +32,19 @@ public sealed class CashuMeltQuoteService
         _dbContextFactory = dbContextFactory;
         _assets = assets;
         _logger = logger;
+    }
+
+    /// <summary>Rehydrate only a server-bound existing quote; this never creates mint exposure.</summary>
+    public async Task<CashuMeltPromptDetails?> FindExistingPromptAsync(string invoiceId, string storeId, string quoteId,
+        CancellationToken ct = default)
+    {
+        await using var ctx = _dbContextFactory.CreateContext();
+        var existing = await ctx.CashuMeltPaymentRequests.AsNoTracking()
+            .Where(r => r.QuoteId == quoteId && r.InvoiceId == invoiceId && r.StoreId == storeId)
+            .Select(r => new CashuMeltPromptDetails { QuoteId = r.QuoteId, Bolt11Invoice = r.Bolt11Invoice!,
+                AmountSats = r.AmountSats, Unit = r.Unit }).FirstOrDefaultAsync(ct);
+        return existing is not null && !string.IsNullOrWhiteSpace(existing.Bolt11Invoice) && existing.AmountSats > 0
+            && existing.Unit is "sat" or "usd" ? existing : null;
     }
 
     public async Task<(string? QuoteId, string? Bolt11, string? Error)> CreateQuoteAsync(

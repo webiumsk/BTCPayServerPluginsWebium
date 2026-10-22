@@ -144,7 +144,8 @@ public class CashuMeltDatabaseSafetyTests
         Assert.False((await config.GetSettingsAsync(store))!.Enabled);
         Assert.Equal((0, 1), await config.GetUnresolvedFundsAsync(store, default));
         settings.Enabled = true;
-        await Assert.ThrowsAsync<InvalidOperationException>(() => config.SaveSettingsAsync(settings));
+        await config.SaveSettingsAsync(settings); // Identical risk configuration may resume new exposure.
+        Assert.Equal((0, 1), await config.GetUnresolvedFundsAsync(store, default));
         await Assert.ThrowsAsync<InvalidOperationException>(() => config.DeleteSettingsAsync(store));
         settings.Enabled = false;
         settings.LightningAddress = "replacement@example.com";

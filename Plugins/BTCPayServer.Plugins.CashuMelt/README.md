@@ -1,4 +1,4 @@
-**Upgrade 1.4.0.7:** read [settlement safety and merchant recovery](docs/SETTLEMENT_SAFETY.md) before installing. BTCPay temporarily holds encrypted spendable ecash; back up its key ring and database together.
+**Upgrade 1.4.0.8:** read [settlement safety and merchant recovery](docs/SETTLEMENT_SAFETY.md) before installing. BTCPay temporarily holds encrypted spendable ecash; back up its key ring and database together.
 
 # Cashu Melt — BTCPay Server Plugin
 
@@ -51,6 +51,24 @@ dotnet publish -c Release -o bin/publish/BTCPayServer.Plugins.CashuMelt
 4. **Stuck payments:** the same page lists recent CashuMelt rows. If the customer paid but settlement did not finish, use **Retry settlement** on rows that are not `SETTLED` (for example `PENDING`, `MELT_COMPLETE`, or `FAILED` when proofs are still stored). This matches the Greenfield endpoint `POST .../payments/{quoteId}/retry`.
 
 ## Payment Flow
+
+CashuMelt is available for new checkout only when no BTC Lightning wallet is
+configured on the store. Any BTC-LN or BTC-LNURL configuration suppresses new
+Cashu prompts, including excluded or temporarily unavailable Lightning wallets.
+There is no automatic Cashu fallback during a Lightning outage. An existing empty
+Cashu placeholder cannot activate after a Lightning wallet is configured.
+
+Already materialized Cashu quotes remain bound to their original store, invoice
+and durable request. They retain the original quote, payment request and recovery
+evidence even if Cashu settings are disabled or Lightning is configured later.
+Re-enabling with identical mint, unit, payout address, trust list and both fee caps
+restores availability without replacing that target. Combined changes still obey
+the outstanding-funds guard. Standalone fee/trust update behavior is unchanged.
+Re-enabling does not make Cashu visible alongside a configured Lightning wallet.
+
+An invoice settled directly through Lightning does not prove its separate Cashu
+quote was unpaid. HTTP 400 from the mint remains unknown funding status, not
+successful payout or cancellation. No existing safety hold is automatically cleared.
 
 1. Customer opens checkout — a QR code with the mint Lightning invoice is shown.
 2. Customer pays the Lightning invoice from a Lightning-capable wallet (scan QR or open the `lightning:` URI).

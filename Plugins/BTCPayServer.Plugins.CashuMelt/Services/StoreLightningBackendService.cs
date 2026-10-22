@@ -13,6 +13,7 @@ public enum StoreLightningBackendType
     InternalNode,
     Blink,
     Boltz,
+    LightningAddressReceiver,
     UnsupportedExternal
 }
 
@@ -41,12 +42,30 @@ public class StoreLightningBackendService(PaymentMethodHandlerDictionary handler
             return new(StoreLightningBackendType.Unknown, null, false, "External lightning connection string is empty.");
 
         var type = ParseType(connectionString);
+        if (type is "lnaddress" or "blitz" or "flash" || (type == "blink" && IsReceiveOnlyAddress(connectionString)))
+            return new(StoreLightningBackendType.LightningAddressReceiver, connectionString, false,
+                "A receive-only Lightning address wallet is configured. It receives Lightning payments but cannot spend funds for an external payout adapter.");
         return type switch
         {
             "blink" => new(StoreLightningBackendType.Blink, connectionString, true, "Blink backend detected."),
             "boltz" => new(StoreLightningBackendType.Boltz, connectionString, true, "Boltz backend detected."),
             _ => new(StoreLightningBackendType.UnsupportedExternal, connectionString, false, $"Unsupported external backend type '{type ?? "unknown"}'.")
         };
+    }
+
+    private static bool IsReceiveOnlyAddress(string connectionString)
+    {
+        var hasAddress = false;
+        foreach (var segment in connectionString.Split(';', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var kv = segment.Split('=', 2, StringSplitOptions.TrimEntries);
+            if (kv.Length != 2) continue;
+            var key = kv[0].ToLowerInvariant();
+            if (key is "api-key" or "apikey" or "wallet-id" or "walletid") return false;
+            if (key == "currency" && !kv[1].Equals("BTC", StringComparison.OrdinalIgnoreCase)) return false;
+            if (key is "ln-address" or "username" or "lnaddress") hasAddress |= !string.IsNullOrWhiteSpace(kv[1]);
+        }
+        return hasAddress;
     }
 
     private static string? ParseType(string connectionString)

@@ -1,37 +1,27 @@
 using BTCPayServer.Data;
+using BTCPayServer.Logging;
 using BTCPayServer.Payments;
 using BTCPayServer.Plugins.CashuMelt.PaymentHandler;
 using BTCPayServer.Services.Invoices;
+using Microsoft.Extensions.Logging.Abstractions;
 using Newtonsoft.Json.Linq;
 using Xunit;
 
 namespace BTCPayServer.Plugins.CashuMelt.Tests;
 
-/// <summary>
-/// Parallel-fallback deferral: when the store also offers BTC Lightning (LN or LNURL),
-/// the Cashu prompt must wait for checkout activation (no mint quote / settlement record
-/// on Lightning-paid invoices). Pure-Cashu stores keep the immediate prompt, and the
-/// activation pass itself (invoice already carries our prompt) must never defer.
-/// </summary>
+/// <summary>Any configured Lightning wallet excludes new Cashu checkout, independently of readiness or exclusion.</summary>
 public class CashuMeltLazyFallbackTests
 {
     private static readonly PaymentMethodId LnId = PaymentTypes.LN.GetPaymentMethodId("BTC");
     private static readonly PaymentMethodId LnurlId = PaymentTypes.LNURL.GetPaymentMethodId("BTC");
 
-    private static StoreData Store(bool withLn = false, bool withLnurl = false, params PaymentMethodId[] excluded)
+    internal static StoreData Store(bool withLn = false, bool withLnurl = false, params PaymentMethodId[] excluded)
     {
-        var store = new StoreData();
-        if (withLn)
-            store.SetPaymentMethodConfig(LnId, new JObject
-            {
-                ["connectionString"] = "type=lnaddress;ln-address=x@example.com;"
-            });
-        if (withLnurl)
-            store.SetPaymentMethodConfig(LnurlId, new JObject());
+        var store = new StoreData { Id = "store" };
+        if (withLn) store.SetPaymentMethodConfig(LnId, new JObject { ["connectionString"] = "type=lnaddress;ln-address=x@example.com;" });
+        if (withLnurl) store.SetPaymentMethodConfig(LnurlId, new JObject());
         if (excluded.Length > 0)
         {
-            // Raw blob JSON instead of SetStoreBlob(): serializing a full StoreBlob pulls
-            // BTCPayServer runtime-only dependencies the test host does not ship.
             var ids = string.Join(",", System.Linq.Enumerable.Select(excluded, id => $"\"{id}\""));
             store.StoreBlob = $$"""{"excludedPaymentMethods":[{{ids}}]}""";
         }
@@ -39,46 +29,56 @@ public class CashuMeltLazyFallbackTests
     }
 
     [Fact]
-    public void Defers_when_store_offers_lightning()
-        => Assert.True(CashuMeltPaymentMethodHandler.ShouldDeferBehindLightning(Store(withLn: true)));
-
-    [Fact]
-    public void Defers_for_lnurl_only_stores()
-        => Assert.True(CashuMeltPaymentMethodHandler.ShouldDeferBehindLightning(Store(withLnurl: true)));
-
-    [Fact]
-    public void Defers_when_ln_is_excluded_but_lnurl_still_offered()
-        => Assert.True(CashuMeltPaymentMethodHandler.ShouldDeferBehindLightning(
-            Store(withLn: true, withLnurl: true, LnId)));
-
-    [Fact]
-    public void Stays_immediate_for_pure_cashu_stores()
-        => Assert.False(CashuMeltPaymentMethodHandler.ShouldDeferBehindLightning(Store()));
-
-    [Fact]
-    public void Stays_immediate_when_all_lightning_methods_are_excluded_from_checkout()
-        => Assert.False(CashuMeltPaymentMethodHandler.ShouldDeferBehindLightning(
-            Store(withLn: true, withLnurl: true, LnId, LnurlId)));
-
-    [Fact]
-    public void Defers_only_before_the_invoice_carries_our_prompt()
+    public void Any_configured_Lightning_wallet_counts_even_when_all_methods_are_excluded()
     {
-        var store = Store(withLn: true);
+        Assert.True(CashuMeltPaymentMethodHandler.HasConfiguredLightningWallet(Store(withLn: true)));
+        Assert.True(CashuMeltPaymentMethodHandler.HasConfiguredLightningWallet(Store(withLnurl: true)));
+        Assert.True(CashuMeltPaymentMethodHandler.HasConfiguredLightningWallet(Store(withLn: true, withLnurl: true, LnId, LnurlId)));
+        Assert.False(CashuMeltPaymentMethodHandler.HasConfiguredLightningWallet(Store()));
+    }
 
-        // Invoice creation: no Cashu prompt on the invoice yet -> defer.
-        var fresh = new InvoiceEntity { Currency = "SATS" };
-        Assert.True(CashuMeltPaymentMethodHandler.ShouldDeferPrompt(fresh, store));
+    [Theory]
+    [InlineData("type=lnaddress;ln-address=x@example.com")]
+    [InlineData("type=blink;api-key=synthetic;wallet-id=synthetic")]
+    [InlineData("type=boltz;server=https://unavailable.invalid")]
+    [InlineData("type=lnd-rest;server=https://unavailable.invalid")]
+    [InlineData("")]
+    public async Task New_checkout_is_suppressed_without_accessing_settings_or_mint_even_for_unknown_or_failing_wallets(string connection)
+    {
+        var store = Store(); store.SetPaymentMethodConfig(LnId, new JObject { ["connectionString"] = connection });
+        await AssertSuppressed(store, new InvoiceEntity { Id = "new", StoreId = store.Id, Currency = "BTC" });
+    }
 
-        // Activation pass: the invoice already carries our (inactive) prompt - the fresh
-        // activation context must be allowed to configure it, so no deferral.
-        var activating = new InvoiceEntity
-        {
-            Currency = "SATS",
-            PaymentPrompts = new JObject
-            {
-                [CashuMeltPlugin.CashuMeltPaymentMethodId.ToString()] = new JObject(),
-            },
-        };
-        Assert.False(CashuMeltPaymentMethodHandler.ShouldDeferPrompt(activating, store));
+    [Fact]
+    public async Task Legacy_inactive_placeholder_cannot_activate_a_new_quote_behind_configured_Lightning()
+    {
+        var store = Store(withLn: true, excluded: [LnId]);
+        var invoice = new InvoiceEntity { Id = "legacy", StoreId = store.Id, Currency = "BTC" };
+        invoice.SetPaymentPrompt(CashuMeltPlugin.CashuMeltPaymentMethodId, new PaymentPrompt { PaymentMethodId = CashuMeltPlugin.CashuMeltPaymentMethodId, Inactive = true });
+        await AssertSuppressed(store, invoice);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    public async Task Partial_materialization_hint_is_not_treated_as_a_fresh_placeholder_even_without_Lightning(string? destination)
+    {
+        var store = Store();
+        var invoice = new InvoiceEntity { Id = "partial", StoreId = store.Id, Currency = "BTC" };
+        invoice.SetPaymentPrompt(CashuMeltPlugin.CashuMeltPaymentMethodId, new PaymentPrompt {
+            PaymentMethodId = CashuMeltPlugin.CashuMeltPaymentMethodId, Destination = destination,
+            Details = new JObject { ["quoteId"] = "existing-quote" } });
+        await AssertSuppressed(store, invoice);
+    }
+
+    private static async Task AssertSuppressed(StoreData store, InvoiceEntity invoice)
+    {
+        // Absent services prove exclusion happens before any DB read, quote creation or mint request.
+        var handler = new CashuMeltPaymentMethodHandler(null!, null!, NullLogger<CashuMeltPaymentMethodHandler>.Instance);
+        var context = new PaymentMethodContext(store, new StoreBlob(), new JObject(), handler, invoice, new InvoiceLogs(), null!);
+        await context.BeforeFetchingRates();
+        await context.CreatePaymentPrompt(checkPaymentMethodConflicts: false);
+        Assert.Equal(PaymentMethodContext.ContextStatus.Failed, context.Status);
+        Assert.Null(context.Prompt.Destination); Assert.Null(context.Prompt.Details); Assert.Empty(context.TrackedDestinations);
     }
 }

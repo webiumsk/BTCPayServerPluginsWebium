@@ -57,6 +57,7 @@ public class UICashuMeltController : Controller
     private void PopulateLightningBackendViewData(StoreData store)
     {
         var info = _backendService.Detect(store);
+        ViewData["CashuMeltCheckoutHasLightning"] = PaymentHandler.CashuMeltPaymentMethodHandler.HasConfiguredLightningWallet(store);
         ViewData["CashuMeltBackendCanPayout"] = info.CanAttemptPayout;
         ViewData["CashuMeltBackendType"] = info.BackendType.ToString();
         ViewData["CashuMeltBackendDescription"] = info.Description;
