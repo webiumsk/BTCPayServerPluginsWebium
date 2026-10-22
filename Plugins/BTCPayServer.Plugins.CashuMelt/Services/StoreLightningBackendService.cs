@@ -32,7 +32,10 @@ public class StoreLightningBackendService(PaymentMethodHandlerDictionary handler
         var lnPmId = PaymentTypes.LN.GetPaymentMethodId("BTC");
         var config = store.GetPaymentMethodConfig<LightningPaymentMethodConfig>(lnPmId, _handlers);
         if (config is null)
-            return new(StoreLightningBackendType.Unknown, null, false, "BTC Lightning is not configured for this store.");
+            return new(StoreLightningBackendType.Unknown, null, false,
+                store.GetPaymentMethodConfig(PaymentTypes.LNURL.GetPaymentMethodId("BTC")) is not null
+                    ? "BTC LNURL is configured; an external payout adapter is not available for this payment method."
+                    : "BTC Lightning is not configured for this store.");
 
         if (config.IsInternalNode)
             return new(StoreLightningBackendType.InternalNode, null, false, "Internal node is configured; external payout adapter is not applicable.");

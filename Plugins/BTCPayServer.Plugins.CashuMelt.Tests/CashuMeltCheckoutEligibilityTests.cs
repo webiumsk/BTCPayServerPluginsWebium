@@ -96,6 +96,20 @@ public class CashuMeltCheckoutEligibilityTests
         Assert.Equal(StoreLightningBackendType.Blink, backend.BackendType); Assert.True(backend.CanAttemptPayout);
     }
 
+    [Theory]
+    [InlineData(true, "BTC LNURL is configured; an external payout adapter is not available for this payment method.")]
+    [InlineData(false, "BTC Lightning is not configured for this store.")]
+    public void Missing_BTC_LN_backend_describes_configured_LNURL_without_enabling_payout(bool hasLnurl, string description)
+    {
+        var store = CashuMeltLazyFallbackTests.Store(withLnurl: hasLnurl);
+        var backend = new StoreLightningBackendService(new PaymentMethodHandlerDictionary([new LightningConfigHandler()])).Detect(store);
+        Assert.Equal(StoreLightningBackendType.Unknown, backend.BackendType);
+        Assert.Null(backend.ConnectionString);
+        Assert.False(backend.CanAttemptPayout);
+        Assert.Equal(description, backend.Description);
+        Assert.Equal(hasLnurl, CashuMeltPaymentMethodHandler.HasConfiguredLightningWallet(store));
+    }
+
     [CashuDatabaseFact]
     public async Task Materialized_quote_is_reused_with_disabled_settings_and_new_Lightning_without_touching_original_evidence()
     {

@@ -30,12 +30,16 @@ public class CashuMeltSettingsToggleTests
     public async Task Identical_risk_configuration_can_reenable_without_resolving_or_mutating_unknown_funding_or_proofs()
     {
         var h = await Setup(); var settings = (await h.Config.GetSettingsAsync(h.Store))!;
+        await using var db = h.Factory.CreateContext();
+        var originalSnapshot = await db.CashuMeltPaymentRequests.AsNoTracking().Where(r => r.StoreId == h.Store)
+            .Select(r => r.SettingsSnapshotJson).SingleAsync();
+        Assert.Equal("original-snapshot", originalSnapshot);
         settings.Enabled = true; await h.Config.SaveSettingsAsync(settings);
         Assert.True((await h.Config.GetSettingsAsync(h.Store))!.Enabled);
         Assert.Equal((1, 0), await h.Config.GetUnresolvedFundsAsync(h.Store, default));
-        await using var db = h.Factory.CreateContext(); var row = await db.CashuMeltPaymentRequests.SingleAsync(r => r.StoreId == h.Store);
+        var row = await db.CashuMeltPaymentRequests.SingleAsync(r => r.StoreId == h.Store);
         Assert.Equal("FAILED", row.SettlementState); Assert.Equal("Mint returned HTTP 400", row.SettlementError);
-        Assert.Equal("original-snapshot", row.SettingsSnapshotJson); Assert.Equal("retained-encrypted-proof-marker", row.MintedProofsJson);
+        Assert.Equal(originalSnapshot, row.SettingsSnapshotJson); Assert.Equal("retained-encrypted-proof-marker", row.MintedProofsJson);
         Assert.Equal("retained-encrypted-issuance-marker", row.MintIssuanceJson);
         await Assert.ThrowsAsync<InvalidOperationException>(() => h.Config.DeleteSettingsAsync(h.Store));
         settings.LightningAddress = "replacement@example.com";
