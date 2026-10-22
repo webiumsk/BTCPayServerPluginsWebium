@@ -17,8 +17,18 @@
     Customers pay a mint Lightning invoice; the plugin mints proofs only to forward them immediately to your Lightning address.
     BTCPay temporarily holds spendable ecash, including retained change and funds awaiting recovery. Back up the database and BTCPay data-protection key ring together. Satflux receives no wallet keys or ecash proofs.
 </p>
-<div class="alert @(ViewData["CashuMeltBackendCanPayout"] as bool? == true ? "alert-success" : "alert-warning")">
-    <strong>Detected Lightning backend:</strong> @ViewData["CashuMeltBackendType"]<br />
+<div class="alert alert-info">
+    @if (ViewData["CashuMeltCheckoutHasLightning"] as bool? == true)
+    {
+        <p>A Lightning wallet is configured. CashuMelt is not offered for new checkout payments, including when Lightning is excluded or temporarily unavailable. Existing Cashu payments and recovery remain available.</p>
+    }
+    else
+    {
+        <p>CashuMelt can be offered for new payments when enabled and no Lightning wallet is configured. The payout address below is separate from a checkout Lightning wallet.</p>
+    }
+</div>
+<div class="alert alert-info">
+    <strong>Configured Lightning wallet:</strong> @ViewData["CashuMeltBackendType"]<br />
     @ViewData["CashuMeltBackendDescription"]
 </div>
 

@@ -2,6 +2,27 @@ For 1.4.0.1 wallet changes, first read the authenticated `GET .../cashumelt/safe
 
 # CashuMelt — agent / Satflux API notes
 
+## 1.4.0.8 checkout and availability contract
+
+New Cashu prompts and activation of empty old placeholders are unavailable whenever
+any BTC-LN/BTC-LNURL configuration exists on the store, even when excluded or
+temporarily failing. Existing durable prompts require exact store/invoice/quote
+binding and reuse the original request; polling and recovery are not disabled.
+
+A pure disabled-to-enabled settings update may retain outstanding assets only if
+mint URL, unit, payout address, trusted mint list and both fee caps are identical
+under the provider's exclusive store lease. Combined re-enable/configuration
+changes still use the existing safety guard. Standalone fee/trust update behavior
+is unchanged. Do not delete Lightning methods or treat re-enable as a wallet switch.
+Send the complete original risk configuration, including unit, to avoid merge/default
+differences. Older providers can reject re-enable with HTTP 409; consumers must
+retain their journal/grant and never bypass that rejection.
+
+Actual destination/mint/unit changes continue requiring the safety endpoint.
+Neither an invoice settled directly through Lightning nor a mint HTTP 400 proves
+the separate Cashu funding quote was unpaid or safely canceled. No new endpoint,
+migration, settlement-state mutation or secret-bearing response is introduced.
+
 Base path (Greenfield + cookie, `CanModifyStoreSettings`):
 
 `/api/v1/stores/{storeId}/plugins/cashumelt`

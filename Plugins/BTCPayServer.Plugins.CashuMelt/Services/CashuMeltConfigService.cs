@@ -54,7 +54,10 @@ public class CashuMeltConfigService
                 ?? throw new InvalidOperationException("Cashu settlement in progress; try again after it finishes");
             var existing = await ctx.CashuMeltStoreSettings.FindAsync([settings.StoreId], cancellationToken);
             if (existing is null || existing.MintUrl != settings.MintUrl || existing.LightningAddress != settings.LightningAddress
-                || existing.Unit != settings.Unit || (!existing.Enabled && settings.Enabled))
+                || existing.Unit != settings.Unit
+                || (!existing.Enabled && settings.Enabled && (existing.TrustedMintUrls != settings.TrustedMintUrls
+                    || existing.MaxMeltFeeReserveSats != settings.MaxMeltFeeReserveSats
+                    || existing.MaxMeltFeeReservePercentOfMinted != settings.MaxMeltFeeReservePercentOfMinted)))
                 await AssertNoUnresolvedFundsAsync(ctx, settings.StoreId, cancellationToken);
 
             var now = DateTimeOffset.UtcNow;

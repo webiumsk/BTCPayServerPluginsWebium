@@ -33,57 +33,52 @@ public class CashuMeltPaymentMethodHandler : IPaymentMethodHandler
 
     public async Task BeforeFetchingRates(PaymentMethodContext context)
     {
-        var settings = await _configService.GetEnabledSettingsAsync(context.Store.Id);
-        if (settings == null)
+        context.State = null;
+        var existingPrompt = context.InvoiceEntity.GetPaymentPrompt(PaymentMethodId);
+        var hasDetails = existingPrompt?.Details is { Type: not (JTokenType.Null or JTokenType.Undefined) } detailsHint
+            && (detailsHint.Type != JTokenType.Object || detailsHint.HasValues);
+        if (existingPrompt is not null && (!string.IsNullOrWhiteSpace(existingPrompt.Destination) || hasDetails))
         {
-            context.State = null;
+            // A materialized prompt is never replaced by a new quote if its binding cannot be verified.
+            if (context.InvoiceEntity.StoreId != context.Store.Id || string.IsNullOrWhiteSpace(existingPrompt.Destination)
+                || !CashuMeltCheckoutModelExtension.TryGetPromptDetails(this, existingPrompt.Details, out var promptDetails)
+                || promptDetails.QuoteId != existingPrompt.Destination) return;
+            var bound = await _quotes.FindExistingPromptAsync(context.InvoiceEntity.Id, context.Store.Id, existingPrompt.Destination);
+            if (bound is not null)
+            {
+                context.State = bound;
+                context.Prompt.Currency = bound.Unit == "usd" ? "USD" : "BTC";
+                context.Prompt.Divisibility = bound.Unit == "usd" ? 2 : 8;
+                context.Prompt.PaymentMethodFee = 0m;
+            }
             return;
         }
 
+        // The host aggregates this phase without per-method exception handling. Leave only
+        // Cashu unavailable; ConfigurePrompt fails inside the host's per-method boundary.
+        if (HasConfiguredLightningWallet(context.Store)) return;
+        var settings = await _configService.GetEnabledSettingsAsync(context.Store.Id);
+        if (settings is null) return;
         context.Prompt.Currency = settings.Unit == "usd" ? "USD" : "BTC";
         context.Prompt.Divisibility = settings.Unit == "usd" ? 2 : 8;
         context.Prompt.PaymentMethodFee = 0m;
         context.State = settings;
-
-        // Parallel-fallback mode: when the store also offers BTC Lightning, defer this
-        // prompt (per-method lazy activation). The mint quote and its settlement record
-        // are then created only if the Cashu method actually activates in checkout -
-        // the Lightning prompt failed to create, or the customer picked the Cashu tab.
-        // Without this, every Lightning-paid invoice leaves an orphaned PENDING quote.
-        if (ShouldDeferPrompt(context.InvoiceEntity, context.Store))
-        {
-            context.Prompt.Inactive = true;
-        }
     }
 
-    /// <summary>
-    /// Whether the prompt being built should wait for checkout activation. Never true
-    /// during activation itself - the invoice already carries our prompt, and the fresh
-    /// activation context must be allowed to configure it.
-    /// </summary>
-    public static bool ShouldDeferPrompt(InvoiceEntity invoice, StoreData store)
-        => invoice.GetPaymentPrompt(CashuMeltPlugin.CashuMeltPaymentMethodId) is null
-           && ShouldDeferBehindLightning(store);
-
-    /// <summary>A BTC Lightning method (LN or LNURL) is configured on the store and not excluded from checkout.</summary>
-    public static bool ShouldDeferBehindLightning(StoreData store)
-    {
-        var configs = store.GetPaymentMethodConfigs();
-        var excluded = store.GetStoreBlob().GetExcludedPaymentMethods();
-
-        // Checkout treats both BTC-LN and BTC-LNURL as Lightning - a store can exclude
-        // one while still offering the other, so either counts as "Lightning available".
-        foreach (var pmId in new[] { PaymentTypes.LN.GetPaymentMethodId("BTC"), PaymentTypes.LNURL.GetPaymentMethodId("BTC") })
-        {
-            if (configs.ContainsKey(pmId) && !excluded.Match(pmId))
-                return true;
-        }
-
-        return false;
-    }
+    /// <summary>Configuration presence is authoritative, including excluded or temporarily failing wallets.</summary>
+    public static bool HasConfiguredLightningWallet(StoreData store) =>
+        store.GetPaymentMethodConfig(PaymentTypes.LN.GetPaymentMethodId("BTC")) is not null
+        || store.GetPaymentMethodConfig(PaymentTypes.LNURL.GetPaymentMethodId("BTC")) is not null;
 
     public async Task ConfigurePrompt(PaymentMethodContext context)
     {
+        if (context.State is CashuMeltPromptDetails existing)
+        {
+            ApplyPrompt(context, existing);
+            return;
+        }
+        if (HasConfiguredLightningWallet(context.Store))
+            throw new PaymentMethodUnavailableException("CashuMelt checkout is unavailable while a Lightning wallet is configured");
         if (context.State is not CashuMelt.Data.Entities.CashuMeltStoreSettings settings)
         {
             throw new PaymentMethodUnavailableException("CashuMelt is not configured for this store");
@@ -110,18 +105,17 @@ public class CashuMeltPaymentMethodHandler : IPaymentMethodHandler
         if (error is not null || quoteId is null || bolt11 is null)
             throw new PaymentMethodUnavailableException(error ?? "Failed to create CashuMelt mint quote");
 
-        context.Prompt.Destination = quoteId;
-        context.Prompt.Details = JObject.FromObject(new CashuMeltPromptDetails
-        {
-            QuoteId = quoteId,
-            Bolt11Invoice = bolt11,
-            AmountSats = amountSats,
-            Unit = unit
-        }, Serializer);
-        context.TrackedDestinations.Add(quoteId);
-        context.AdditionalSearchTerms.Add(quoteId);
-
+        ApplyPrompt(context, new CashuMeltPromptDetails { QuoteId = quoteId, Bolt11Invoice = bolt11,
+            AmountSats = amountSats, Unit = unit });
         _logger.LogInformation("Created CashuMelt prompt for invoice {InvoiceId}: quote {QuoteId}", invoice.Id, quoteId);
+    }
+
+    private void ApplyPrompt(PaymentMethodContext context, CashuMeltPromptDetails details)
+    {
+        context.Prompt.Destination = details.QuoteId;
+        context.Prompt.Details = JObject.FromObject(details, Serializer);
+        context.TrackedDestinations.Add(details.QuoteId);
+        context.AdditionalSearchTerms.Add(details.QuoteId);
     }
 
     public object ParsePaymentPromptDetails(JToken details)

@@ -1,3 +1,26 @@
+## 1.4.0.8 - Lightning-exclusive checkout and unchanged-target re-enable
+
+- Hide new Cashu checkout whenever any BTC-LN or BTC-LNURL wallet is configured,
+  including excluded or unavailable Lightning methods. Block activation of empty
+  old placeholders without creating mint quotes or breaking Lightning invoices.
+- Preserve an already materialized quote only after exact store/invoice/quote
+  binding to its durable row. Reuse its original payment request and evidence;
+  never replace an unverifiable or partially materialized prompt with a new quote.
+- Permit disabled-to-enabled with unchanged mint, unit, payout address, trust list
+  and both fee caps under the existing exclusive store lease. Combined changes,
+  destination changes and deletion retain outstanding-asset guards. Existing
+  standalone fee/trust updates retain their previous behavior.
+- Present receive-only LN-address backends accurately instead of an unsupported
+  outbound-adapter warning, and retain access to existing recovery prompts.
+- No migration, payment-state rewrite, core change or automatic orphan cleanup.
+
+Direct-Lightning settlement of a BTCPay invoice does not determine whether a
+separate Cashu quote funded. HTTP 400 remains unknown and its hold is retained.
+The historical 1.3.1 description of orphaned rows as harmless is not evidence for
+clearing unknown quote or recovery states in current versions. Keep original
+snapshots and database/Data Protection backups. Upgrade approval and representative
+staging acceptance remain separate from local build/test/package preparation.
+
 ## 1.4.0.7 - Stop retrying invalid mint quotes automatically
 
 - Stop background polling and automatic settlement retries when a mint rejects a quote with HTTP 400.
