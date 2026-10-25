@@ -41,16 +41,32 @@ public class EventTimeZoneDatabaseTests
         controller.HttpContext.SetStoreData(new BTCPayServer.Data.StoreData { Id = store });
         return controller;
     }
-    private static async Task<(SimpleTicketSalesDbContextFactory Factory, Event Event)> Seed()
+    private static async Task<(SimpleTicketSalesDbContextFactory Factory, Event Event)> Seed(string timeZone = "Europe/Prague")
     {
         var factory = Factory(); await using var ctx = factory.CreateContext(); await ctx.Database.MigrateAsync();
         var suffix = Guid.NewGuid().ToString("N");
         var ev = new Event { Id = "zone-event-" + suffix, StoreId = "zone-store-" + suffix, Title = "Synthetic zone event", EventType = EventType.Physical,
-            EventState = Data.EntityState.Disabled, Currency = "EUR", TimeZone = "Europe/Bratislava",
+            EventState = Data.EntityState.Disabled, Currency = "EUR", TimeZone = timeZone,
             StartDate = new DateTime(2035, 11, 28, 8, 0, 0, DateTimeKind.Utc).AddTicks(1234560),
             EndDate = new DateTime(2035, 11, 29, 11, 0, 0, DateTimeKind.Utc).AddTicks(6543210),
             ReminderSentAt = new DateTimeOffset(2026, 10, 1, 1, 0, 0, TimeSpan.Zero), CreatedAt = DateTimeOffset.UtcNow };
         ctx.Events.Add(ev); await ctx.SaveChangesAsync(); return (factory, ev);
+    }
+
+    [OrderDatabaseFact]
+    public async Task Legacy_API_read_and_title_only_update_normalize_metadata_without_rewriting_instants_or_reminders()
+    {
+        var (factory, original) = await Seed("Europe/Bratislava"); var controller = Controller(factory, original.StoreId);
+        var read = Assert.IsType<EventData>(Assert.IsType<OkObjectResult>(await controller.GetEvent(original.StoreId, original.Id)).Value);
+        Assert.Equal("Europe/Prague", read.TimeZone);
+        await using var ctx = factory.CreateContext();
+        Assert.Equal("Europe/Bratislava", (await ctx.Events.AsNoTracking().SingleAsync(e => e.Id == original.Id)).TimeZone);
+        var changed = Assert.IsType<EventData>(Assert.IsType<OkObjectResult>(await controller.UpdateEvent(original.StoreId, original.Id, new() { Title = "Synthetic title only" })).Value);
+        Assert.Equal("Europe/Prague", changed.TimeZone);
+        var actual = await ctx.Events.AsNoTracking().SingleAsync(e => e.Id == original.Id);
+        Assert.Equal("Europe/Prague", actual.TimeZone); Assert.Equal("Synthetic title only", actual.Title);
+        Assert.Equal(original.StartDate.Ticks, actual.StartDate.Ticks); Assert.Equal(original.EndDate!.Value.Ticks, actual.EndDate!.Value.Ticks);
+        Assert.Equal(original.ReminderSentAt, actual.ReminderSentAt);
     }
 
     [OrderDatabaseFact]
@@ -81,8 +97,8 @@ public class EventTimeZoneDatabaseTests
     {
         var (factory, original) = await Seed(); var controller = Controller(factory, original.StoreId);
         var civil = Assert.IsType<EventData>(Assert.IsType<CreatedAtActionResult>(await controller.CreateEvent(original.StoreId,
-            new() { Title = "Synthetic civil", EventType = "Physical", Currency = "EUR", TimeZone = "Europe/Bratislava", StartLocal = "2035-11-28T09:00:00" })).Value);
-        Assert.Equal(8, civil.StartDate.Hour); Assert.Equal("Europe/Bratislava", civil.TimeZone);
+            new() { Title = "Synthetic civil", EventType = "Physical", Currency = "EUR", TimeZone = "Europe/Prague", StartLocal = "2035-11-28T09:00:00" })).Value);
+        Assert.Equal(8, civil.StartDate.Hour); Assert.Equal("Europe/Prague", civil.TimeZone);
         var legacy = Assert.IsType<EventData>(Assert.IsType<CreatedAtActionResult>(await controller.CreateEvent(original.StoreId,
             new() { Title = "Synthetic legacy", EventType = "Physical", Currency = "EUR", StartDate = new DateTime(2035, 11, 28, 8, 0, 0, DateTimeKind.Utc) })).Value);
         Assert.Null(legacy.TimeZone); Assert.Equal(8, legacy.StartDate.Hour);
@@ -94,7 +110,7 @@ public class EventTimeZoneDatabaseTests
         var (factory, original) = await Seed(); var controller = Controller(factory, original.StoreId);
         foreach (var (civil, code) in new[] { ("2027-03-28T02:30:00", "event-start-local-nonexistent"), ("2027-10-31T02:30:00", "event-start-local-ambiguous") })
         {
-            var result = Assert.IsType<ObjectResult>(await controller.UpdateEvent(original.StoreId, original.Id, new() { TimeZone = "Europe/Bratislava", StartLocal = civil }));
+            var result = Assert.IsType<ObjectResult>(await controller.UpdateEvent(original.StoreId, original.Id, new() { TimeZone = "Europe/Prague", StartLocal = civil }));
             Assert.Equal(422, result.StatusCode); Assert.Equal(code, Assert.IsType<GreenfieldAPIError>(result.Value).Code);
         }
         await using var ctx = factory.CreateContext(); var actual = await ctx.Events.AsNoTracking().SingleAsync(e => e.Id == original.Id);
@@ -179,6 +195,40 @@ public class EventTimeZoneDatabaseTests
             }
             await using var unchanged = new NpgsqlCommand($"SELECT \"Amount\" FROM \"{schema}\".\"Orders\" WHERE \"Id\"='synthetic'", connection);
             Assert.Equal(12345, await unchanged.ExecuteScalarAsync());
+            // A new installation runs the immutable backfill and then the additive
+            // normalization. Existing 2.2.1 installations start at this second step.
+            await ctx.Database.ExecuteSqlRawAsync($"""
+                INSERT INTO "{schema}"."Events" ("Id", "EventType", "TimeZone", "StartDate") VALUES
+                    ('already-native',1,'Europe/Prague','2026-11-28 08:00:00.123456+00'),
+                    ('other-native',1,'America/New_York','2026-11-28 08:00:00.123456+00'),
+                    ('unsupported',1,'Europe/Unknown','2026-11-28 08:00:00.123456+00'),
+                    ('legacy-null',1,NULL,'2026-11-28 08:00:00.123456+00');
+                CREATE TABLE "{schema}"."Tickets" ("Id" text PRIMARY KEY, "EventId" text REFERENCES "{schema}"."Events"("Id"));
+                INSERT INTO "{schema}"."Tickets" VALUES ('synthetic-ticket','physical');
+                """);
+            var normalize = new BTCPayServer.Plugins.SatfluxTickets.Data.Migrations.NormalizeLegacyEventTimeZone();
+            Assert.Empty(normalize.DownOperations); // Never reverse unrelated canonical Prague metadata.
+            foreach (var command in ctx.GetService<IMigrationsSqlGenerator>().Generate(normalize.UpOperations))
+                await ctx.Database.ExecuteSqlRawAsync(command.CommandText.Replace("BTCPayServer.Plugins.SatfluxTickets", schema, StringComparison.Ordinal));
+            await using var normalized = new NpgsqlCommand($"""
+                SELECT "TimeZone", "StartDate", "EndDate", "ReminderSentAt",
+                    (SELECT "Amount" FROM "{schema}"."Orders" WHERE "Id"='synthetic'),
+                    (SELECT "EventId" FROM "{schema}"."Tickets" WHERE "Id"='synthetic-ticket'),
+                    (SELECT "TimeZone" FROM "{schema}"."Events" WHERE "Id"='already-native'),
+                    (SELECT "TimeZone" FROM "{schema}"."Events" WHERE "Id"='other-native'),
+                    (SELECT "TimeZone" FROM "{schema}"."Events" WHERE "Id"='virtual'),
+                    (SELECT "TimeZone" FROM "{schema}"."Events" WHERE "Id"='unsupported'),
+                    (SELECT "TimeZone" FROM "{schema}"."Events" WHERE "Id"='legacy-null')
+                FROM "{schema}"."Events" WHERE "Id"='physical'
+                """, connection);
+            await using var final = await normalized.ExecuteReaderAsync(); Assert.True(await final.ReadAsync());
+            Assert.Equal("Europe/Prague", final.GetString(0));
+            Assert.Equal(new DateTime(2026,11,28,8,0,0,DateTimeKind.Utc).AddTicks(1234560), final.GetDateTime(1));
+            Assert.Equal(new DateTime(2026,11,29,11,0,0,DateTimeKind.Utc).AddTicks(6543210), final.GetDateTime(2));
+            Assert.Equal(new DateTime(2026,10,1,1,0,0,DateTimeKind.Utc), final.GetDateTime(3));
+            Assert.Equal(12345, final.GetInt32(4)); Assert.Equal("physical", final.GetString(5));
+            Assert.Equal("Europe/Prague", final.GetString(6)); Assert.Equal("America/New_York", final.GetString(7)); Assert.True(final.IsDBNull(8));
+            Assert.Equal("Europe/Unknown", final.GetString(9)); Assert.True(final.IsDBNull(10));
         }
         finally { await ctx.Database.ExecuteSqlRawAsync($"DROP SCHEMA \"{schema}\" CASCADE"); }
 #pragma warning restore EF1002

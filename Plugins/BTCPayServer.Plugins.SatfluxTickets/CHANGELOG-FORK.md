@@ -1,3 +1,10 @@
+# 2.2.2 (native BTCPay time-zone catalog)
+
+- Use the host's native time-zone catalog and resolver rather than injecting a Bratislava alias that is absent from the native picker.
+- Normalize historical Bratislava metadata to supported Prague metadata without changing UTC instants, reminders, ticket/order data or native stale-edit tokens. Preserve the original migration and add a metadata-only normalization step.
+- Keep existing Greenfield/legacy UTC input and public/native schedule behavior; unsupported zones remain explicit rather than silently selecting a different offset.
+- Correct the time-zone endpoint's OpenAPI path parameters and create/update/response field descriptions. The recovered 2.2.1 source remains immutable at its recorded commit.
+
 # 2.2.1 (event share previews)
 
 - Add server-rendered Open Graph title, website type, canonical event URL and the public event image with alt text. Use the public store logo only when there is no event image.

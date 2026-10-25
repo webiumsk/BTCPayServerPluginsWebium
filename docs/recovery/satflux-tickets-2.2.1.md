@@ -14,6 +14,15 @@ Tickets source at that revision is byte-equivalent to the original development b
 the separate WooCommerce correction candidate are preserved. No newer WooCommerce
 protocol/journal changes are silently folded into this recovered baseline.
 
+## Follow-up changes
+
+The exact recovered snapshot is commit `5ba824442756e4bf7a0193c29550b328be37139b`,
+merged through PR #43 as `e763e310b0114c21b3cdda6a797af7442566837a`.
+The adjacent 156-file `satflux-tickets-2.2.1-source.sha256` manifest belongs to that
+historical snapshot. Later corrective commits intentionally differ; do not regenerate
+that manifest to hide the difference. See [the 2.2.2 timezone correction](../satflux-tickets-native-timezones.md)
+for the separate native-host compatibility change.
+
 ## Recovered functionality
 
 - Grouped recipient emails with short ticket numbers, inline QR codes retaining the

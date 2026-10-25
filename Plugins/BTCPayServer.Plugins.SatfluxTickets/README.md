@@ -172,10 +172,18 @@ The `GET`/`PUT events/{eventId}/ticket-types/order` contract returns `{ticketTyp
 
 Install the compatible plugin before enabling the Satflux consumer's ordering controls. This candidate remains subject to review and release approval. Preserve database backups and use additive-schema-compatible rollback; do not remove ordering columns during active sales.
 
-### Venue time zones (2.2.0)
+### Venue time zones (2.2.2)
+
+Version 2.2.2 follows the native BTCPay host catalog and resolver. No extra
+`Europe/Bratislava` choice is injected. Supported identifiers depend on the host.
+Legacy Bratislava metadata is exposed and normalized as `Europe/Prague` when the
+native target exists, without changing UTC instants, reminders or dependent records.
+The original 2.2.0 backfill below remains historical; the new additive migration
+normalizes its metadata. See [the correction and upgrade notes](../../docs/satflux-tickets-native-timezones.md).
+
 
 Physical events show the local time at the venue with the event-specific UTC offset
-and IANA zone, independent of a visitor's browser or VPN. Virtual events retain
+and time-zone identifier, independent of a visitor's browser or VPN. Virtual events retain
 visitor-local public formatting with an explicit UTC fallback. Choose the venue
 zone in the existing event editor; dates remain stored as UTC instants.
 
@@ -186,10 +194,11 @@ New legacy API creates without a zone are not assigned an inferred venue; their
 public schedule clearly shows UTC until an administrator assigns one.
 
 Authenticated store-scoped `GET .../satflux-tickets/time-zones` returns the
-provider-authoritative IANA catalog. Create/update accept `timeZone`, `startLocal`
+native BTCPay host catalog. Create/update accept `timeZone`, `startLocal`
 and nullable `endLocal` civil fields, or the existing explicit UTC/offset instant
 fields. Do not send both representations for the same date. Partial updates preserve
-omitted dates and their exact precision; omitted/null zone preserves metadata, while
+omitted dates and their exact precision; omitted/null zone preserves the venue while
+canonicalizing supported legacy metadata, and
 `endLocal:null` clears the end. Edited non-existent or ambiguous DST hours are rejected
 rather than assigned an arbitrary offset. Explicit instant API clients remain compatible.
 

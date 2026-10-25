@@ -18,28 +18,89 @@ namespace BTCPayServer.Plugins.SatfluxTickets.Tests;
 public class EventTimeZoneTests
 {
     [Theory]
-    [InlineData("CET")]
-    [InlineData("CEST")]
-    [InlineData("Central Europe Standard Time")]
     [InlineData("../../etc/passwd")]
-    [InlineData("Europe/Bratislava\r\nX: 1")]
+    [InlineData("Europe/Prague\r\nX: 1")]
     [InlineData("Europe/Unknown")]
     [InlineData("")]
     public void Unapproved_identifiers_are_rejected_before_conversion(string zone) => Assert.False(EventTimeZoneService.TryGet(zone, out _));
 
     [Fact]
-    public void Catalog_is_bounded_sorted_and_includes_explicit_migration_zone_and_UTC()
+    public void Oversized_and_control_character_identifiers_are_rejected()
     {
-        Assert.Contains("Europe/Bratislava", EventTimeZoneService.TimeZones);
-        Assert.Contains("UTC", EventTimeZoneService.TimeZones);
-        Assert.InRange(EventTimeZoneService.TimeZones.Count, 2, 1002);
-        Assert.Equal(EventTimeZoneService.TimeZones.Order(StringComparer.Ordinal), EventTimeZoneService.TimeZones);
-        Assert.All(EventTimeZoneService.TimeZones, id => Assert.InRange(id.Length, 1, 100));
+        Assert.False(EventTimeZoneService.TryGet(new string('a', 101), out _));
+        Assert.False(EventTimeZoneService.TryGet(null, out _));
+        Assert.False(EventTimeZoneService.TryGet("UTC\0", out _));
+        Assert.False(EventTimeZoneService.TryGet("UTC\t", out _));
+    }
+
+    [Fact]
+    public void Catalog_matches_BTCPay_native_picker_exactly()
+    {
+        Assert.Equal(TimeZoneInfo.GetSystemTimeZones().Select(z => z.Id).Order(StringComparer.Ordinal), EventTimeZoneService.TimeZones);
+        Assert.All(EventTimeZoneService.TimeZones, id => Assert.True(EventTimeZoneService.TryGet(id, out _), id));
     }
 
     [Theory]
-    [InlineData("2026-11-28T09:00:00", "Europe/Bratislava", "2026-11-28T08:00:00Z")]
-    [InlineData("2026-06-28T09:00", "Europe/Bratislava", "2026-06-28T07:00:00Z")]
+    [InlineData("europe/prague", "Europe/Prague")]
+    [InlineData("CET", "Europe/Paris")]
+    [InlineData("Etc/UTC", "UTC")]
+    public void Native_resolver_case_and_abbreviations_persist_the_host_canonical_ID(string input, string expected)
+    {
+        Assert.True(global::BTCPayServer.TimeZones.TryGet(input, out var native));
+        Assert.True(EventTimeZoneService.TryGet(input, out var actual));
+        Assert.Equal(native.Id, actual.Id);
+        var result = EventTimeZoneService.Resolve(new() { TimeZone = input, StartDate = DateTime.UtcNow });
+        Assert.Empty(result.Errors); Assert.Equal(expected, result.TimeZone);
+    }
+
+    [Fact]
+    public void Legacy_alias_is_read_compatible_but_never_injected_as_an_authoring_choice()
+    {
+        Assert.Equal(global::BTCPayServer.TimeZones.TryGet("Europe/Bratislava", out _), EventTimeZoneService.TryGet("Europe/Bratislava", out _));
+        Assert.Equal(TimeZoneInfo.GetSystemTimeZones().Any(z => z.Id == "Europe/Bratislava"), EventTimeZoneService.TimeZones.Contains("Europe/Bratislava"));
+        Assert.Equal("Europe/Prague", EventTimeZoneService.StoredId("Europe/Bratislava"));
+        foreach (var instant in new[] { new DateTime(2026, 11, 28, 8, 0, 0, DateTimeKind.Utc), new DateTime(2026, 6, 28, 8, 0, 0, DateTimeKind.Utc), new DateTime(2026,10,25,0,30,0,DateTimeKind.Utc), new DateTime(2026,10,25,1,30,0,DateTimeKind.Utc) })
+            Assert.Equal(EventTimeZoneService.Civil(instant, "Europe/Prague"), EventTimeZoneService.Civil(instant, "Europe/Bratislava"));
+        if (!global::BTCPayServer.TimeZones.TryGet("Europe/Bratislava", out _))
+            Assert.Contains("timeZone", EventTimeZoneService.Resolve(new() { TimeZone = "Europe/Bratislava", StartDate = DateTime.UtcNow }).Errors.Keys);
+    }
+
+    [Fact]
+    public void Unknown_physical_zone_is_not_silently_presented_as_UTC()
+    {
+        var ev = new Event { EventType = EventType.Physical, TimeZone = "Europe/Unknown", StartDate = DateTime.UtcNow };
+        Assert.Throws<ArgumentException>(() => EventTimeZoneService.Civil(ev.StartDate, ev.TimeZone));
+        Assert.Contains(" UTC", EventTimeZoneService.EmailDate(ev));
+        Assert.Contains(new TicketSalesText(CultureInfo.CurrentCulture.Name)["MissingVenueTimezone"], EventTimeZoneService.EmailDate(ev));
+        Assert.Contains("timeZone", EventTimeZoneService.Resolve(new() { Title = "Changed" }, ev).Errors.Keys);
+        var controller = NativeController();
+        var map = typeof(UITicketSalesController).GetMethod("TicketSalesEventToViewModel", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var vm = (UpdateSimpleTicketSalesEventViewModel)map.Invoke(controller, new object[] { ev })!;
+        Assert.Null(vm.StartLocal); Assert.NotEmpty(controller.ModelState[nameof(vm.TimeZone)]!.Errors);
+    }
+
+    [Fact]
+    public void Legacy_native_edit_canonicalizes_visible_metadata_but_preserves_raw_baseline_and_instants()
+    {
+        var controller = NativeController();
+        var map = typeof(UITicketSalesController).GetMethod("TicketSalesEventToViewModel", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var guard = typeof(UITicketSalesController).GetMethod("NativeScheduleMatches", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var apply = typeof(UITicketSalesController).GetMethod("ApplyNativeTimes", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var save = typeof(UITicketSalesController).GetMethod("TicketSalesEventViewModelToEntity", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var ev = new Event { Id = "synthetic", EventType = EventType.Physical, TimeZone = "Europe/Bratislava", StartDate = new DateTime(2026,10,25,0,30,0,DateTimeKind.Utc).AddTicks(1234560), ReminderSentAt = DateTimeOffset.UtcNow };
+        var ticks = ev.StartDate.Ticks; var reminder = ev.ReminderSentAt;
+        var vm = (UpdateSimpleTicketSalesEventViewModel)map.Invoke(controller, new object[] { ev })!;
+        Assert.Equal("Europe/Prague", vm.TimeZone); Assert.Equal("Europe/Bratislava", vm.OriginalTimeZone); Assert.Equal("Europe/Bratislava", ev.TimeZone);
+        Assert.True((bool)guard.Invoke(controller, new object[] { vm, ev })!);
+        Assert.True((bool)apply.Invoke(controller, new object[] { vm, ev })!);
+        save.Invoke(controller, new object[] { vm, ev, "synthetic-store" });
+        Assert.Equal("Europe/Prague", ev.TimeZone); Assert.Equal(ticks, ev.StartDate.Ticks); Assert.Equal(reminder, ev.ReminderSentAt);
+        Assert.False((bool)guard.Invoke(controller, new object[] { vm, ev })!); // Raw metadata changed since the form baseline.
+    }
+
+    [Theory]
+    [InlineData("2026-11-28T09:00:00", "Europe/Prague", "2026-11-28T08:00:00Z")]
+    [InlineData("2026-06-28T09:00", "Europe/Prague", "2026-06-28T07:00:00Z")]
     [InlineData("2026-11-28T09:00:00", "Asia/Kathmandu", "2026-11-28T03:15:00Z")]
     [InlineData("2026-11-28T09:00:00", "Australia/Lord_Howe", "2026-11-27T22:00:00Z")]
     public void Civil_time_conversion_uses_venue_rules_not_machine_or_visitor_zone(string civil, string zone, string expected)
@@ -56,7 +117,7 @@ public class EventTimeZoneTests
     [InlineData("2026-11-28T09:00:00+01:00", "CivilInvalid")]
     public void Nonexistent_ambiguous_and_offset_civil_dates_are_rejected(string civil, string expected)
     {
-        Assert.False(EventTimeZoneService.TryCivil(civil, "Europe/Bratislava", out _, out var error)); Assert.Equal(expected, error);
+        Assert.False(EventTimeZoneService.TryCivil(civil, "Europe/Prague", out _, out var error)); Assert.Equal(expected, error);
     }
 
     [Fact]
@@ -71,7 +132,7 @@ public class EventTimeZoneTests
     [Fact]
     public void Metadata_only_zone_update_preserves_exact_instants_and_omitted_end_but_explicit_null_clears_it()
     {
-        var current = new Event { StartDate = new DateTime(2026, 11, 28, 8, 0, 0, DateTimeKind.Utc).AddTicks(1234560), EndDate = new DateTime(2026, 11, 29, 11, 0, 0, DateTimeKind.Utc), TimeZone = "Europe/Bratislava" };
+        var current = new Event { StartDate = new DateTime(2026, 11, 28, 8, 0, 0, DateTimeKind.Utc).AddTicks(1234560), EndDate = new DateTime(2026, 11, 29, 11, 0, 0, DateTimeKind.Utc), TimeZone = "Europe/Prague" };
         var result = EventTimeZoneService.Resolve(new() { TimeZone = "America/New_York" }, current);
         Assert.Empty(result.Errors); Assert.Equal(current.StartDate.Ticks, result.StartDate!.Value.Ticks); Assert.Equal(current.EndDate, result.EndDate);
         Assert.Null(EventTimeZoneService.Resolve(new() { EndLocal = null! }, current).EndDate);
@@ -84,8 +145,8 @@ public class EventTimeZoneTests
     public void UTC_API_can_express_fold_instants_but_local_API_requires_explicit_zone_and_rejects_conflicts()
     {
         var firstFold = DateTime.Parse("2026-10-25T00:30:00Z", null, DateTimeStyles.RoundtripKind);
-        Assert.Empty(EventTimeZoneService.Resolve(new() { StartDate = firstFold, TimeZone = "Europe/Bratislava" }).Errors);
-        Assert.Contains("startLocal", EventTimeZoneService.Resolve(new() { StartDate = firstFold, StartLocal = "2026-10-25T02:30:00", TimeZone = "Europe/Bratislava" }).Errors.Keys);
+        Assert.Empty(EventTimeZoneService.Resolve(new() { StartDate = firstFold, TimeZone = "Europe/Prague" }).Errors);
+        Assert.Contains("startLocal", EventTimeZoneService.Resolve(new() { StartDate = firstFold, StartLocal = "2026-10-25T02:30:00", TimeZone = "Europe/Prague" }).Errors.Keys);
         Assert.Equal("TimeZoneRequired", EventTimeZoneService.Resolve(new() { StartLocal = "2026-11-28T09:00:00" }).Errors["startLocal"]);
         Assert.Equal("InstantOffsetRequired", EventTimeZoneService.Resolve(new() { StartDate = DateTime.SpecifyKind(firstFold, DateTimeKind.Unspecified) }).Errors["startDate"]);
         Assert.Null(EventTimeZoneService.Resolve(new() { StartDate = firstFold }).TimeZone); // future old-client creates do not inherit migration metadata
@@ -100,10 +161,10 @@ public class EventTimeZoneTests
     public void Server_venue_display_contains_real_event_offset_in_every_language(string language)
     {
         var date = new DateTime(2026, 11, 28, 8, 0, 0, DateTimeKind.Utc);
-        var rendered = EventTimeZoneService.VenueDate(date, "Europe/Bratislava", new TicketSalesText(language).Culture);
-        Assert.Contains("UTC+01:00", rendered); Assert.Contains("Europe/Bratislava", rendered);
-        Assert.Equal(9, EventTimeZoneService.AtVenue(date, "Europe/Bratislava").Hour);
-        Assert.Contains("UTC+02:00", EventTimeZoneService.VenueDate(date.AddMonths(-5), "Europe/Bratislava", new TicketSalesText(language).Culture));
+        var rendered = EventTimeZoneService.VenueDate(date, "Europe/Prague", new TicketSalesText(language).Culture);
+        Assert.Contains("UTC+01:00", rendered); Assert.Contains("Europe/Prague", rendered);
+        Assert.Equal(9, EventTimeZoneService.AtVenue(date, "Europe/Prague").Hour);
+        Assert.Contains("UTC+02:00", EventTimeZoneService.VenueDate(date.AddMonths(-5), "Europe/Prague", new TicketSalesText(language).Culture));
     }
 
     [Fact]
@@ -113,9 +174,47 @@ public class EventTimeZoneTests
         try
         {
             CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("en");
-            var ev = new Event { EventType = EventType.Physical, TimeZone = "Europe/Bratislava", StartDate = new DateTime(2026, 11, 27, 23, 30, 0, DateTimeKind.Utc) };
+            var ev = new Event { EventType = EventType.Physical, TimeZone = "Europe/Prague", StartDate = new DateTime(2026, 11, 27, 23, 30, 0, DateTimeKind.Utc) };
             Assert.Equal("November 28, 2026", EventTimeZoneService.EmailDate(ev));
             ev.EventType = EventType.Virtual; Assert.Equal("November 27, 2026", EventTimeZoneService.EmailDate(ev));
+        }
+        finally { CultureInfo.CurrentCulture = current; }
+    }
+
+    [Theory]
+    [InlineData("en")]
+    [InlineData("sk")]
+    [InlineData("es")]
+    [InlineData("de")]
+    [InlineData("cs")]
+    public void Unsupported_venue_zone_preserves_ticket_email_content_and_links_with_a_localized_explicit_UTC_warning(string language)
+    {
+        var current = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(language);
+            var ev = new Event { Title = "Synthetic concert", EventType = EventType.Physical, TimeZone = "Europe/Unknown",
+                StartDate = new DateTime(2026,11,27,23,30,0,DateTimeKind.Utc) };
+            var ticket = new Ticket { FirstName = "Synthetic", LastName = "Buyer", Email = "buyer@example.test",
+                TicketNumber = "EVT-0007-261020-ABC123", QRCodeLink = "https://tickets.example.test/ticket/ABC123" };
+            var apply = typeof(EmailService).GetMethod("ApplyTemplate", BindingFlags.Static | BindingFlags.NonPublic)!;
+            var warning = new TicketSalesText(language)["MissingVenueTimezone"];
+            foreach (var template in new[] { "{{Title}} {{Name}} {{EventDate}}", "{{Title}} {{Name}}" })
+            {
+                // ApplyTemplate eagerly evaluates EmailDate even without a placeholder.
+                var body = (string)apply.Invoke(null, new object[] { template, ev, ticket })!;
+                Assert.Contains("Synthetic concert Synthetic Buyer", body);
+                if (template.Contains("{{EventDate}}", StringComparison.Ordinal))
+                {
+                    Assert.Contains(ev.StartDate.ToString("MMMM dd, yyyy", CultureInfo.CurrentCulture) + " UTC", body);
+                    Assert.Contains(warning, body);
+                }
+                using var message = TicketEmailMessageBuilder.Create(new BTCPayServer.Plugins.Emails.Services.EmailSettings { From = "tickets@example.test" },
+                    MimeKit.MailboxAddress.Parse(ticket.Email), "Synthetic tickets", body, ticket.TicketNumber, ticket.QRCodeLink);
+                Assert.Equal(ticket.Email, Assert.IsType<MimeKit.MailboxAddress>(Assert.Single(message.To)).Address);
+                Assert.Contains("Synthetic concert Synthetic Buyer", message.TextBody); Assert.Contains(ticket.QRCodeLink, message.TextBody);
+                Assert.Contains("ABC123", message.TextBody); Assert.Contains(ticket.QRCodeLink, message.HtmlBody);
+            }
         }
         finally { CultureInfo.CurrentCulture = current; }
     }
@@ -125,10 +224,11 @@ public class EventTimeZoneTests
     {
         var controller = NativeController();
         var apply = typeof(UITicketSalesController).GetMethod("ApplyNativeTimes", BindingFlags.Instance | BindingFlags.NonPublic)!;
-        var original = new Event { EventType = EventType.Physical, TimeZone = "Europe/Bratislava", StartDate = new DateTime(2026, 10, 25, 0, 30, 0, DateTimeKind.Utc).AddTicks(1234560) };
-        var vm = new UpdateSimpleTicketSalesEventViewModel { EventType = EventType.Physical, TimeZone = "America/New_York", StartLocal = EventTimeZoneService.Civil(original.StartDate, original.TimeZone) };
+        var original = new Event { EventType = EventType.Physical, TimeZone = "Europe/Prague", StartDate = new DateTime(2026, 10, 25, 0, 30, 0, DateTimeKind.Utc).AddTicks(1234560) };
+        var vm = new UpdateSimpleTicketSalesEventViewModel { EventType = EventType.Physical, TimeZone = "america/new_york", StartLocal = EventTimeZoneService.Civil(original.StartDate, original.TimeZone) };
         Assert.True((bool)apply.Invoke(controller, new object[] { vm, original })!); Assert.Equal(original.StartDate.Ticks, vm.StartDate.Ticks);
-        vm.TimeZone = "Europe/Bratislava"; vm.StartEdited = true;
+        Assert.Equal("America/New_York", vm.TimeZone);
+        vm.TimeZone = "Europe/Prague"; vm.StartEdited = true;
         Assert.False((bool)apply.Invoke(controller, new object[] { vm, original })!); Assert.NotEmpty(controller.ModelState[nameof(vm.StartLocal)]!.Errors);
     }
 
@@ -138,12 +238,12 @@ public class EventTimeZoneTests
         var controller = NativeController();
         var apply = typeof(UITicketSalesController).GetMethod("ApplyNativeTimes", BindingFlags.Instance | BindingFlags.NonPublic)!;
         var map = typeof(UITicketSalesController).GetMethod("TicketSalesEventViewModelToEntity", BindingFlags.Instance | BindingFlags.NonPublic)!;
-        var original = new Event { Id = "synthetic", EventType = EventType.Physical, TimeZone = "Europe/Bratislava", StartDate = DateTime.UtcNow };
+        var original = new Event { Id = "synthetic", EventType = EventType.Physical, TimeZone = "Europe/Prague", StartDate = DateTime.UtcNow };
         var vm = new UpdateSimpleTicketSalesEventViewModel { EventType = EventType.Virtual, TimeZone = "America/New_York", EditorTimeZone = "Asia/Kathmandu", StartLocal = "2027-11-28T09:00:00", StartEdited = true };
         Assert.True((bool)apply.Invoke(controller, new object[] { vm, original })!);
         var mapped = (Event)map.Invoke(controller, new object[] { vm, original, "synthetic-store" })!;
-        Assert.Equal("Europe/Bratislava", mapped.TimeZone); Assert.Equal(3, mapped.StartDate.Hour); Assert.Equal(15, mapped.StartDate.Minute);
-        vm.EditorTimeZone = "CET"; Assert.False((bool)apply.Invoke(controller, new object[] { vm, original })!);
+        Assert.Equal("Europe/Prague", mapped.TimeZone); Assert.Equal(3, mapped.StartDate.Hour); Assert.Equal(15, mapped.StartDate.Minute);
+        vm.EditorTimeZone = "Europe/Unknown"; Assert.False((bool)apply.Invoke(controller, new object[] { vm, original })!);
     }
 
     [Fact]
@@ -154,7 +254,7 @@ public class EventTimeZoneTests
         var map = typeof(UITicketSalesController).GetMethod("TicketSalesEventViewModelToEntity", BindingFlags.Instance | BindingFlags.NonPublic)!;
         var original = new Event
         {
-            Id = "synthetic-existing", StoreId = "owned-store", EventType = EventType.Physical, TimeZone = "Europe/Bratislava",
+            Id = "synthetic-existing", StoreId = "owned-store", EventType = EventType.Physical, TimeZone = "Europe/Prague",
             HasMaximumCapacity = true, MaximumEventCapacity = 42, EventLogo = "opaque-file-id", Title = "Synthetic", Currency = "EUR",
             StartDate = new DateTime(2027,11,28,8,0,0,DateTimeKind.Utc).AddTicks(1234560),
             EndDate = new DateTime(2027,11,29,11,0,0,DateTimeKind.Utc).AddTicks(6543210),
@@ -181,10 +281,10 @@ public class EventTimeZoneTests
         var controller = NativeController();
         var guard = typeof(UITicketSalesController).GetMethod("NativeScheduleMatches", BindingFlags.Instance | BindingFlags.NonPublic)!;
         var apply = typeof(UITicketSalesController).GetMethod("ApplyNativeTimes", BindingFlags.Instance | BindingFlags.NonPublic)!;
-        var original = new Event { EventType = EventType.Physical, TimeZone = "Europe/Bratislava",
+        var original = new Event { EventType = EventType.Physical, TimeZone = "Europe/Prague",
             StartDate = new DateTime(2027,11,28,8,0,0,DateTimeKind.Utc).AddTicks(1234560),
             EndDate = new DateTime(2027,11,29,11,0,0,DateTimeKind.Utc).AddTicks(6543210) };
-        var vm = new UpdateSimpleTicketSalesEventViewModel { EventType = EventType.Physical, TimeZone = "Europe/Bratislava",
+        var vm = new UpdateSimpleTicketSalesEventViewModel { EventType = EventType.Physical, TimeZone = "Europe/Prague",
             OriginalTimeZone = original.TimeZone, OriginalEventType = original.EventType,
             OriginalStartUtc = original.StartDate.ToString("O", CultureInfo.InvariantCulture),
             OriginalEndUtc = original.EndDate.Value.ToString("O", CultureInfo.InvariantCulture),
@@ -206,7 +306,7 @@ public class EventTimeZoneTests
         var controller = NativeController();
         var guard = typeof(UITicketSalesController).GetMethod("NativeScheduleMatches", BindingFlags.Instance | BindingFlags.NonPublic)!;
         var apply = typeof(UITicketSalesController).GetMethod("ApplyNativeTimes", BindingFlags.Instance | BindingFlags.NonPublic)!;
-        var original = new Event { EventType = EventType.Physical, TimeZone = "Europe/Bratislava",
+        var original = new Event { EventType = EventType.Physical, TimeZone = "Europe/Prague",
             StartDate = new DateTime(2027,11,28,8,0,0,DateTimeKind.Utc).AddTicks(1234560) };
         var vm = new UpdateSimpleTicketSalesEventViewModel { EventType = EventType.Physical, TimeZone = "UTC",
             OriginalTimeZone = original.TimeZone, OriginalEventType = original.EventType,
@@ -229,7 +329,7 @@ public class EventTimeZoneTests
         var controller = NativeController();
         var guard = typeof(UITicketSalesController).GetMethod("NativeScheduleMatches", BindingFlags.Instance | BindingFlags.NonPublic)!;
         var original = new Event { StartDate = new DateTime(2027,11,28,8,0,0,DateTimeKind.Utc) };
-        var vm = new UpdateSimpleTicketSalesEventViewModel { OriginalTimeZone = original.TimeZone, OriginalEventType = original.EventType, OriginalStartUtc = baseline!, StartLocal = "2027-11-28T09:00:00", TimeZone = "Europe/Bratislava" };
+        var vm = new UpdateSimpleTicketSalesEventViewModel { OriginalTimeZone = original.TimeZone, OriginalEventType = original.EventType, OriginalStartUtc = baseline!, StartLocal = "2027-11-28T09:00:00", TimeZone = "Europe/Prague" };
         Assert.False((bool)guard.Invoke(controller, new object[] { vm, original })!);
         Assert.Equal(new TicketSalesText("en")["NativeScheduleChanged"], controller.ModelState[nameof(vm.StartLocal)]!.Errors.Single().ErrorMessage);
         Assert.Equal("2027-11-28T09:00:00", vm.StartLocal);

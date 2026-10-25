@@ -807,14 +807,17 @@ public class UITicketSalesController(UriResolver uriResolver,
         }
         var zone = vm.EventType == EventType.Physical ? vm.TimeZone : vm.EditorTimeZone;
         var text = new TicketSalesText(TicketSalesText.ResolveLanguage(Request.Query["lang"], Request.Headers.AcceptLanguage));
-        if (!EventTimeZoneService.TryGet(zone, out _))
+        if (!EventTimeZoneService.TryGet(zone, out var selectedZone))
         {
             ModelState.AddModelError(vm.EventType == EventType.Physical ? nameof(vm.TimeZone) : nameof(vm.EditorTimeZone), text["TimeZoneRequired"]);
             return false;
         }
+        zone = selectedZone.Id;
+        if (vm.EventType == EventType.Physical) vm.TimeZone = zone;
+        else vm.EditorTimeZone = zone;
         var oldZone = current?.EventType == EventType.Physical ? current.TimeZone : zone;
         bool unchanged(string submitted, DateTime instant) => submitted == EventTimeZoneService.Civil(instant, zone)
-            || submitted == EventTimeZoneService.Civil(instant, oldZone);
+            || ((oldZone == null || EventTimeZoneService.TryGetStored(oldZone, out _)) && submitted == EventTimeZoneService.Civil(instant, oldZone));
         if (current != null && !vm.StartEdited && unchanged(vm.StartLocal, current.StartDate)) vm.StartDate = current.StartDate;
         else if (EventTimeZoneService.TryCivil(vm.StartLocal, zone, out var start, out var startError)) vm.StartDate = start;
         else ModelState.AddModelError(nameof(vm.StartLocal), text[startError]);
@@ -829,6 +832,12 @@ public class UITicketSalesController(UriResolver uriResolver,
 
     private UpdateSimpleTicketSalesEventViewModel TicketSalesEventToViewModel(Event entity)
     {
+        var editableZone = EventTimeZoneService.StoredId(entity.TimeZone);
+        var displayZone = entity.EventType == EventType.Physical ? editableZone : "UTC";
+        var supported = displayZone == null || EventTimeZoneService.TryGet(displayZone, out _);
+        if (!supported)
+            ModelState.AddModelError(nameof(UpdateSimpleTicketSalesEventViewModel.TimeZone), new TicketSalesText(
+                TicketSalesText.ResolveLanguage(Request.Query["lang"], Request.Headers.AcceptLanguage))["TimeZoneInvalid"]);
         return new UpdateSimpleTicketSalesEventViewModel
         {
             StoreId = entity.StoreId,   
@@ -841,9 +850,9 @@ public class UITicketSalesController(UriResolver uriResolver,
             OriginalEventType = entity.EventType,
             OriginalStartUtc = EventTimeZoneService.Utc(entity.StartDate).ToString("O", System.Globalization.CultureInfo.InvariantCulture),
             OriginalEndUtc = entity.EndDate.HasValue ? EventTimeZoneService.Utc(entity.EndDate.Value).ToString("O", System.Globalization.CultureInfo.InvariantCulture) : null,
-            TimeZone = entity.TimeZone,
-            StartLocal = EventTimeZoneService.Civil(entity.StartDate, entity.EventType == EventType.Physical ? entity.TimeZone : "UTC"),
-            EndLocal = entity.EndDate.HasValue ? EventTimeZoneService.Civil(entity.EndDate.Value, entity.EventType == EventType.Physical ? entity.TimeZone : "UTC") : null,
+            TimeZone = editableZone,
+            StartLocal = supported ? EventTimeZoneService.Civil(entity.StartDate, displayZone) : null,
+            EndLocal = supported && entity.EndDate.HasValue ? EventTimeZoneService.Civil(entity.EndDate.Value, displayZone) : null,
             Currency = entity.Currency,
             RedirectUrl = entity.RedirectUrl,
             EmailBody = entity.EmailBody,

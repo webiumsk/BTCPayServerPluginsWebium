@@ -3,7 +3,7 @@
   "info": {
     "title": "SatfluxTickets Greenfield API",
     "description": "REST API for the SatfluxTickets BTCPay Server plugin. Provides endpoints for managing events, ticket types, tickets, orders, and check-ins.\n\nAll endpoints are scoped to a specific store and require a Greenfield API key with appropriate permissions.\n\n**Authentication:** Pass your API key in the `Authorization` header:\n```\nAuthorization: token YOUR_API_KEY\n```\n\nCreate an API key under **Account > Manage Account > API Keys** in BTCPay Server.",
-    "version": "2.2.1",
+    "version": "2.2.2",
     "contact": {
       "name": "SatfluxTickets",
       "url": "https://github.com/TChukwuleta/BTCPayServerPlugins"
@@ -1249,24 +1249,14 @@
     },
     "/time-zones": {
       "get": {
-        "summary": "List supported event IANA time zones",
+        "summary": "List time zones supported by the BTCPay host",
         "operationId": "GetEventTimeZones",
         "tags": [
           "Events"
         ],
-        "parameters": [
-          {
-            "name": "storeId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
         "responses": {
           "200": {
-            "description": "Supported, sorted IANA IDs (including UTC and Europe/Bratislava).",
+            "description": "The sorted native BTCPay host catalog. No plugin-specific aliases are injected.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1274,7 +1264,6 @@
                   "properties": {
                     "timeZones": {
                       "type": "array",
-                      "maxItems": 1002,
                       "items": {
                         "type": "string",
                         "maxLength": 100
@@ -1407,8 +1396,8 @@
             "type": "string",
             "nullable": true,
             "maxLength": 100,
-            "example": "Europe/Bratislava",
-            "description": "Approved IANA venue time zone. Omitted/null updates preserve the existing value. UTC startDate/endDate remain instants; this metadata never shifts them. New legacy UTC-only creates may omit it."
+            "example": "Europe/Prague",
+            "description": "Time-zone ID supported by the BTCPay host catalog. Optional for legacy UTC-only creation. UTC startDate/endDate remain authoritative instants."
           },
           "startLocal": {
             "type": "string",
@@ -1422,7 +1411,7 @@
             "nullable": true,
             "maxLength": 40,
             "example": "2026-11-29T12:00:00",
-            "description": "Civil wall time in explicitly supplied timeZone, mutually exclusive with endDate. Omitted preserves the end; explicit null clears it."
+            "description": "Civil end time in the explicitly supplied timeZone, mutually exclusive with endDate. Omitted/null creates an event without an end time."
           }
         },
         "description": "Create an event. Supply exactly one of startDate (UTC/offset instant) or startLocal (civil time with explicit timeZone)."
@@ -1487,8 +1476,8 @@
             "type": "string",
             "nullable": true,
             "maxLength": 100,
-            "example": "Europe/Bratislava",
-            "description": "Approved IANA venue time zone. Omitted/null updates preserve the existing value. UTC startDate/endDate remain instants; this metadata never shifts them. New legacy UTC-only creates may omit it."
+            "example": "Europe/Prague",
+            "description": "Time-zone ID supported by the BTCPay host catalog. Omitted/null preserves the existing venue zone, canonicalizing legacy metadata without shifting UTC startDate/endDate."
           },
           "startLocal": {
             "type": "string",
@@ -1607,8 +1596,8 @@
             "type": "string",
             "nullable": true,
             "maxLength": 100,
-            "example": "Europe/Bratislava",
-            "description": "Approved IANA venue time zone. Omitted/null updates preserve the existing value. UTC startDate/endDate remain instants; this metadata never shifts them. New legacy UTC-only creates may omit it."
+            "example": "Europe/Prague",
+            "description": "Canonical BTCPay-supported venue time-zone ID, or null when no venue zone is assigned. Historical Bratislava metadata is exposed as supported Prague metadata without changing UTC instants."
           }
         }
       },

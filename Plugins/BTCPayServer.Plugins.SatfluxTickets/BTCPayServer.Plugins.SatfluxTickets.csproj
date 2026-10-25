@@ -10,7 +10,7 @@
   <PropertyGroup>
     <Product>Satflux Tickets</Product>
     <Description> Bitcoin-powered event ticket and management system</Description>
-    <Version>2.2.1</Version>
+    <Version>2.2.2</Version>
   </PropertyGroup>
 
   <!-- Plugin development properties -->
