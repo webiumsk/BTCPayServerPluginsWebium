@@ -1597,7 +1597,7 @@
             "nullable": true,
             "maxLength": 100,
             "example": "Europe/Prague",
-            "description": "Canonical BTCPay-supported venue time-zone ID, or null when no venue zone is assigned. Historical Bratislava metadata is exposed as supported Prague metadata without changing UTC instants."
+            "description": "Venue time-zone ID, or null when no venue zone is assigned. Supported stored IDs are returned in their canonical BTCPay form. Unsupported stored IDs remain unchanged and explicit in responses; clients must not assume every non-null ID is supported or resolvable. Historical Bratislava metadata is exposed as Prague when the native host supports Prague. No unsupported zone is silently mapped to a different offset, and UTC instants remain unchanged."
           }
         }
       },
