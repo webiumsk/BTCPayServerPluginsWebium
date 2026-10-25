@@ -5,6 +5,9 @@ namespace BTCPayServer.Plugins.SatfluxTickets.ViewModels;
 
 public class TicketViewModel : BaseSimpleTicketPublicViewModel
 {
+    public string DisplayStart { get; set; }
+    public string DisplayEnd { get; set; }
+    public string TimeZoneLabel { get; set; }
     public string EventName { get; set; }
     public string Location { get; set; }
     public DateTimeOffset StartDate { get; set; }

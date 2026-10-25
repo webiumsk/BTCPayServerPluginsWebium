@@ -23,10 +23,10 @@ namespace BTCPayServer.Plugins.SatfluxTickets.Controllers;
 [Authorize(AuthenticationSchemes = AuthenticationSchemes.Greenfield, Policy = Policies.CanModifyStoreSettings)]
 [EnableCors(CorsPolicies.All)]
 public class GreenfieldSatfluxTicketTypesController(
-    SimpleTicketSalesDbContextFactory dbContextFactory) : ControllerBase
+    SimpleTicketSalesDbContextFactory dbContextFactory, TicketTypeOrderService orderService) : ControllerBase
 {
     [HttpGet("events/{eventId}/ticket-types")]
-    public async Task<IActionResult> GetTicketTypes(string storeId, string eventId, [FromQuery] string sortBy = "Name", [FromQuery] string sortDir = "asc")
+    public async Task<IActionResult> GetTicketTypes(string storeId, string eventId, [FromQuery] string sortBy = "DisplayOrder", [FromQuery] string sortDir = "asc")
     {
         if (GreenfieldStoreGuard.RequireStore(HttpContext, this, storeId) is { } storeError)
             return storeError;
@@ -40,13 +40,41 @@ public class GreenfieldSatfluxTicketTypesController(
         var query = ctx.TicketTypes.Where(c => c.EventId == eventId);
         query = sortBy switch
         {
-            "Price" => sortDir == "desc" ? query.OrderByDescending(t => t.Price) : query.OrderBy(t => t.Price),
-            "Name" => sortDir == "desc" ? query.OrderByDescending(t => t.Name) : query.OrderBy(t => t.Name),
-            _ => query.OrderBy(t => t.Name)
+            "Price" => sortDir == "desc" ? query.OrderByDescending(t => t.Price).ThenBy(t => t.Id) : query.OrderBy(t => t.Price).ThenBy(t => t.Id),
+            "Name" => sortDir == "desc" ? query.OrderByDescending(t => t.Name).ThenBy(t => t.Id) : query.OrderBy(t => t.Name).ThenBy(t => t.Id),
+            _ => TicketTypeOrderService.InDisplayOrder(query)
         };
         var list = query.ToList();
         var result = list.Select(ToTicketTypeData).ToArray();
         return Ok(result);
+    }
+
+    [HttpGet("events/{eventId}/ticket-types/order")]
+    public async Task<IActionResult> GetTicketTypeOrder(string storeId, string eventId)
+    {
+        if (GreenfieldStoreGuard.RequireStore(HttpContext, this, storeId) is { } storeError)
+            return storeError;
+        var snapshot = await orderService.GetAsync(storeId, eventId, HttpContext.RequestAborted);
+        return snapshot is null ? EventNotFound() : Ok(snapshot);
+    }
+
+    [HttpPut("events/{eventId}/ticket-types/order")]
+    [RequestSizeLimit(262144)]
+    public async Task<IActionResult> SetTicketTypeOrder(string storeId, string eventId, [FromBody] TicketTypeOrderRequest request)
+    {
+        if (GreenfieldStoreGuard.RequireStore(HttpContext, this, storeId) is { } storeError)
+            return storeError;
+        if (!TicketTypeOrderService.IsValidRequest(request))
+            return this.CreateAPIError(400, "invalid-ticket-type-order", "Invalid ticket type order.");
+        try
+        {
+            var snapshot = await orderService.SetAsync(storeId, eventId, request, HttpContext.RequestAborted);
+            return snapshot is null ? EventNotFound() : Ok(snapshot);
+        }
+        catch (TicketTypeOrderConflictException)
+        {
+            return this.CreateAPIError(409, "ticket-type-order-conflict", "Ticket types changed. Reload before saving their order.");
+        }
     }
 
     [HttpGet("events/{eventId}/ticket-types/{ticketTypeId}")]
@@ -79,8 +107,9 @@ public class GreenfieldSatfluxTicketTypesController(
         if (GreenfieldStoreGuard.RequireStore(HttpContext, this, storeId) is { } storeError)
             return storeError;
 
-        await using var ctx = dbContextFactory.CreateContext();
-        var ticketEvent = ctx.Events.FirstOrDefault(c => c.Id == eventId && c.StoreId == storeId);
+        await using var ctx = TicketTypeOrderService.CreateContext(dbContextFactory);
+        await using var transaction = await ctx.Database.BeginTransactionAsync();
+        var ticketEvent = await TicketTypeOrderService.LockEventAsync(ctx, storeId, eventId);
         if (ticketEvent == null)
             return EventNotFound();
 
@@ -105,6 +134,7 @@ public class GreenfieldSatfluxTicketTypesController(
 
         var entity = new TicketType
         {
+            DisplayOrder = checked((await ctx.TicketTypes.Where(t => t.EventId == eventId).MaxAsync(t => (int?)t.DisplayOrder) ?? -1) + 1),
             EventId = eventId,
             Name = request.Name,
             Price = request.Price,
@@ -129,7 +159,9 @@ public class GreenfieldSatfluxTicketTypesController(
         }
 
         ctx.TicketTypes.Add(entity);
+        ticketEvent.TicketTypeOrderRevision = checked(ticketEvent.TicketTypeOrderRevision + 1);
         await ctx.SaveChangesAsync();
+        await transaction.CommitAsync();
         return CreatedAtAction(nameof(GetTicketType), new { storeId, eventId, ticketTypeId = entity.Id }, ToTicketTypeData(entity));
     }
 
@@ -205,9 +237,10 @@ public class GreenfieldSatfluxTicketTypesController(
         if (GreenfieldStoreGuard.RequireStore(HttpContext, this, storeId) is { } storeError)
             return storeError;
 
-        await using var ctx = dbContextFactory.CreateContext();
+        await using var ctx = TicketTypeOrderService.CreateContext(dbContextFactory);
+        await using var transaction = await ctx.Database.BeginTransactionAsync();
 
-        var ticketEvent = ctx.Events.FirstOrDefault(c => c.StoreId == storeId && c.Id == eventId);
+        var ticketEvent = await TicketTypeOrderService.LockEventAsync(ctx, storeId, eventId);
         if (ticketEvent == null)
             return EventNotFound();
 
@@ -223,7 +256,9 @@ public class GreenfieldSatfluxTicketTypesController(
             if (newDefault != null)
                 newDefault.IsDefault = true;
         }
+        ticketEvent.TicketTypeOrderRevision = checked(ticketEvent.TicketTypeOrderRevision + 1);
         await ctx.SaveChangesAsync();
+        await transaction.CommitAsync();
         return Ok();
     }
 

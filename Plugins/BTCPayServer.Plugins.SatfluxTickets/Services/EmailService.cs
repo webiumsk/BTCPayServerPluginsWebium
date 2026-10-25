@@ -52,12 +52,10 @@ public class EmailService
             .Replace("{{Name}}", $"{ticket.FirstName} {ticket.LastName}".Trim())
             .Replace("{{Email}}", ticket.Email ?? string.Empty)
             .Replace("{{Description}}", ticketEvent.Description ?? string.Empty)
-            .Replace("{{EventDate}}", ticketEvent.StartDate.ToString("MMMM dd, yyyy"))
+            .Replace("{{EventDate}}", EventTimeZoneService.EmailDate(ticketEvent))
             .Replace("{{Currency}}", ticketEvent.Currency ?? string.Empty);
 
-        return @$" {emailBody}
-
-Click the link to view your tickets: {ticket.QRCodeLink}";
+        return emailBody;
     }
 
     private async Task<EmailDispatchResult> SendBulkEmail(string storeId, IEnumerable<EmailRecipient> recipients)
@@ -66,21 +64,18 @@ Click the link to view your tickets: {ticket.QRCodeLink}";
         if (settings is null || !settings.IsComplete())
             return new EmailDispatchResult { IsSuccessful = false };
 
-        var recipientList = recipients.ToList();
-        if (recipientList.Count == 0)
+        var recipientGroups = GroupRecipients(recipients);
+        if (recipientGroups.Count == 0)
             return new EmailDispatchResult { IsSuccessful = true };
 
         var failedRecipients = new ConcurrentBag<string>();
-        await Parallel.ForEachAsync(recipientList, new ParallelOptions { MaxDegreeOfParallelism = 4 }, async (recipient, _) =>
+        await Parallel.ForEachAsync(recipientGroups, new ParallelOptions { MaxDegreeOfParallelism = 4 }, async (tickets, _) =>
         {
+            var recipient = tickets[0];
             using var client = await settings.CreateSmtpClient();
             try
             {
-                var message = new MimeMessage();
-                message.From.Add(MailboxAddress.Parse(settings.From));
-                message.To.Add(recipient.Address);
-                message.Subject = recipient.Subject;
-                message.Body = new TextPart("plain") { Text = recipient.MessageText };
+                using var message = TicketEmailMessageBuilder.Create(settings, tickets);
                 await client.SendAsync(message);
             }
             catch (Exception ex)
@@ -97,6 +92,12 @@ Click the link to view your tickets: {ticket.QRCodeLink}";
         var failed = failedRecipients.ToList();
         return new EmailDispatchResult { IsSuccessful = failed.Count == 0, FailedRecipients = failed };
     }
+
+    // Callers provide one order's tickets, or settled tickets from one store/event for reminders.
+    // Never combine recipients from unrelated stores or events in the same batch.
+    internal static List<EmailRecipient[]> GroupRecipients(IEnumerable<EmailRecipient> recipients)
+        => recipients.GroupBy(recipient => recipient.Address.Address.Trim(), StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.ToArray()).ToList();
 
 
     private async Task<EmailDispatchResult> SendBulkEmail2(string storeId, IEnumerable<EmailRecipient> recipients)
@@ -160,9 +161,11 @@ Click the link to view your tickets: {ticket.QRCodeLink}";
         {
             new()
             {
-                Address = InternetAddress.Parse(ticket.Email),
+                Address = MailboxAddress.Parse(ticket.Email),
                 Subject = ticketEvent.EmailSubject,
-                MessageText = ApplyTemplate(ticketEvent.EmailBody, ticketEvent, ticket)
+                MessageText = ApplyTemplate(ticketEvent.EmailBody, ticketEvent, ticket),
+                TicketNumber = ticket.TicketNumber,
+                TicketLink = ticket.QRCodeLink
             }
         };
         return await SendBulkEmail(storeId, recipients);
@@ -177,9 +180,11 @@ Click the link to view your tickets: {ticket.QRCodeLink}";
             {
                 recipients.Add(new EmailRecipient
                 {
-                    Address = InternetAddress.Parse(ticket.Email),
+                    Address = MailboxAddress.Parse(ticket.Email),
                     Subject = ticketEvent.EmailSubject,
-                    MessageText = ApplyTemplate(ticketEvent.EmailBody, ticketEvent, ticket)
+                    MessageText = ApplyTemplate(ticketEvent.EmailBody, ticketEvent, ticket),
+                    TicketNumber = ticket.TicketNumber,
+                    TicketLink = ticket.QRCodeLink
                 });
             }
             catch (Exception ex)
@@ -191,20 +196,22 @@ Click the link to view your tickets: {ticket.QRCodeLink}";
         await SendBulkEmail(storeId, recipients);
     }
 
-    public async Task<bool> SendReminderEmail(string storeId, IEnumerable<Ticket> uniqueTickets, Event ticketEvent, string reminderSubject, string reminderBody)
+    public async Task<bool> SendReminderEmail(string storeId, IEnumerable<Ticket> tickets, Event ticketEvent, string reminderSubject, string reminderBody)
     {
         var recipients = new List<EmailRecipient>();
         var subject = !string.IsNullOrWhiteSpace(reminderSubject) ? reminderSubject : ticketEvent.EmailSubject;
         var bodyTemplate = !string.IsNullOrWhiteSpace(reminderBody) ? reminderBody : ticketEvent.EmailBody;
-        foreach (var ticket in uniqueTickets)
+        foreach (var ticket in tickets)
         {
             try
             {
                 recipients.Add(new EmailRecipient
                 {
-                    Address = InternetAddress.Parse(ticket.Email),
+                    Address = MailboxAddress.Parse(ticket.Email),
                     Subject = subject,
-                    MessageText = ApplyTemplate(bodyTemplate, ticketEvent, ticket)
+                    MessageText = ApplyTemplate(bodyTemplate, ticketEvent, ticket),
+                    TicketNumber = ticket.TicketNumber,
+                    TicketLink = ticket.QRCodeLink
                 });
             }
             catch (Exception ex)
@@ -240,9 +247,11 @@ Click the link to view your tickets: {ticket.QRCodeLink}";
 
     public class EmailRecipient
     {
-        public InternetAddress Address { get; set; }
+        public MailboxAddress Address { get; set; }
         public string Subject { get; set; }
         public string MessageText { get; set; }
+        public string TicketNumber { get; set; } = string.Empty;
+        public string TicketLink { get; set; } = string.Empty;
     }
 
     public class EmailDispatchResult

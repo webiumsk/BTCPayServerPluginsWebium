@@ -7,6 +7,7 @@ public class TicketType
 {
     [DatabaseGenerated(DatabaseGeneratedOption.Identity)]
     public string Id { get; set; }
+    public int DisplayOrder { get; set; }
     public bool IsDefault { get; set; }
     public string Name { get; set; }
     public decimal Price { get; set; }

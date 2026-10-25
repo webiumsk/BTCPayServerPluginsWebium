@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -12,6 +12,7 @@ using BTCPayServer.Plugins.SatfluxTickets.Data;
 using BTCPayServer.Services;
 using BTCPayServer.Services.Invoices;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Logging;
 using Npgsql;
 
@@ -73,8 +74,33 @@ public class SimpleTicketSalesHostedService : EventHostedServiceBase, IPeriodicT
         }
     }
 
+    private sealed record PublicInvoiceReconciliation(string InvoiceId);
+
+    /// <summary>Queue only an identity. The worker reloads the invoice and uses the normal fulfillment path.</summary>
+    public void QueuePublicInvoiceReconciliation(string invoiceId)
+    {
+        if (!string.IsNullOrEmpty(invoiceId)) PushEvent(new PublicInvoiceReconciliation(invoiceId));
+    }
+
     protected override async Task ProcessEvent(object evt, CancellationToken cancellationToken)
     {
+        if (evt is PublicInvoiceReconciliation recovery)
+        {
+            var persisted = await _invoiceRepository.GetInvoice(recovery.InvoiceId);
+            if (persisted != null)
+            {
+                bool? success = persisted.Status switch
+                {
+                    InvoiceStatus.Settled => true,
+                    InvoiceStatus.Invalid or InvoiceStatus.Expired => false,
+                    _ => null
+                };
+                if (success.HasValue)
+                    await RegisterTicketTransaction(persisted,
+                        persisted.GetInternalTags(TICKET_SALES_PREFIX).FirstOrDefault(), success.Value, true);
+            }
+            return;
+        }
         if (evt is PeriodProcessEvent sequentialExecute)
         {
             await using var ctx = _dbContextFactory.CreateContext();
@@ -99,7 +125,7 @@ public class SimpleTicketSalesHostedService : EventHostedServiceBase, IPeriodicT
 
                 var settledTickets = ctx.Orders.Include(o => o.Tickets).Where(o => o.EventId == ticketEvent.Id
                              && o.StoreId == ticketEvent.StoreId && o.PaymentStatus == Data.TransactionStatus.Settled.ToString())
-                    .SelectMany(o => o.Tickets).ToList().DistinctBy(t => t.Email).ToList();
+                    .SelectMany(o => o.Tickets).ToList();
 
                 if (!settledTickets.Any()) continue;
 
@@ -152,11 +178,42 @@ public class SimpleTicketSalesHostedService : EventHostedServiceBase, IPeriodicT
         await base.ProcessEvent(evt, cancellationToken);
     }
 
-    private async Task RegisterTicketTransaction(InvoiceEntity invoice, string orderId, bool success)
+    private async Task RegisterTicketTransaction(InvoiceEntity invoice, string orderId, bool success, bool strictIdentity = false)
     {
-        await using var ctx = _dbContextFactory.CreateContext();
-        var order = ctx.Orders.Include(c => c.Tickets).FirstOrDefault(c => c.StoreId == invoice.StoreId && c.InvoiceId == invoice.Id);
-        if (order == null) return;
+        await using var ctx = _dbContextFactory.CreateContext(options =>
+            options.ExecutionStrategy(dependencies => new NonRetryingExecutionStrategy(dependencies)));
+        // Resolve a locally stored scope before deriving a lock. Never trust metadata alone as an order.
+        var candidate = await ctx.Orders.AsNoTracking().FirstOrDefaultAsync(c => c.StoreId == invoice.StoreId && c.InvoiceId == invoice.Id);
+        if (candidate == null && !string.IsNullOrEmpty(orderId) && !string.IsNullOrEmpty(invoice.Metadata?.OrderId))
+            candidate = await ctx.Orders.AsNoTracking().FirstOrDefaultAsync(c => c.StoreId == invoice.StoreId
+                && c.Id == invoice.Metadata.OrderId && c.TxnId == orderId);
+        if (candidate == null) return;
+        await using var checkoutLock = await TicketSalesCheckoutLock.AcquireAsync(ctx,
+            candidate.StoreId, candidate.EventId, candidate.TxnId, System.Threading.CancellationToken.None);
+        var order = await ctx.Orders.Include(c => c.Tickets).FirstOrDefaultAsync(c => c.Id == candidate.Id && c.StoreId == invoice.StoreId);
+        if (order == null || (!string.IsNullOrEmpty(order.InvoiceId) && order.InvoiceId != invoice.Id)) return;
+        if (strictIdentity || string.IsNullOrEmpty(order.InvoiceId))
+        {
+            // A callback snapshot is not proof of the current state when recovering an unbound intent.
+            var persisted = await _invoiceRepository.GetInvoice(invoice.Id);
+            if (persisted == null || !TicketSalesInvoiceRecovery.Matches(persisted, order)) return;
+            bool? currentSuccess = persisted.Status switch
+            {
+                InvoiceStatus.Settled => true,
+                InvoiceStatus.Invalid or InvoiceStatus.Expired => false,
+                _ => null
+            };
+            if (!currentSuccess.HasValue) return;
+            invoice = persisted;
+            success = currentSuccess.Value;
+        }
+        if (string.IsNullOrEmpty(order.InvoiceId))
+        {
+            order.InvoiceId = invoice.Id;
+            order.InvoiceStatus = invoice.Status.ToString();
+            // Bind durably before any email, counter or raffle effect. Retries find the same invoice.
+            await ctx.SaveChangesAsync();
+        }
 
         var ticketEvent = ctx.Events.FirstOrDefault(c => c.Id == order.EventId && c.StoreId == order.StoreId);
         var result = new InvoiceLogs();

@@ -1,3 +1,64 @@
+# 2.2.1 (event share previews)
+
+- Add server-rendered Open Graph title, website type, canonical event URL and the public event image with alt text. Use the public store logo only when there is no event image.
+- Resolve absolute HTTP(S) image URLs with PathBase support, reject unsafe schemes/credentials/control characters and keep recipient, session, checkout and virtual-location data out of metadata.
+- Keep existing CSP, robots, payment, timezone and fulfillment behavior. No core, API or schema change; prepare a separately tested local installer.
+
+# 2.2.0 (physical event venue time zones)
+
+- Persist an explicit IANA venue timezone while preserving UTC event instants. The metadata-only migration assigns Europe/Bratislava to existing physical events, as confirmed by the Product Owner; virtual events remain unset.
+- Render physical event schedules in the venue zone for every visitor, including server-rendered/no-JavaScript output. Virtual event schedules continue to use the visitor's zone.
+- Extend existing native and Satflux authoring with venue civil times and provider-authoritative validation; preserve exact instants and reminders on zone-only edits. Reject nonexistent and ambiguous civil times rather than silently choose an offset.
+- Keep older UTC API clients compatible, validate capability before new consumer writes and preserve payment/fulfillment policies. Local tests and independent review are recorded before delivery; no production deployment is implied.
+
+- Reject stale native schedule forms before conversion or save; preserve the draft and require reload when original UTC start/end baselines no longer match.
+
+# 2.1.2 (header language selection and reliable sales assets)
+
+- Move language selection into the public header and update the existing page immediately, preserving quantities, recipient drafts and checkout intent.
+- Give embedded sales assets content-versioned URLs and explicit cache behaviour so upgrades do not reuse older presentation scripts.
+- Preserve UTC event instants, browser-zone/DST formatting, labelled UTC fallback, CSP, backend authorization and payment/fulfillment handling.
+- Exact-host build, 115 non-database .NET cases, 10 JS cases, independent security review, 26 actual shared-layout/CSP/resource browser cases and installer integrity pass. This is a local candidate; production cache provenance remains unverified. No core or third-party plugin change.
+
+# 2.1.1 (public sales language and local event times)
+
+- Resolve public sales language independently of the host's invariant UI culture, using supported explicit choice and browser language preferences (EN/SK/ES/DE/CS).
+- Present UTC event instants in the visitor's browser time zone with an explicit zone label and daylight-saving conversion; retain labelled UTC when local formatting is unavailable.
+- Preserve stored event dates, Greenfield payloads, checkout intent, payment handling and fulfillment. No database migration, BTCPay core or third-party plugin change.
+- Exact-host build, 108 non-database .NET tests (23 new presentation cases), 7 JS tests, independent security review, 39 focused/32 existing browser checks and final six-scenario embedded contrast/smoke validation pass. The previous 15 PostgreSQL cases remain earlier milestone evidence, not a new run.
+- Correct the language action's focused text contrast with plugin-scoped colors while retaining keyboard focus and 44px targets. This is a local candidate, not a published release.
+
+# 2.1.0 (unified public sales and persistent ticket-type ordering)
+
+- Persist event ticket-type display order with an additive migration and deterministic name/ID backfill. New types append; disabled types retain positions.
+- Add scoped ordering snapshot and compare-and-swap APIs with legacy route aliases, atomic full-permutation validation and shared membership locks.
+- Extend the existing native ticket-type list with inline drag and keyboard ordering, Save/Cancel and revision-conflict handling.
+- Combine public event overview, quantities and attendee contacts at existing URLs. Render configured physical/virtual event data, full rich description, optional image, UTC times and effective currency.
+- Preserve hosted BTCPay checkout, canonical server price/quantity validation, recipient grouping, email QR delivery, raffle fulfillment and issued ticket links.
+- Provide EN/SK/ES/DE/CS sales copy, accessible controls and responsive merchant-themed layout. No BTCPay core or third-party plugin source changes.
+- Recover invoices with exact immutable-intent checks and a durable pre-creation attempt marker. Uncertain outcomes are lookup-only; a plugin-private reconciliation queue uses the existing fulfillment handler under a shared checkout lock.
+- Keep virtual joining locations out of anonymous HTML/data; preserve them for the existing confirmation/ticket flow. Fully sold-out active events remain viewable with new purchases disabled.
+- Frozen build and 100 tests pass, including 15 disposable PostgreSQL cases. Independent QA passes 32 compiled-Razor/embedded-asset checks and 9 visual/contrast scenarios; independent security accepts the bounded source.
+- Do not mix older/newer plugin workers or reset uncertain attempt markers. Plugin rollback needs pending-intent reconciliation and compatibility review, even though the schema change is additive.
+- This is a local feature candidate, not a published release. Final test and independent review evidence is recorded in the Satflux implementation handoff.
+
+# 2.0.4 (event image API contract)
+
+- Return the persisted event logo file ID and resolved storage URL in every Greenfield event response, including upload and deletion. Never infer a public URL from an opaque file ID.
+- Keep image operations scoped to the authorized store and event, with JPEG/PNG/GIF/WebP validation and an explicit 2 MiB upload limit.
+- Preserve the 2.0.3 grouped ticket email and inline QR behavior. No database migration or BTCPay core change is required.
+
+# 2.0.3 (short ticket numbers in email)
+
+- Display only the final ticket-number segment in HTML and plain-text emails; keep the complete identifier in the QR code for check-in.
+- Send one email per recipient with all of their ticket numbers, inline QR codes and ticket links from the order; keep different recipients separate.
+- Include all settled tickets in grouped event reminders instead of dropping additional tickets for the same email address.
+
+# 2.0.2 (ticket email improvements)
+
+- Show each ticket number centered and bold in ticket emails, with an inline QR code and a plain-text ticket link fallback.
+- Reuse the same ticket-number QR payload in the public ticket page and email.
+
 # 2.0.1 (BTCPay 2.4.5)
 
 - Align Npgsql, QRCoder, Identity/EF, and conditional Roslyn dependencies to the exact 2.4.5 host; require host 2.4.5.

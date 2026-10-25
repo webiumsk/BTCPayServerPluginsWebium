@@ -6,7 +6,7 @@
     ViewData["StoreBranding"] = Model.StoreBranding;
 }
 <!DOCTYPE html>
-<html lang="en" @(Env.IsDeveloping ? " data-devenv" : "")>
+<html lang="@(ViewData["TicketSalesLanguage"] ?? (string.IsNullOrEmpty(System.Globalization.CultureInfo.CurrentUICulture.Name) ? "en" : System.Globalization.CultureInfo.CurrentUICulture.Name))" @(Env.IsDeveloping ? " data-devenv" : "")>
 <head>
     <title>@ViewData["Title"]</title>
     <partial name="LayoutHead" />

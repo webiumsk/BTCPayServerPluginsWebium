@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -18,15 +18,18 @@ using BTCPayServer.Plugins.SatfluxTickets.ViewModels;
 using BTCPayServer.Services;
 using BTCPayServer.Services.Invoices;
 using BTCPayServer.Services.Stores;
+using BTCPayServer.Services.Rates;
+using BTCPayServer.Rating;
+using Microsoft.Extensions.Logging;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using NBitcoin;
 using NBitcoin.DataEncoders;
 using Newtonsoft.Json.Linq;
-using QRCoder;
 using TransactionStatus = BTCPayServer.Plugins.SatfluxTickets.Data.TransactionStatus;
 
 namespace BTCPayServer.Plugins.SatfluxTickets;
@@ -42,253 +45,315 @@ public class UITicketSalesPublicController(UriResolver uriResolver,
         TicketService ticketService,
         InvoiceRepository invoiceRepository,
         UIInvoiceController invoiceController,
-        SimpleTicketSalesDbContextFactory dbContextFactory) : Controller
+        SimpleTicketSalesDbContextFactory dbContextFactory,
+        CurrencyNameTable currencyTable,
+        ILogger<UITicketSalesPublicController> logger,
+        SimpleTicketSalesHostedService salesHostedService) : Controller
 {
     private const string SessionKeyOrder = "Ticket_Order_";
 
+    // Existing public and emailed URLs remain valid. Quantities and recipients now share one page.
     [HttpGet("event/{eventId}/summary")]
-    public async Task<IActionResult> EventSummary(string storeId, string eventId)
-    {
-        var storeData = await storeRepo.FindStore(storeId);
-        if (storeData == null) return NotFound();
-
-        await using var ctx = dbContextFactory.CreateContext();
-        var ticketEvent = ctx.Events.FirstOrDefault(c => c.StoreId == storeId && c.Id == eventId);
-        if (!ValidateEvent(ctx, storeId, eventId))
-            return NotFound();
-
-        var getFile = ticketEvent.EventLogo == null ? null : await fileService.GetFileUrl(Request.GetAbsoluteRootUri(), ticketEvent.EventLogo);
-        var imageUrl = getFile == null ? null : await uriResolver.Resolve(Request.GetAbsoluteRootUri(), new UnresolvedUri.Raw(getFile));
-        return View(new EventSummaryViewModel
-        {
-            StoreId = storeId,
-            StoreName = storeData.StoreName,
-            StoreBranding = await StoreBrandingViewModel.CreateAsync(Request, uriResolver, storeData.GetStoreBlob()),
-            EventTitle = ticketEvent.Title,
-            EventDate = ticketEvent.StartDate,
-            EndDate = ticketEvent.EndDate,
-            EventId = ticketEvent.Id,
-            EventImageUrl = imageUrl,
-            Description = ticketEvent.Description,
-            EventType = ticketEvent.EventType,
-        });
-    }
-
+    public Task<IActionResult> EventSummary(string storeId, string eventId, string txnId = null) => SalesPage(storeId, eventId, txnId);
 
     [HttpGet("event/{eventId}/summary/tickets")]
-    public async Task<IActionResult> EventTicket(string storeId, string eventId)
+    public Task<IActionResult> EventTicket(string storeId, string eventId, string txnId = null) => SalesPage(storeId, eventId, txnId);
+
+    [HttpGet("event/{eventId}/summary/contact")]
+    public Task<IActionResult> EventContactDetails(string storeId, string eventId, string txnId) => SalesPage(storeId, eventId, txnId, true);
+
+    // Keep older URLs compatible, but make every page reference content-addressed asset paths.
+    [HttpGet("sales-assets/ticket-sales.js")]
+    public IActionResult SalesScript() => SalesAsset(false, null);
+
+    [HttpGet("sales-assets/ticket-sales.css")]
+    public IActionResult SalesStyle() => SalesAsset(true, null);
+
+    [HttpGet("sales-assets/{version}/ticket-sales.js")]
+    public IActionResult SalesScriptVersioned(string version) => SalesAsset(false, version, true);
+
+    [HttpGet("sales-assets/{version}/ticket-sales.css")]
+    public IActionResult SalesStyleVersioned(string version) => SalesAsset(true, version, true);
+
+    private IActionResult SalesAsset(bool style, string version, bool versioned = false)
     {
-        var storeData = await storeRepo.FindStore(storeId);
-        if (storeData == null) return NotFound();
-
-        await using var ctx = dbContextFactory.CreateContext();
-        var ticketEvent = ctx.Events.FirstOrDefault(c => c.StoreId == storeId && c.Id == eventId);
-        if (!ValidateEvent(ctx, storeId, eventId))
-            return NotFound();
-
-        var ticketTypes = ctx.TicketTypes.Where(t => t.EventId == eventId && t.TicketTypeState == Data.EntityState.Active)
-                              .Select(t => new TicketTypeViewModel
-                              {
-                                  StoreId = storeId,
-                                  Name = t.Name,
-                                  Price = t.Price,
-                                  Description = t.Description,
-                                  QuantityAvailable = t.Quantity - t.QuantitySold,
-                                  TicketTypeId = t.Id,
-                                  EventId = t.EventId
-                              }).ToList();
-
-        return View(new EventTicketPageViewModel
-        {
-            StoreId = storeId,
-            StoreName = storeData.StoreName,
-            StoreBranding = await StoreBrandingViewModel.CreateAsync(Request, uriResolver, storeData.GetStoreBlob()),
-            EventTitle = ticketEvent.Title,
-            Currency = ticketEvent.Currency,
-            EventDate = ticketEvent.StartDate,
-            EventId = ticketEvent.Id,
-            Description = ticketEvent.Description,
-            Location = ticketEvent.Location,
-            EventType = ticketEvent.EventType,
-            TicketTypes = ticketTypes
-        });
+        var expected = style ? TicketSalesText.StyleVersion : TicketSalesText.ScriptVersion;
+        Response.Headers.CacheControl = "no-store";
+        if (versioned && !string.Equals(version, expected, StringComparison.Ordinal)) return NotFound();
+        // Revalidate even a versioned path: a mismatched worker must never serve another asset's bytes.
+        Response.Headers.CacheControl = versioned ? "no-cache, max-age=0, must-revalidate" : "no-store";
+        Response.Headers.ETag = "\"" + expected + "\"";
+        return Content(emailService.GetEmbeddedResourceContent(style ? "Resources.css.ticket-sales.css" : "Resources.js.ticket-sales.js"),
+            style ? "text/css; charset=utf-8" : "text/javascript; charset=utf-8");
     }
 
+    private static string OrderSessionKey(string eventId, string txnId) => $"{SessionKeyOrder}{eventId}_{txnId}";
 
+    private TicketOrderViewModel SessionOrder(string storeId, string eventId, string txnId)
+    {
+        if (string.IsNullOrEmpty(txnId) || txnId.Length > 32) return null;
+        var order = HttpContext.Session.GetObject<TicketOrderViewModel>(OrderSessionKey(eventId, txnId));
+        return order?.StoreId == storeId && order.EventId == eventId && order.TxnId == txnId ? order : null;
+    }
+
+    private async Task<IActionResult> SalesPage(string storeId, string eventId, string txnId, bool contactsOpen = false,
+        TicketSalesSubmission draft = null, string errorKey = null, bool allowNewSession = true)
+    {
+        // This shared public URL can contain a session-specific recipient draft after correction/recovery.
+        Response.Headers.CacheControl = "no-store, private";
+        Response.Headers.Pragma = "no-cache";
+        var store = await storeRepo.FindStore(storeId);
+        if (store == null) return NotFound();
+        await using var ctx = dbContextFactory.CreateContext();
+        var ev = await ctx.Events.AsNoTracking().FirstOrDefaultAsync(e => e.Id == eventId && e.StoreId == storeId);
+        if (ev == null) return NotFound();
+        var activeKey = $"{SessionKeyOrder}{storeId}_{eventId}_Active";
+        if (string.IsNullOrEmpty(txnId)) txnId = HttpContext.Session.GetString(activeKey);
+        var sessionOrder = SessionOrder(storeId, eventId, txnId);
+        if (sessionOrder == null)
+        {
+            if (!allowNewSession) return BadRequest();
+            if (!string.IsNullOrEmpty(txnId)) errorKey = "SessionExpired";
+            txnId = Encoders.Base58.EncodeData(RandomUtils.GetBytes(10));
+            sessionOrder = new TicketOrderViewModel { TxnId = txnId, StoreId = storeId, EventId = eventId };
+            HttpContext.Session.SetObject(OrderSessionKey(eventId, txnId), sessionOrder);
+            HttpContext.Session.SetString(activeKey, txnId);
+            if (draft != null) draft.TxnId = txnId;
+        }
+        var sessionKey = OrderSessionKey(eventId, txnId);
+        draft ??= HttpContext.Session.GetObject<TicketSalesSubmission>(sessionKey + "_SalesDraft");
+        draft ??= new TicketSalesSubmission
+        {
+            TxnId = txnId, Tickets = sessionOrder.Tickets,
+            ContactInfo = TicketSalesValidation.MapLegacyContacts(sessionOrder),
+            SharedEmail = sessionOrder.ContactInfo?.FirstOrDefault()?.Email
+        };
+        var existing = await ctx.Orders.AsNoTracking().Include(o => o.Tickets)
+            .FirstOrDefaultAsync(o => o.TxnId == txnId && o.EventId == eventId && o.StoreId == storeId);
+        if (existing == null && !ValidateEvent(ctx, storeId, eventId, checkCapacity: false)) return NotFound();
+        if (existing != null)
+        {
+            // Once an external invoice may exist, its original intent and recipients stay immutable.
+            draft.Tickets = existing.Tickets.GroupBy(t => t.TicketTypeId).Select(g => new TicketSelectionViewModel
+            {
+                TicketTypeId = g.Key, TicketTypeName = g.First().TicketTypeName, Price = g.First().Amount, Quantity = g.Count()
+            }).ToList();
+            var groupedTickets = existing.Tickets.GroupBy(ticket => ticket.TicketTypeId).ToList();
+            draft.ContactInfo = groupedTickets.SelectMany(group => group.OrderBy(ticket => ticket.Id).Select((ticket, index) => new TicketSalesContactViewModel
+            {
+                TicketTypeId = group.Key, AdmissionIndex = index,
+                FirstName = ticket.FirstName, LastName = ticket.LastName, Email = ticket.Email
+            })).ToList();
+            draft.SharedEmail = draft.ContactInfo.FirstOrDefault()?.Email;
+            draft.DeliveryOption = draft.ContactInfo.Select(c => c.Email).Distinct(StringComparer.OrdinalIgnoreCase).Count() == 1 ? "together" : "individual";
+        }
+        var text = new TicketSalesText(TicketSalesText.ResolveLanguage(Request.Query.ContainsKey("lang") ? Request.Query["lang"].ToString() : draft.Language,
+            Request.Headers.AcceptLanguage.ToString()));
+        var image = ev.EventLogo == null ? null : await fileService.GetFileUrl(Request.GetAbsoluteRootUri(), ev.EventLogo);
+        var settledCount = await SettledCount(ctx, storeId, eventId);
+        var eventRemaining = ev.HasMaximumCapacity
+            ? Math.Max(0, (ev.MaximumEventCapacity ?? 0) - settledCount) : TicketSalesValidation.MaximumAdmissions;
+        var types = await ctx.TicketTypes.AsNoTracking().Where(t => t.EventId == eventId && t.TicketTypeState == Data.EntityState.Active)
+            .OrderBy(t => t.DisplayOrder).ThenBy(t => t.Id).ToListAsync();
+        var vm = new TicketSalesPageViewModel
+        {
+            StoreId = storeId, StoreName = store.StoreName,
+            StoreBranding = await StoreBrandingViewModel.CreateAsync(Request, uriResolver, store.GetStoreBlob()),
+            EventId = ev.Id, EventTitle = ev.Title, Description = ev.Description,
+            EventImageUrl = image == null ? null : await uriResolver.Resolve(Request.GetAbsoluteRootUri(), new UnresolvedUri.Raw(image)),
+            EventType = ev.EventType, Location = ev.EventType == Data.EventType.Physical ? ev.Location : null, StartDate = ev.StartDate, EndDate = ev.EndDate,
+            Currency = ev.Currency, CurrencyDecimals = currencyTable.GetNumberFormatInfo(ev.Currency, false)?.CurrencyDecimalDigits
+                ?? currencyTable.GetCurrencyData(ev.Currency, true)?.Divisibility ?? 2,
+            TxnId = txnId, ContactInfo = draft.ContactInfo ?? new(), DeliveryOption = draft.DeliveryOption,
+            SharedEmail = draft.SharedEmail, ErrorKey = errorKey, ContactsOpen = contactsOpen,
+            CheckoutStarted = existing != null,
+            CheckoutUrl = existing?.InvoiceId == null ? null : Url.Action(nameof(UIInvoiceController.Checkout), "UIInvoice", new { invoiceId = existing.InvoiceId }),
+            Text = text,
+            IsPhysical = ev.EventType == EventType.Physical,
+            MissingVenueTimeZone = ev.EventType == EventType.Physical && !EventTimeZoneService.TryGet(ev.TimeZone, out _),
+            VenueDates = ev.EventType == EventType.Physical && EventTimeZoneService.TryGet(ev.TimeZone, out _)
+                ? TicketSalesText.Translations().Keys.ToDictionary(language => language, language => new TicketSalesVenueDates
+                {
+                    Start = EventTimeZoneService.VenueDate(ev.StartDate, ev.TimeZone, new TicketSalesText(language).Culture),
+                    End = ev.EndDate.HasValue ? EventTimeZoneService.VenueDate(ev.EndDate.Value, ev.TimeZone, new TicketSalesText(language).Culture) : null,
+                    Label = new TicketSalesText(language)["VenueTimezone"] + ": " + ev.TimeZone
+                }) : new(),
+            TicketTypes = types.Select(t => new TicketSalesTypeViewModel
+            {
+                Id = t.Id, Name = t.Name, Description = t.Description, Price = t.Price,
+                Maximum = Math.Min(eventRemaining, Math.Min(TicketSalesValidation.MaximumPerType,
+                    (ev.HasMaximumCapacity || t.Quantity > 0) ? Math.Max(0, t.Quantity - t.QuantitySold) : TicketSalesValidation.MaximumPerType)),
+                // Do not silently clamp a failed selection; the user needs to see and correct it.
+                Selected = draft.Tickets?.FirstOrDefault(r => r.TicketTypeId == t.Id)?.Quantity ?? 0
+            }).ToList()
+        };
+        if (existing != null)
+        {
+            // Keep an invoice-in-progress visible even when a type has since been disabled or reordered.
+            vm.TicketTypes = draft.Tickets.Select(t => new TicketSalesTypeViewModel
+            {
+                Id = t.TicketTypeId, Name = t.TicketTypeName, Price = t.Price, Selected = t.Quantity, Maximum = t.Quantity
+            }).ToList();
+        }
+        ViewData["TicketSalesLanguage"] = text.Language;
+        ViewData["Title"] = ev.Title;
+        return View("EventSummary", vm);
+    }
+
+    private static Task<int> SettledCount(SimpleTicketSalesDbContext ctx, string storeId, string eventId) =>
+        ctx.Orders.AsNoTracking().Where(o => o.StoreId == storeId && o.EventId == eventId
+                && o.PaymentStatus == TransactionStatus.Settled.ToString()).SelectMany(o => o.Tickets).CountAsync();
+
+    // Presentation only: preserve incomplete quantities/contacts without creating an order or invoice.
+    [HttpPost("event/{eventId}/summary/language")]
+    [ValidateAntiForgeryToken]
+    [RequestFormLimits(ValueCountLimit = 4096)]
+    [RequestSizeLimit(131072)]
+    public Task<IActionResult> ChangeLanguage(string storeId, string eventId, TicketSalesSubmission model)
+    {
+        if (!TicketSalesValidation.HasBoundedShape(model) || (model.Language?.Length ?? 0) > 35
+            || SessionOrder(storeId, eventId, model.TxnId) == null)
+            return Task.FromResult<IActionResult>(BadRequest());
+        return SalesPage(storeId, eventId, model.TxnId, model.ContactsOpen, model, allowNewSession: false);
+    }
+
+    [HttpPost("event/{eventId}/summary")]
+    [RequestFormLimits(ValueCountLimit = 4096)]
+    [RequestSizeLimit(131072)]
+    public async Task<IActionResult> SubmitSale(string storeId, string eventId, TicketSalesSubmission model)
+    {
+        if (!TicketSalesValidation.HasBoundedShape(model) || (model.Language?.Length ?? 0) > 35) return BadRequest();
+        var sessionOrder = SessionOrder(storeId, eventId, model.TxnId);
+        if (sessionOrder == null)
+            return await SalesPage(storeId, eventId, null, true, model, "SessionExpired");
+        var store = await storeRepo.FindStore(storeId);
+        if (store == null) return NotFound();
+        await using var ctx = dbContextFactory.CreateContext(options =>
+            options.ExecutionStrategy(dependencies => new NonRetryingExecutionStrategy(dependencies)));
+        await using var checkoutLock = await TicketSalesCheckoutLock.AcquireAsync(ctx, storeId, eventId, model.TxnId, HttpContext.RequestAborted);
+        var existing = await ctx.Orders.Include(o => o.Tickets).FirstOrDefaultAsync(o => o.StoreId == storeId && o.EventId == eventId && o.TxnId == model.TxnId);
+        if (!string.IsNullOrEmpty(existing?.InvoiceId))
+        {
+            salesHostedService.QueuePublicInvoiceReconciliation(existing.InvoiceId);
+            return RedirectToAction(nameof(UIInvoiceController.Checkout), "UIInvoice", new { invoiceId = existing.InvoiceId });
+        }
+        var ev = await ctx.Events.AsNoTracking().FirstOrDefaultAsync(e => e.Id == eventId && e.StoreId == storeId);
+        // An immutable attempted intent is lookup-only and remains recoverable if the event later closes.
+        if ((existing == null || existing.InvoiceStatus != TicketSalesInvoiceRecovery.CreationAttempted)
+            && (ev == null || !ValidateEvent(ctx, storeId, eventId))) return NotFound();
+        var sessionKey = OrderSessionKey(eventId, model.TxnId);
+        if (existing == null)
+        {
+            // Bind errors and malformed indices are never accepted, even when the visible portion looks valid.
+            var types = await ctx.TicketTypes.AsNoTracking().Where(t => t.EventId == eventId).ToListAsync();
+            var error = TicketSalesValidation.ValidateSelection(ev, types, model.Tickets, await SettledCount(ctx, storeId, eventId), out var selected);
+            List<TicketContactInfoViewModel> contacts = null;
+            error ??= TicketSalesValidation.ValidateRecipients(selected, model.ContactInfo, model.DeliveryOption, model.SharedEmail, out contacts);
+            if (!ModelState.IsValid) error = "ContactsInvalid";
+            HttpContext.Session.SetObject(sessionKey + "_SalesDraft", model);
+            if (error != null)
+            {
+                Response.StatusCode = StatusCodes.Status422UnprocessableEntity;
+                return await SalesPage(storeId, eventId, model.TxnId, true, model, error, false);
+            }
+            sessionOrder.Tickets = selected;
+            sessionOrder.ContactInfo = contacts;
+            sessionOrder.IsStepOneComplete = sessionOrder.IsStepTwoComplete = true;
+            HttpContext.Session.SetObject(sessionKey, sessionOrder);
+            var now = DateTimeOffset.UtcNow;
+            existing = new Order
+            {
+                Id = Guid.NewGuid().ToString(), TxnId = model.TxnId, StoreId = storeId, EventId = eventId, Currency = ev.Currency.Trim().ToUpperInvariant(),
+                PaymentStatus = TransactionStatus.New.ToString(), CreatedAt = now
+            };
+            foreach (var contact in contacts)
+            {
+                var type = selected.Single(t => t.TicketTypeId == contact.TicketTypeId);
+                var ticketTxn = Encoders.Base58.EncodeData(RandomUtils.GetBytes(10));
+                existing.Tickets.Add(new Ticket
+                {
+                    StoreId = storeId, EventId = eventId, TicketTypeId = type.TicketTypeId, TicketTypeName = type.TicketTypeName,
+                    Amount = type.Price, FirstName = contact.FirstName, LastName = contact.LastName, Email = contact.Email,
+                    QRCodeLink = Url.Action(nameof(EventTicketDisplay), "UITicketSalesPublic",
+                        new { storeId, eventId, orderId = existing.Id, txnNumber = ticketTxn }, Request.Scheme),
+                    CreatedAt = now, TxnNumber = ticketTxn, TicketNumber = $"EVT-{eventId}-{now:yyMMdd}-{ticketTxn}",
+                    PaymentStatus = TransactionStatus.New.ToString()
+                });
+            }
+            var rawTotal = existing.Tickets.Sum(t => t.Amount);
+            var currencyFormat = currencyTable.GetNumberFormatInfo(existing.Currency, false);
+            existing.TotalAmount = currencyFormat == null ? rawTotal : rawTotal.RoundToSignificant(currencyFormat.CurrencyDecimalDigits);
+            ctx.Orders.Add(existing);
+            // Persist reconciliation evidence before making an external request that could succeed despite a timeout.
+            await ctx.SaveChangesAsync();
+        }
+        try
+        {
+            var invoice = await CreateInvoice(store, existing, existing.Currency, Request.GetAbsoluteRoot(), ev?.RedirectUrl ?? string.Empty,
+                async () => { await ctx.SaveChangesAsync(); });
+            existing.InvoiceId = invoice.Id;
+            existing.InvoiceStatus = invoice.Status.ToString();
+            await ctx.SaveChangesAsync();
+            salesHostedService.QueuePublicInvoiceReconciliation(invoice.Id);
+            HttpContext.Session.Remove($"{SessionKeyOrder}{storeId}_{eventId}_Active");
+            return RedirectToAction(nameof(UIInvoiceController.Checkout), "UIInvoice", new { invoiceId = invoice.Id });
+        }
+        catch (TicketSalesInvoicePendingException)
+        {
+            Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+            return await SalesPage(storeId, eventId, model.TxnId, true, model, "PendingVerification", false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Do not log recipient details, raw upstream response bodies or credentials.
+            logger.LogWarning("Public ticket invoice opening failed ({ExceptionType}); retained checkout intent for retry", ex.GetType().Name);
+            Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+            return await SalesPage(storeId, eventId, model.TxnId, true, model, "UpstreamError", false);
+        }
+    }
+
+    // Keep submissions from a page opened before the upgrade working, under the same new validation.
     [HttpPost("save-event-tickets")]
     public async Task<IActionResult> SaveEventTickets(string storeId, string eventId, EventTicketPageViewModel model)
     {
-        if (model.Tickets?.Any(t => t.Quantity > 0) != true)
-            return RedirectToAction(nameof(EventTicket), new { storeId, eventId });
-
+        if (model?.Tickets == null || model.Tickets.Count > TicketSalesValidation.MaximumTypes) return BadRequest();
         await using var ctx = dbContextFactory.CreateContext();
-        var ticketEvent = ctx.Events.FirstOrDefault(c => c.StoreId == storeId && c.Id == eventId);
-        if (!ValidateEvent(ctx, storeId, eventId))
-            return NotFound();
-
-        var availableTicketTypes = ctx.TicketTypes
-            .Where(t => t.EventId == eventId && t.TicketTypeState == Data.EntityState.Active)
-            .ToDictionary(t => t.Id, t => t.Quantity - t.QuantitySold);
-        foreach (var ticket in model.Tickets.Where(t => t.Quantity > 0))
+        var ev = await ctx.Events.AsNoTracking().FirstOrDefaultAsync(e => e.Id == eventId && e.StoreId == storeId);
+        if (ev == null || !ValidateEvent(ctx, storeId, eventId)) return NotFound();
+        var types = await ctx.TicketTypes.AsNoTracking().Where(t => t.EventId == eventId).ToListAsync();
+        var error = TicketSalesValidation.ValidateSelection(ev, types, model.Tickets, await SettledCount(ctx, storeId, eventId), out var canonical);
+        var txnId = Encoders.Base58.EncodeData(RandomUtils.GetBytes(10));
+        HttpContext.Session.SetObject(OrderSessionKey(eventId, txnId), new TicketOrderViewModel
         {
-            if (!availableTicketTypes.TryGetValue(ticket.TicketTypeId, out var left) || left < ticket.Quantity)
-                return RedirectToAction(nameof(EventTicket), new { storeId, eventId });
-        }
-        string txnId = Encoders.Base58.EncodeData(RandomUtils.GetBytes(10));
-        var sessionKey = $"{SessionKeyOrder}{eventId}_{txnId}";
-        var newOrder = new TicketOrderViewModel
-        {
-            TxnId = txnId,
-            EventId = eventId,
-            StoreId = storeId,
-            IsStepOneComplete = true, // Move to Contact page
-            Tickets = model.Tickets
-        };
-        HttpContext.Session.SetObject(sessionKey, newOrder);
-        return RedirectToAction(nameof(EventContactDetails), new { storeId, eventId, txnId });
-    }
-
-
-    [HttpGet("event/{eventId}/summary/contact")]
-    public async Task<IActionResult> EventContactDetails(string storeId, string eventId, string txnId)
-    {
-        var sessionKey = $"{SessionKeyOrder}{eventId}_{txnId}";
-        var order = HttpContext.Session.GetObject<TicketOrderViewModel>(sessionKey);
-        if (order?.Tickets?.Any() != true)
-            return RedirectToAction(nameof(EventTicket), new { storeId, eventId });
-
-        var storeData = await storeRepo.FindStore(storeId);
-        if (storeData == null) return NotFound();
-
-        await using var ctx = dbContextFactory.CreateContext();
-        var ticketEvent = ctx.Events.FirstOrDefault(c => c.StoreId == storeId && c.Id == eventId);
-        if (!ValidateEvent(ctx, storeId, eventId))
-            return NotFound();
-
-        var contactInfo = new List<TicketContactInfoViewModel>();
-        foreach (var ticket in order.Tickets)
-        {
-            for (int i = 0; i < ticket.Quantity; i++)
-            {
-                contactInfo.Add(new TicketContactInfoViewModel
-                {
-                    TicketTypeId = ticket.TicketTypeId,
-                    TicketTypeName = ticket.TicketTypeName,
-                    Quantity = 1
-                });
-            }
-        }
-        return View(new ContactInfoPageViewModel
-        {
-            TxnId = txnId,
-            EventId = eventId,
-            StoreId = storeId,
-            StoreName = storeData.StoreName,
-            Currency = ticketEvent.Currency,
-            Tickets = order.Tickets,
-            EventTitle = ticketEvent.Title,
-            StoreBranding = await StoreBrandingViewModel.CreateAsync(Request, uriResolver, storeData.GetStoreBlob()),
-            ContactInfo = contactInfo
+            TxnId = txnId, EventId = eventId, StoreId = storeId, Tickets = error == null ? canonical : new(), IsStepOneComplete = error == null
         });
+        return await SalesPage(storeId, eventId, txnId, error == null, error == null ? null : new TicketSalesSubmission { TxnId = txnId, Tickets = model.Tickets }, error);
     }
 
     [HttpPost("save-contact-details")]
     public async Task<IActionResult> SaveContactDetails(string storeId, string eventId, ContactInfoPageViewModel model)
     {
-        if (model == null)
-            return NotFound();
-
-        if (model?.ContactInfo is null or { Count: 0 })
-            return RedirectToAction(nameof(EventContactDetails), new { storeId, eventId, txnId = model.TxnId });
-
-        var storeData = await storeRepo.FindStore(storeId);
-        if (storeData == null) return NotFound();
-
-        var sessionKey = $"{SessionKeyOrder}{eventId}_{model.TxnId}";
-        var orderViewModel = HttpContext.Session.GetObject<TicketOrderViewModel>(sessionKey);
-        if (orderViewModel?.Tickets is null or { Count: 0 })
-            return RedirectToAction(nameof(EventTicket), new { storeId, eventId });
-
-        await using var ctx = dbContextFactory.CreateContext();
-        var ticketEvent = ctx.Events.FirstOrDefault(c => c.StoreId == storeId && c.Id == eventId);
-        var ticketTypes = ctx.TicketTypes
-            .Where(c => c.EventId == eventId && c.TicketTypeState == Data.EntityState.Active)
-            .ToDictionary(t => t.Id);
-        if (!ValidateEvent(ctx, storeId, eventId))
-            return NotFound();
-
-        foreach (var ticket in orderViewModel.Tickets)
+        var order = SessionOrder(storeId, eventId, model?.TxnId);
+        if (order == null) return await SalesPage(storeId, eventId, null, false, errorKey: "SessionExpired");
+        var individual = Request.Form["ticketDeliveryOption"] == "individual";
+        var contacts = new List<TicketSalesContactViewModel>();
+        var index = 0;
+        foreach (var item in order.Tickets)
+        for (var i = 0; i < item.Quantity; i++)
         {
-            if (!ticketTypes.TryGetValue(ticket.TicketTypeId, out var tt) || tt.Quantity - tt.QuantitySold < ticket.Quantity)
+            var contact = model.ContactInfo?.ElementAtOrDefault(individual ? index : 0);
+            contacts.Add(new TicketSalesContactViewModel
             {
-                TempData[WellKnownTempData.ErrorMessage] = $"Quantity for {ticket.TicketTypeName} is more than number of tickets available";
-                return RedirectToAction(nameof(EventTicket), new { storeId, eventId });
-            }
+                TicketTypeId = item.TicketTypeId, AdmissionIndex = i,
+                FirstName = contact?.FirstName, LastName = contact?.LastName, Email = contact?.Email
+            });
+            index++;
         }
-        var expectedTickets = orderViewModel.Tickets.Sum(t => t.Quantity);
-        if (model.ContactInfo.Count != expectedTickets)
+        return await SubmitSale(storeId, eventId, new TicketSalesSubmission
         {
-            TempData[WellKnownTempData.ErrorMessage] = "Contact information does not match the number of tickets selected";
-            return RedirectToAction(nameof(EventContactDetails), new { storeId, eventId, txnId = model.TxnId });
-        }
-
-        orderViewModel.ContactInfo = model.ContactInfo;
-        orderViewModel.IsStepTwoComplete = true; // Move to Payment step
-        HttpContext.Session.SetObject(sessionKey, orderViewModel);
-
-        var now = DateTimeOffset.UtcNow;
-        var tickets = new List<Ticket>();
-        var order = new Order
-        {
-            TxnId = model.TxnId,
-            EventId = eventId,
-            StoreId = storeId,
-            Currency = ticketEvent.Currency,
-            PaymentStatus = TransactionStatus.New.ToString(),
-            CreatedAt = now,
-            TotalAmount = 0,
-        };
-        ctx.Orders.Add(order);
-        await ctx.SaveChangesAsync();
-
-        var deliveryOption = Request.Form["ticketDeliveryOption"].ToString();
-        var sendIndividually = deliveryOption == "individual";
-        var contactIndex = 0;
-        foreach (var ticketRequest in orderViewModel.Tickets)
-        {
-            var ticketType = ticketTypes[ticketRequest.TicketTypeId];
-            for (int i = 0; i < ticketRequest.Quantity; i++)
-            {
-                var contact = sendIndividually ? model.ContactInfo[contactIndex] : model.ContactInfo[0];
-                string ticketTxn = Encoders.Base58.EncodeData(RandomUtils.GetBytes(10));
-                var ticket = new Ticket
-                {
-                    StoreId = storeId,
-                    EventId = eventId,
-                    TicketTypeId = ticketType.Id,
-                    Amount = ticketType.Price,
-                    QRCodeLink = Url.Action(nameof(EventTicketDisplay), "UITicketSalesPublic", new { storeId, eventId, orderId = order.Id, txnNumber = ticketTxn }, Request.Scheme),
-                    FirstName = contact.FirstName?.Trim() ?? string.Empty,
-                    LastName = contact.LastName?.Trim() ?? string.Empty,
-                    Email = contact.Email?.Trim() ?? string.Empty,
-                    CreatedAt = now,
-                    TxnNumber = ticketTxn,
-                    TicketNumber = $"EVT-{eventId:D4}-{now:yyMMdd}-{ticketTxn}",
-                    TicketTypeName = ticketType.Name,
-                    PaymentStatus = TransactionStatus.New.ToString()
-                };
-                tickets.Add(ticket);
-                contactIndex++;
-            }
-        }
-        order.Tickets = tickets;
-        order.TotalAmount = tickets.Sum(t => t.Amount);
-        var invoice = await CreateInvoice(storeData, order, ticketEvent.Currency, Request.GetAbsoluteRoot(), ticketEvent.RedirectUrl ?? string.Empty);
-        order.InvoiceId = invoice.Id;
-        order.InvoiceStatus = invoice.Status.ToString();
-        ctx.Orders.Update(order);
-        await ctx.SaveChangesAsync();
-        return RedirectToAction(nameof(UIInvoiceController.Checkout), "UIInvoice", new { invoiceId = invoice.Id });
+            TxnId = model.TxnId, Tickets = order.Tickets, ContactInfo = contacts,
+            DeliveryOption = individual ? "individual" : "together", SharedEmail = contacts.FirstOrDefault()?.Email
+        });
     }
 
     [HttpGet("event/{eventId}/ticket/{orderId}/summary")]
@@ -316,6 +381,13 @@ public class UITicketSalesPublicController(UriResolver uriResolver,
             EventName = ticketEvent.Title,
             Location = ticketEvent.Location,
             StartDate = ticketEvent.StartDate,
+            DisplayStart = ticketEvent.EventType == EventType.Physical && EventTimeZoneService.TryGet(ticketEvent.TimeZone, out _)
+                ? EventTimeZoneService.VenueDate(ticketEvent.StartDate, ticketEvent.TimeZone, new TicketSalesText(TicketSalesText.ResolveLanguage(Request.Query["lang"], Request.Headers.AcceptLanguage)).Culture) : null,
+            DisplayEnd = ticketEvent.EventType == EventType.Physical && ticketEvent.EndDate.HasValue && EventTimeZoneService.TryGet(ticketEvent.TimeZone, out _)
+                ? EventTimeZoneService.VenueDate(ticketEvent.EndDate.Value, ticketEvent.TimeZone, new TicketSalesText(TicketSalesText.ResolveLanguage(Request.Query["lang"], Request.Headers.AcceptLanguage)).Culture) : null,
+            TimeZoneLabel = ticketEvent.EventType == EventType.Physical
+                ? new TicketSalesText(TicketSalesText.ResolveLanguage(Request.Query["lang"], Request.Headers.AcceptLanguage))[EventTimeZoneService.TryGet(ticketEvent.TimeZone, out _) ? "VenueTimezone" : "MissingVenueTimezone"]
+                    + (EventTimeZoneService.TryGet(ticketEvent.TimeZone, out _) ? ": " + ticketEvent.TimeZone : "") : null,
             EndDate = ticketEvent.EndDate,
             PurchaseDate = order.PurchaseDate ?? order.CreatedAt,
             Tickets = tickets.Select(t => new TicketListViewModel
@@ -328,7 +400,7 @@ public class UITicketSalesPublicController(UriResolver uriResolver,
                 TicketNumber = t.TicketNumber,
                 TxnNumber = t.TxnNumber,
                 TicketType = t.TicketTypeName,
-                QrCodeUrl = GenerateQrCodeDataUrl(t.TicketNumber),
+                QrCodeUrl = TicketQrCode.CreateDataUrl(t.TicketNumber),
             }).ToList(),
             StoreBranding = await StoreBrandingViewModel.CreateAsync(Request, uriResolver, store.GetStoreBlob()),
         });
@@ -439,19 +511,9 @@ public class UITicketSalesPublicController(UriResolver uriResolver,
         return RedirectToAction(nameof(TicketCheckin), new { storeId, eventId, token });
     }
 
-    private async Task<InvoiceEntity> CreateInvoice(BTCPayServer.Data.StoreData store, Order order, string currency, string url, string redirectUrl)
+    private async Task<InvoiceEntity> CreateInvoice(BTCPayServer.Data.StoreData store, Order order, string currency, string url, string redirectUrl, Func<Task> persistCreationAttempt)
     {
         var ticketSalesSearchTerm = $"{SimpleTicketSalesHostedService.TICKET_SALES_PREFIX}{order.TxnId}";
-        var matchedExistingInvoices = await invoiceRepository.GetInvoices(new InvoiceQuery()
-        {
-            TextSearch = ticketSalesSearchTerm,
-            StoreId = new[] { store.Id }
-        });
-        matchedExistingInvoices = matchedExistingInvoices.Where(entity => entity.GetInternalTags(ticketSalesSearchTerm).Any(s => s == order.TxnId.ToString())).ToArray();
-
-        var settledInvoice = matchedExistingInvoices.LastOrDefault(entity => new[] { "settled", "processing", "confirmed", "paid", "complete" }.Contains(entity.GetInvoiceState().Status.ToString().ToLower()));
-        if (settledInvoice != null) return settledInvoice;
-
         var invoiceRequest = new CreateInvoiceRequest()
         {
             Amount = order.TotalAmount,
@@ -475,17 +537,20 @@ public class UITicketSalesPublicController(UriResolver uriResolver,
                 RedirectURL = redirectUrl
             };
         }
-        return await invoiceController.CreateInvoiceCoreRaw(invoiceRequest, store, url, new List<string>() { ticketSalesSearchTerm });
+        return await TicketSalesInvoiceRecovery.FindOrCreateAsync(order,
+            () => invoiceRepository.GetInvoices(new InvoiceQuery { TextSearch = ticketSalesSearchTerm, StoreId = new[] { store.Id } }),
+            persistCreationAttempt,
+            () => invoiceController.CreateInvoiceCoreRaw(invoiceRequest, store, url, new List<string> { ticketSalesSearchTerm }));
     }
 
-    private bool ValidateEvent(SimpleTicketSalesDbContext ctx, string storeId, string eventId)
+    private bool ValidateEvent(SimpleTicketSalesDbContext ctx, string storeId, string eventId, bool checkCapacity = true)
     {
         var now = DateTime.UtcNow;
         var ticketEvent = ctx.Events.FirstOrDefault(c => c.StoreId == storeId && c.Id == eventId);
         if (ticketEvent == null || ticketEvent.EventState == Data.EntityState.Disabled || ticketEvent.StartDate.Date < now.Date || (ticketEvent.EndDate.HasValue && ticketEvent.EndDate.Value.Date < now.Date))
             return false;
 
-        if (ticketEvent.HasMaximumCapacity)
+        if (checkCapacity && ticketEvent.HasMaximumCapacity)
         {
             var totalTicketsSold = ctx.Orders.AsNoTracking().Where(c => c.StoreId == storeId && c.EventId == eventId && c.PaymentStatus == TransactionStatus.Settled.ToString())
                 .SelectMany(c => c.Tickets).Count();
@@ -496,12 +561,4 @@ public class UITicketSalesPublicController(UriResolver uriResolver,
         return true;
     }
 
-    private string GenerateQrCodeDataUrl(string content)
-    {
-        QRCodeGenerator qrGenerator = new QRCodeGenerator();
-        QRCodeData qrCodeData = qrGenerator.CreateQrCode(content, QRCodeGenerator.ECCLevel.Q);
-        PngByteQRCode qrCode = new PngByteQRCode(qrCodeData);
-        byte[] qrCodeAsPngByteArr = qrCode.GetGraphic(20);
-        return $"data:image/png;base64,{Convert.ToBase64String(qrCodeAsPngByteArr)}";
-    }
 }

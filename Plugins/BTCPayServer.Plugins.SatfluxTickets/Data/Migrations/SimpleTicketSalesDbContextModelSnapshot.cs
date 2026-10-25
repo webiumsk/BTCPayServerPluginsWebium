@@ -18,7 +18,7 @@ namespace BTCPayServer.Plugins.SatfluxTickets.Data.Migrations
 #pragma warning disable 612, 618
             modelBuilder
                 .HasDefaultSchema("BTCPayServer.Plugins.SatfluxTickets")
-                .HasAnnotation("ProductVersion", "8.0.11")
+                .HasAnnotation("ProductVersion", "10.0.12")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -88,6 +88,13 @@ namespace BTCPayServer.Plugins.SatfluxTickets.Data.Migrations
 
                     b.Property<string>("StoreId")
                         .HasColumnType("text");
+
+                    b.Property<string>("TimeZone")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<long>("TicketTypeOrderRevision")
+                        .HasColumnType("bigint");
 
                     b.Property<string>("Title")
                         .HasColumnType("text");
@@ -233,6 +240,9 @@ namespace BTCPayServer.Plugins.SatfluxTickets.Data.Migrations
                     b.Property<string>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("text");
+
+                    b.Property<int>("DisplayOrder")
+                        .HasColumnType("integer");
 
                     b.Property<string>("Description")
                         .HasColumnType("text");

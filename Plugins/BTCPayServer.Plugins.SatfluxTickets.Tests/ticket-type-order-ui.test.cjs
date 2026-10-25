@@ -1,0 +1,43 @@
+const { chromium } = require(process.env.SATFLUX_PLAYWRIGHT_MODULE || '@playwright/test');
+const fs = require('node:fs');
+const path = require('node:path');
+const assert = require('node:assert/strict');
+(async () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'BTCPayServer.Plugins.SatfluxTickets', 'Views', 'UITicketType', 'List.cshtml'), 'utf8');
+  const script = source.split('<script>')[1].split('</script>')[0];
+  const browser = await chromium.launch({ executablePath: process.env.CHROME_BIN, args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-background-networking'] });
+  const page = await browser.newPage();
+  let checks = 0;
+  async function setup(failure = false) {
+    await page.setContent(`<div id="ticket-order-labels" hidden data-published="Published order" data-unsaved="Unsaved order changes." data-edit="Edit order" data-moved="Moved to position {0}" data-saving="Saving..." data-conflict="Changed in another session" data-failed="Save failed" data-uncertain="The save result could not be confirmed."></div><form id="ticket-order-form" action="https://example.test/order"><input name="ExpectedRevision" value="7"><button type="button" id="edit-ticket-order">Edit</button><button type="submit" id="save-ticket-order" hidden disabled>Save</button><button type="button" id="cancel-ticket-order" hidden>Cancel</button><button type="button" id="reload-ticket-order" hidden>Reload</button><span id="ticket-order-status" role="status"></span><table><tbody id="UsersList">${['a','b','c'].map(id => `<tr data-ticket-type-id="${id}"><td><input type="hidden" name="TicketTypeIds" value="${id}"><span class="ticket-order-position"></span><span class="ticket-order-controls" hidden><span class="ticket-drag-handle" draggable="true">Drag</span><button type="button" class="ticket-move-up" aria-label="Move ${id} up">Up</button><button type="button" class="ticket-move-down" aria-label="Move ${id} down">Down</button></span></td><td>Ticket ${id}</td></tr>`).join('')}</tbody></table></form>`);
+    await page.evaluate(failure => { window.fetch = async (url, opts) => { window.saveOptions = { ids: opts.body.getAll('TicketTypeIds'), revision: opts.body.get('ExpectedRevision'), credentials: opts.credentials, redirect: opts.redirect, accept: opts.headers.Accept }; if (failure) throw Error('offline'); return { ok: false, status: 409 }; }; }, failure);
+    await page.addScriptTag({ content: script });
+  }
+  const ids = () => page.locator('#UsersList tr').evaluateAll(rows => rows.map(row => row.dataset.ticketTypeId));
+  await setup();
+  assert.equal(await page.locator('#save-ticket-order').isHidden(), true); checks++;
+  await page.locator('#edit-ticket-order').click();
+  assert.equal(await page.locator('#save-ticket-order').isDisabled(), true); checks++;
+  await page.getByLabel('Move a down').click();
+  assert.deepEqual(await ids(), ['b', 'a', 'c']); checks++;
+  assert.equal(await page.locator('#save-ticket-order').isEnabled(), true); checks++;
+  await page.locator('#cancel-ticket-order').click();
+  assert.deepEqual(await ids(), ['a', 'b', 'c']); checks++;
+  assert.equal(await page.locator('#edit-ticket-order').isVisible(), true); checks++;
+  await page.locator('#edit-ticket-order').click();
+  await page.getByLabel('Move c up').click();
+  await page.locator('#save-ticket-order').click();
+  assert.deepEqual(await page.evaluate(() => window.saveOptions), { ids: ['a','c','b'], revision: '7', credentials: 'same-origin', redirect: 'error', accept: 'application/json' }); checks++;
+  assert.match(await page.locator('#ticket-order-status').innerText(), /another session/); checks++;
+  assert.equal(await page.locator('#reload-ticket-order').isVisible(), true); checks++;
+  assert.equal(await page.locator('#save-ticket-order').isDisabled(), true); checks++;
+  assert.deepEqual(await ids(), ['a','c','b']); checks++;
+  await setup(true);
+  await page.locator('#edit-ticket-order').click();
+  await page.getByLabel('Move b up').click();
+  await page.locator('#save-ticket-order').click();
+  assert.match(await page.locator('#ticket-order-status').innerText(), /could not be confirmed/); checks++;
+  assert.equal(await page.locator('#reload-ticket-order').isVisible(), true); checks++;
+  await browser.close();
+  console.log(`PASS: ${checks} native ordering UI assertions against actual view script`);
+})().catch(error => { console.error(error); process.exitCode = 1; });

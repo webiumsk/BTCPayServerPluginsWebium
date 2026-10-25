@@ -32,6 +32,18 @@ public class UpdateSimpleTicketSalesEventViewModel : IValidatableObject
     [Display(Name = "Event location or URL")]
     public string Location { get; set; }
 
+    public string TimeZone { get; set; }
+    public string EditorTimeZone { get; set; } = "UTC";
+    [Display(Name = "Event Start Date")]
+    public string StartLocal { get; set; } = DateTime.UtcNow.Date.ToString("yyyy-MM-dd'T'HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
+    [Display(Name = "Event End Date")]
+    public string EndLocal { get; set; }
+    public string OriginalTimeZone { get; set; }
+    public EventType? OriginalEventType { get; set; }
+    public string OriginalStartUtc { get; set; }
+    public string OriginalEndUtc { get; set; }
+    public bool StartEdited { get; set; }
+    public bool EndEdited { get; set; }
     [Display(Name = "Event Start Date")]
     public DateTime StartDate { get; set; } = DateTime.UtcNow.Date;
 

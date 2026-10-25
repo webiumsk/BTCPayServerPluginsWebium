@@ -32,6 +32,13 @@ public class GreenfieldSatfluxTicketsEventsController(StoreRepository storeRepo,
 {
     private IRaffleEventBundleClient? RaffleBundle => raffleBundleProvider.Client;
 
+    [HttpGet("time-zones")]
+    public IActionResult GetTimeZones(string storeId)
+    {
+        if (GreenfieldStoreGuard.RequireStore(HttpContext, this, storeId) is { } storeError) return storeError;
+        return Ok(new { timeZones = EventTimeZoneService.TimeZones });
+    }
+
     [HttpGet("events")]
     public async Task<IActionResult> GetEvents(string storeId, [FromQuery] bool expired = false)
     {
@@ -55,8 +62,7 @@ public class GreenfieldSatfluxTicketsEventsController(StoreRepository storeRepo,
             .Select(g => new { EventId = g.Key, Count = g.Count() })
             .ToDictionary(x => x.EventId, x => x.Count);
 
-        /*var result = await Task.WhenAll(events.Select(e => ToEventData(e, ticketSoldByEvent.GetValueOrDefault(e.Id, 0))));*/
-        var result = events.Select(e => ToEventData(e, ticketSoldByEvent.GetValueOrDefault(e.Id, 0))).ToArray();
+        var result = await Task.WhenAll(events.Select(e => ToEventData(e, ticketSoldByEvent.GetValueOrDefault(e.Id, 0))));
         return Ok(result);
     }
 
@@ -76,7 +82,7 @@ public class GreenfieldSatfluxTicketsEventsController(StoreRepository storeRepo,
         var ticketsSold = ctx.Tickets
             .Count(t => t.StoreId == storeId && t.EventId == eventId && t.PaymentStatus == TransactionStatus.Settled.ToString());
 
-        return Ok(ToEventData(entity, ticketsSold));
+        return Ok(await ToEventData(entity, ticketsSold));
     }
 
 
@@ -88,23 +94,20 @@ public class GreenfieldSatfluxTicketsEventsController(StoreRepository storeRepo,
             ModelState.AddModelError(nameof(request), "Request body is required");
             return this.CreateValidationError(ModelState);
         }
+        if (GreenfieldStoreGuard.RequireStore(HttpContext, this, storeId) is { } createStoreError)
+            return createStoreError;
         if (string.IsNullOrWhiteSpace(request.Title))
             ModelState.AddModelError(nameof(request.Title), "Title is required");
-
-        if (!request.StartDate.HasValue)
-            ModelState.AddModelError(nameof(request.StartDate), "Start date is required");
-
-        if (request.StartDate.HasValue && request.StartDate.Value <= DateTime.UtcNow)
+        var time = EventTimeZoneService.Resolve(request);
+        if (time.Errors.Count > 0) return TimeValidationError(time);
+        if (time.StartDate.HasValue && time.StartDate.Value <= DateTime.UtcNow)
             ModelState.AddModelError(nameof(request.StartDate), "Event date cannot be in the past");
-
-        if (request.StartDate.HasValue && request.EndDate.HasValue && request.EndDate.Value < request.StartDate.Value)
-            ModelState.AddModelError(nameof(request.EndDate), "Event end date cannot be before start date");
 
         await EventRaffleBundleRequestValidator.ApplyBundleFieldsAsync(
             ModelState, storeId, request.BundledRaffleTicketsPerAdmission ?? 0, request.BundledRaffleId, RaffleBundle);
 
         EventType parsedEventType = default;
-        if (string.IsNullOrEmpty(request.EventType) || !Enum.TryParse<EventType>(request.EventType, true, out parsedEventType))
+        if (string.IsNullOrEmpty(request.EventType) || !Enum.TryParse<EventType>(request.EventType, true, out parsedEventType) || !Enum.IsDefined(parsedEventType))
             ModelState.AddModelError(nameof(request.EventType), "Invalid event type. Valid values: Virtual, Physical");
 
         if (!ModelState.IsValid)
@@ -125,8 +128,9 @@ public class GreenfieldSatfluxTicketsEventsController(StoreRepository storeRepo,
             Title = request.Title,
             Description = request.Description,
             Location = request.Location,
-            StartDate = request.StartDate!.Value,
-            EndDate = request.EndDate,
+            StartDate = time.StartDate!.Value,
+            EndDate = time.EndDate,
+            TimeZone = time.TimeZone,
             Currency = currency.Trim().ToUpperInvariant(),
             RedirectUrl = request.RedirectUrl,
             EmailSubject = request.EmailSubject,
@@ -140,7 +144,7 @@ public class GreenfieldSatfluxTicketsEventsController(StoreRepository storeRepo,
         await using var ctx = dbContextFactory.CreateContext();
         ctx.Events.Add(entity);
         await ctx.SaveChangesAsync();
-        return CreatedAtAction(nameof(GetEvent), new { storeId, eventId = entity.Id }, ToEventData(entity, 0));
+        return CreatedAtAction(nameof(GetEvent), new { storeId, eventId = entity.Id }, await ToEventData(entity, 0));
     }
 
 
@@ -161,19 +165,14 @@ public class GreenfieldSatfluxTicketsEventsController(StoreRepository storeRepo,
         if (entity == null)
             return EventNotFound();
 
-        if (string.IsNullOrWhiteSpace(request.Title))
+        if (request.Has(nameof(request.Title)) && string.IsNullOrWhiteSpace(request.Title))
             ModelState.AddModelError(nameof(request.Title), "Title is required");
-
-        if (!request.StartDate.HasValue)
-            ModelState.AddModelError(nameof(request.StartDate), "Start date is required");
-
-        if (request.StartDate.HasValue && request.StartDate.Value <= DateTime.UtcNow)
+        var time = EventTimeZoneService.Resolve(request, entity);
+        if (time.Errors.Count > 0) return TimeValidationError(time);
+        if (time.StartDate.HasValue && time.StartDate.Value != entity.StartDate && time.StartDate.Value <= DateTime.UtcNow)
             ModelState.AddModelError(nameof(request.StartDate), "Event date cannot be in the past");
-
-        if (request.StartDate.HasValue && request.EndDate.HasValue && request.EndDate.Value < request.StartDate.Value)
-            ModelState.AddModelError(nameof(request.EndDate), "Event end date cannot be before start date");
-
-        if (!string.IsNullOrEmpty(request.EventType) && !Enum.TryParse<EventType>(request.EventType, true, out _))
+        if (request.Has(nameof(request.EventType)) && (string.IsNullOrEmpty(request.EventType)
+            || !Enum.TryParse<EventType>(request.EventType, true, out var eventType) || !Enum.IsDefined(eventType)))
             ModelState.AddModelError(nameof(request.EventType), "Invalid event type. Valid values: Virtual, Physical");
 
         var bundlePerAdmission = request.BundledRaffleTicketsPerAdmission ?? entity.BundledRaffleTicketsPerAdmission;
@@ -190,14 +189,15 @@ public class GreenfieldSatfluxTicketsEventsController(StoreRepository storeRepo,
         if (!ModelState.IsValid)
             return this.CreateValidationError(ModelState);
 
-        entity.Title = request.Title;
-        entity.Description = request.Description;
-        entity.Location = request.Location;
-        entity.StartDate = request.StartDate!.Value;
-        entity.EndDate = request.EndDate;
-        entity.RedirectUrl = request.RedirectUrl;
-        entity.EmailSubject = request.EmailSubject;
-        entity.EmailBody = request.EmailBody;
+        if (request.Has(nameof(request.Title))) entity.Title = request.Title;
+        if (request.Has(nameof(request.Description))) entity.Description = request.Description;
+        if (request.Has(nameof(request.Location))) entity.Location = request.Location;
+        entity.StartDate = time.StartDate!.Value;
+        entity.EndDate = time.EndDate;
+        entity.TimeZone = time.TimeZone;
+        if (request.Has(nameof(request.RedirectUrl))) entity.RedirectUrl = request.RedirectUrl;
+        if (request.Has(nameof(request.EmailSubject))) entity.EmailSubject = request.EmailSubject;
+        if (request.Has(nameof(request.EmailBody))) entity.EmailBody = request.EmailBody;
 
         if (!string.IsNullOrEmpty(request.Currency))
             entity.Currency = request.Currency.Trim().ToUpperInvariant();
@@ -208,11 +208,10 @@ public class GreenfieldSatfluxTicketsEventsController(StoreRepository storeRepo,
         if (request.BundledRaffleTicketsPerAdmission.HasValue || request.BundledRaffleId.HasValue)
             EventBundleHelper.ApplyBundleFields(entity, bundlePerAdmission, bundleRaffleId);
 
-        ctx.Events.Update(entity);
         await ctx.SaveChangesAsync();
 
         var ticketsSold = ctx.Tickets.Count(t => t.StoreId == storeId && t.EventId == eventId && t.PaymentStatus == TransactionStatus.Settled.ToString());
-        return Ok(ToEventData(entity, ticketsSold));
+        return Ok(await ToEventData(entity, ticketsSold));
     }
 
 
@@ -222,8 +221,9 @@ public class GreenfieldSatfluxTicketsEventsController(StoreRepository storeRepo,
         if (GreenfieldStoreGuard.RequireStore(HttpContext, this, storeId) is { } storeError)
             return storeError;
 
-        await using var ctx = dbContextFactory.CreateContext();
-        var entity = ctx.Events.FirstOrDefault(c => c.Id == eventId && c.StoreId == storeId);
+        await using var ctx = TicketTypeOrderService.CreateContext(dbContextFactory);
+        await using var transaction = await ctx.Database.BeginTransactionAsync();
+        var entity = await TicketTypeOrderService.LockEventAsync(ctx, storeId, eventId);
         if (entity == null)
             return EventNotFound();
 
@@ -241,6 +241,7 @@ public class GreenfieldSatfluxTicketsEventsController(StoreRepository storeRepo,
 
         ctx.Events.Remove(entity);
         await ctx.SaveChangesAsync();
+        await transaction.CommitAsync();
         return Ok();
     }
 
@@ -269,7 +270,7 @@ public class GreenfieldSatfluxTicketsEventsController(StoreRepository storeRepo,
         var ticketsSold = ctx.Tickets
             .Count(t => t.StoreId == storeId && t.EventId == eventId && t.PaymentStatus == TransactionStatus.Settled.ToString());
 
-        return Ok(ToEventData(entity, ticketsSold));
+        return Ok(await ToEventData(entity, ticketsSold));
     }
 
 
@@ -285,13 +286,16 @@ public class GreenfieldSatfluxTicketsEventsController(StoreRepository storeRepo,
         if (GreenfieldStoreGuard.RequireStore(HttpContext, this, storeId) is { } storeError)
             return storeError;
 
+        if (!await IsSupportedLogoImage(file))
+            return this.CreateAPIError(422, "logo-upload-failed", "Upload a JPEG, PNG, GIF or WebP image of at most 2 MiB.");
+
         await using var ctx = dbContextFactory.CreateContext();
         var entity = ctx.Events.FirstOrDefault(c => c.Id == eventId && c.StoreId == storeId);
         if (entity == null)
             return EventNotFound();
 
         var userId = userManager.GetUserId(User);
-        var imageUpload = await fileService.UploadImage(file, userId);
+        var imageUpload = await fileService.UploadImage(file, userId, maxFileSizeInBytes: 2 * 1024 * 1024);
         if (!imageUpload.Success)
             return this.CreateAPIError(422, "logo-upload-failed", imageUpload.Response);
 
@@ -299,7 +303,7 @@ public class GreenfieldSatfluxTicketsEventsController(StoreRepository storeRepo,
         ctx.Events.Update(entity);
         await ctx.SaveChangesAsync();
         var ticketsSold = ctx.Tickets.Count(t => t.StoreId == storeId && t.EventId == eventId && t.PaymentStatus == TransactionStatus.Settled.ToString());
-        return Ok(ToEventData(entity, ticketsSold));
+        return Ok(await ToEventData(entity, ticketsSold));
     }
 
     [HttpDelete("events/{eventId}/logo")]
@@ -323,28 +327,46 @@ public class GreenfieldSatfluxTicketsEventsController(StoreRepository storeRepo,
         ctx.Events.Update(entity);
         await ctx.SaveChangesAsync();
         var ticketsSold = ctx.Tickets.Count(t => t.StoreId == storeId && t.EventId == eventId && t.PaymentStatus == TransactionStatus.Settled.ToString());
-        return Ok(ToEventData(entity, ticketsSold));
+        return Ok(await ToEventData(entity, ticketsSold));
     }
 
-    private EventData ToEventData(Event entity, int ticketsSold)
+    private static async Task<bool> IsSupportedLogoImage(IFormFile file)
     {
-        /*string eventLogoUrl = null;
-        if (!string.IsNullOrEmpty(entity.EventLogo))
+        if (file.Length is <= 0 or > 2 * 1024 * 1024)
+            return false;
+
+        // Restrict content to the raster formats supported by Satflux; MIME alone is untrusted.
+        var header = new byte[12];
+        await using var stream = file.OpenReadStream();
+        var length = await stream.ReadAtLeastAsync(header, header.Length, throwOnEndOfStream: false);
+        return file.ContentType.ToLowerInvariant() switch
         {
-            var fileUrl = await fileService.GetFileUrl(Request.GetAbsoluteRootUri(), entity.EventLogo);
-            if (fileUrl != null)
-                eventLogoUrl = await uriResolver.Resolve(Request.GetAbsoluteRootUri(), new UnresolvedUri.Raw(fileUrl));
-        }*/
+            "image/png" => length >= 8 && header.AsSpan(0, 8).SequenceEqual(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }),
+            "image/jpeg" => length >= 3 && header[0] == 255 && header[1] == 216 && header[2] == 255,
+            "image/gif" => length >= 6 && (header.AsSpan(0, 6).SequenceEqual("GIF87a"u8) || header.AsSpan(0, 6).SequenceEqual("GIF89a"u8)),
+            "image/webp" => length >= 12 && header.AsSpan(0, 4).SequenceEqual("RIFF"u8) && header.AsSpan(8, 4).SequenceEqual("WEBP"u8),
+            _ => false
+        };
+    }
+
+    private async Task<EventData> ToEventData(Event entity, int ticketsSold)
+    {
+        var eventLogoUrl = string.IsNullOrEmpty(entity.EventLogo)
+            ? null
+            : await fileService.GetFileUrl(Request.GetAbsoluteRootUri(), entity.EventLogo);
 
         return new EventData
         {
             Id = entity.Id,
             StoreId = entity.StoreId,
+            EventLogoFileId = entity.EventLogo ?? string.Empty,
+            EventLogoUrl = eventLogoUrl,
             Title = entity.Title,
             Description = entity.Description,
             EventType = entity.EventType.ToString(),
             Location = entity.Location,
             StartDate = entity.StartDate,
+            TimeZone = entity.TimeZone,
             EndDate = entity.EndDate,
             Currency = entity.Currency,
             TicketsSold = ticketsSold,
@@ -360,6 +382,22 @@ public class GreenfieldSatfluxTicketsEventsController(StoreRepository storeRepo,
             PurchaseLink = entity.EventState == Data.EntityState.Disabled ? null : Url.Action(nameof(UITicketSalesPublicController.EventSummary), "UITicketSalesPublic",
                 new { storeId = entity.StoreId, eventId = entity.Id }, Request.Scheme)
         };
+    }
+
+    private IActionResult TimeValidationError(EventTimeZoneService.Resolution time)
+    {
+        var error = time.Errors.First();
+        var prefix = error.Key.StartsWith("end", StringComparison.Ordinal) ? "event-end-local-" : "event-start-local-";
+        var code = error.Value switch
+        {
+            "TimeZoneRequired" or "TimeZoneInvalid" => "event-time-zone-invalid",
+            "CivilMissing" => prefix + "nonexistent",
+            "CivilAmbiguous" => prefix + "ambiguous",
+            "TimeConflict" => "event-date-conflict",
+            "EndBefore" => "event-date-range-invalid",
+            _ => prefix + "invalid"
+        };
+        return this.CreateAPIError(422, code, new TicketSalesText("en")[error.Value]);
     }
 
     private IActionResult EventNotFound()
