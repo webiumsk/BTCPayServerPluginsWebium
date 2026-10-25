@@ -54,6 +54,13 @@ public class UITicketSalesController(UriResolver uriResolver,
     private IRaffleEventBundleClient? RaffleBundle => raffleBundleProvider.Client;
 
 
+    [HttpGet("event-editor.js")]
+    public IActionResult EventEditorScript()
+    {
+        Response.Headers.CacheControl = "no-store";
+        return Content(emailService.GetEmbeddedResourceContent("Resources.js.ticket-event-editor.js"), "text/javascript; charset=utf-8");
+    }
+
     [HttpGet("list")]
     public async Task<IActionResult> List(string storeId, bool expired)
     {
@@ -155,6 +162,11 @@ public class UITicketSalesController(UriResolver uriResolver,
                 Text = e.ToString()
             }).ToList();
 
+        if (!ApplyNativeTimes(vm, null))
+        {
+            await PopulateRaffleOptionsAsync(vm);
+            return View(nameof(ViewEvent), vm);
+        }
         if (vm.StartDate <= DateTime.UtcNow)
         {
             TempData[WellKnownTempData.ErrorMessage] = "Event date cannot be in the past";
@@ -232,6 +244,11 @@ public class UITicketSalesController(UriResolver uriResolver,
         {
             TempData[WellKnownTempData.ErrorMessage] = "Invalid event record specified for this store";
             return RedirectToAction(nameof(List), new { storeId });
+        }
+        if (!NativeScheduleMatches(vm, entity) || !ApplyNativeTimes(vm, entity))
+        {
+            await PopulateRaffleOptionsAsync(vm);
+            return View(nameof(ViewEvent), vm);
         }
         if (vm.EndDate is DateTime endDate && endDate < vm.StartDate)
         {
@@ -355,12 +372,13 @@ public class UITicketSalesController(UriResolver uriResolver,
     [HttpPost("delete/{eventId}")]
     public async Task<IActionResult> DeleteEventPost(string storeId, string eventId)
     {
-        if (string.IsNullOrEmpty(CurrentStore.Id))
+        if (CurrentStore is null || !string.Equals(CurrentStore.Id, storeId, StringComparison.Ordinal))
             return NotFound();
 
-        await using var ctx = dbContextFactory.CreateContext();
+        await using var ctx = TicketTypeOrderService.CreateContext(dbContextFactory);
+        await using var transaction = await ctx.Database.BeginTransactionAsync();
 
-        var entity = ctx.Events.FirstOrDefault(c => c.Id == eventId && c.StoreId == CurrentStore.Id);
+        var entity = await TicketTypeOrderService.LockEventAsync(ctx, storeId, eventId);
         if (entity == null)
             return NotFound();
 
@@ -381,6 +399,7 @@ public class UITicketSalesController(UriResolver uriResolver,
         }
         ctx.Events.Remove(entity);
         await ctx.SaveChangesAsync();
+        await transaction.CommitAsync();
         TempData[WellKnownTempData.SuccessMessage] = "Event deleted successfully";
         return RedirectToAction(nameof(List), new { storeId });
     }
@@ -760,6 +779,54 @@ public class UITicketSalesController(UriResolver uriResolver,
 
     private string GetUserId() => userManager.GetUserId(User);
 
+    // A form baseline detects a stale schedule before interpreting its wall-clock draft.
+    // It is a concurrency hint only; store ownership is enforced independently above.
+    private bool NativeScheduleMatches(UpdateSimpleTicketSalesEventViewModel vm, Event current)
+    {
+        bool matches(string baseline, DateTime expected) => baseline is { Length: > 0 and <= 40 }
+            && DateTime.TryParseExact(baseline, "O", System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.RoundtripKind, out var parsed)
+            && parsed.Kind != DateTimeKind.Unspecified
+            && EventTimeZoneService.Utc(parsed).Ticks == EventTimeZoneService.Utc(expected).Ticks;
+        var startMatches = matches(vm.OriginalStartUtc, current.StartDate);
+        var endMatches = current.EndDate.HasValue ? matches(vm.OriginalEndUtc, current.EndDate.Value) : string.IsNullOrEmpty(vm.OriginalEndUtc);
+        var contextMatches = vm.OriginalEventType.HasValue && vm.OriginalEventType.Value == current.EventType
+            && string.Equals(vm.OriginalTimeZone ?? "", current.TimeZone ?? "", StringComparison.Ordinal);
+        if (startMatches && endMatches && contextMatches) return true;
+        var text = new TicketSalesText(TicketSalesText.ResolveLanguage(Request.Query["lang"], Request.Headers.AcceptLanguage));
+        ModelState.AddModelError(!startMatches || !contextMatches ? nameof(vm.StartLocal) : nameof(vm.EndLocal), text["NativeScheduleChanged"]);
+        return false;
+    }
+
+    private bool ApplyNativeTimes(UpdateSimpleTicketSalesEventViewModel vm, Event current)
+    {
+        if (!Enum.IsDefined(vm.EventType))
+        {
+            ModelState.AddModelError(nameof(vm.EventType), "Invalid event type");
+            return false;
+        }
+        var zone = vm.EventType == EventType.Physical ? vm.TimeZone : vm.EditorTimeZone;
+        var text = new TicketSalesText(TicketSalesText.ResolveLanguage(Request.Query["lang"], Request.Headers.AcceptLanguage));
+        if (!EventTimeZoneService.TryGet(zone, out _))
+        {
+            ModelState.AddModelError(vm.EventType == EventType.Physical ? nameof(vm.TimeZone) : nameof(vm.EditorTimeZone), text["TimeZoneRequired"]);
+            return false;
+        }
+        var oldZone = current?.EventType == EventType.Physical ? current.TimeZone : zone;
+        bool unchanged(string submitted, DateTime instant) => submitted == EventTimeZoneService.Civil(instant, zone)
+            || submitted == EventTimeZoneService.Civil(instant, oldZone);
+        if (current != null && !vm.StartEdited && unchanged(vm.StartLocal, current.StartDate)) vm.StartDate = current.StartDate;
+        else if (EventTimeZoneService.TryCivil(vm.StartLocal, zone, out var start, out var startError)) vm.StartDate = start;
+        else ModelState.AddModelError(nameof(vm.StartLocal), text[startError]);
+        if (string.IsNullOrEmpty(vm.EndLocal)) vm.EndDate = null;
+        else if (current?.EndDate is DateTime oldEnd && !vm.EndEdited && unchanged(vm.EndLocal, oldEnd)) vm.EndDate = oldEnd;
+        else if (EventTimeZoneService.TryCivil(vm.EndLocal, zone, out var end, out var endError)) vm.EndDate = end;
+        else ModelState.AddModelError(nameof(vm.EndLocal), text[endError]);
+        if (vm.EndDate.HasValue && vm.EndDate.Value < vm.StartDate) ModelState.AddModelError(nameof(vm.EndLocal), text["EndBefore"]);
+        return (!ModelState.TryGetValue(nameof(vm.StartLocal), out var startState) || startState.Errors.Count == 0)
+            && (!ModelState.TryGetValue(nameof(vm.EndLocal), out var endState) || endState.Errors.Count == 0);
+    }
+
     private UpdateSimpleTicketSalesEventViewModel TicketSalesEventToViewModel(Event entity)
     {
         return new UpdateSimpleTicketSalesEventViewModel
@@ -770,6 +837,13 @@ public class UITicketSalesController(UriResolver uriResolver,
             Description = entity.Description,
             Location = entity.Location,
             StartDate = entity.StartDate,
+            OriginalTimeZone = entity.TimeZone,
+            OriginalEventType = entity.EventType,
+            OriginalStartUtc = EventTimeZoneService.Utc(entity.StartDate).ToString("O", System.Globalization.CultureInfo.InvariantCulture),
+            OriginalEndUtc = entity.EndDate.HasValue ? EventTimeZoneService.Utc(entity.EndDate.Value).ToString("O", System.Globalization.CultureInfo.InvariantCulture) : null,
+            TimeZone = entity.TimeZone,
+            StartLocal = EventTimeZoneService.Civil(entity.StartDate, entity.EventType == EventType.Physical ? entity.TimeZone : "UTC"),
+            EndLocal = entity.EndDate.HasValue ? EventTimeZoneService.Civil(entity.EndDate.Value, entity.EventType == EventType.Physical ? entity.TimeZone : "UTC") : null,
             Currency = entity.Currency,
             RedirectUrl = entity.RedirectUrl,
             EmailBody = entity.EmailBody,
@@ -803,18 +877,18 @@ public class UITicketSalesController(UriResolver uriResolver,
             e.Description = model.Description;
             e.Location = model.Location;
             e.StartDate = model.StartDate;
+            if (model.EventType == EventType.Physical) e.TimeZone = model.TimeZone;
             e.EndDate = model.EndDate;
             e.Currency = model.Currency;
             e.EmailBody = model.EmailBody;
             e.EventType = model.EventType;
             e.RedirectUrl = model.RedirectUrl;
             e.EmailSubject = model.EmailSubject;
-            e.HasMaximumCapacity = false;
+            if (e.Id == null) e.HasMaximumCapacity = false;
             e.ReminderEnabled = model.ReminderEnabled;
             e.ReminderDaysBeforeEvent = model.ReminderDaysBeforeEvent;
 
-            if (!string.IsNullOrWhiteSpace(model.EventImageUrl))
-                e.EventLogo = model.EventImageUrl;
+            // EventImageUrl is display-only. Upload/removal actions own the persisted opaque file ID.
         }
 
         if (entity is null)

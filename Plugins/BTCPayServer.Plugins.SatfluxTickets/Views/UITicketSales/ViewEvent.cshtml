@@ -1,6 +1,8 @@
 @using BTCPayServer.Abstractions.Contracts
 @using BTCPayServer.Abstractions.Extensions
 @using System.Globalization
+@using System.Text.Json
+@using BTCPayServer.Plugins.SatfluxTickets.Services
 @using BTCPayServer.Abstractions.Models
 @using BTCPayServer.Plugins.SatfluxTickets.Data
 @using BTCPayServer.Plugins.SatfluxTickets.ViewModels
@@ -9,6 +11,7 @@
 @{
     ViewData.SetLayoutModel(new LayoutModel(nameof(SatfluxTicketNavPages.SatfluxTicketIndex), "Events") { ActiveCategory = nameof(SatfluxTicketNavPages) });
     var canUpload = await FileService.IsAvailable();
+    var timeText = new TicketSalesText(TicketSalesText.ResolveLanguage(Context.Request.Query["lang"], Context.Request.Headers.AcceptLanguage));
     bool isEditMode = !string.IsNullOrEmpty(Model.EventId);
     string formAction = isEditMode
         ? Url.Action("UpdateEvent", "UITicketSales", new { eventId = Model.EventId, storeId = Model.StoreId }) : Url.Action("CreateEvent", "UITicketSales", new { storeId = Model.StoreId });
@@ -28,8 +31,21 @@
 
 <partial name="_StatusMessage" />
 
-<form id="event-form" action="@formAction" method="post" enctype="multipart/form-data">
+<form data-ticket-event-editor id="event-form" action="@formAction" method="post" enctype="multipart/form-data">
     @Html.AntiForgeryToken()
+    <input type="hidden" asp-for="OriginalTimeZone" />
+    <input type="hidden" asp-for="OriginalEventType" />
+    <input type="hidden" asp-for="OriginalStartUtc" />
+    <input type="hidden" asp-for="OriginalEndUtc" />
+    <input type="hidden" asp-for="EditorTimeZone" />
+    <input type="hidden" asp-for="StartEdited" />
+    <input type="hidden" asp-for="EndEdited" />
+    <script type="application/json" data-event-editor-configuration>@Html.Raw(JsonSerializer.Serialize(new {
+        startUtc = DateTime.SpecifyKind(Model.StartDate, DateTimeKind.Utc).ToString("O"),
+        endUtc = Model.EndDate.HasValue ? DateTime.SpecifyKind(Model.EndDate.Value, DateTimeKind.Utc).ToString("O") : null,
+        preserveDraft = !ViewData.ModelState.IsValid,
+        timeZones = EventTimeZoneService.TimeZones
+    }))</script>
     <div class="row">
         <div class="col-sm-10 col-md-9 col-xl-7 col-xxl-6">
             <div class="form-group">
@@ -92,28 +108,41 @@
         </div>
     </div>
 
+    <div class="form-group" data-event-venue-zone hidden="@(Model.EventType != EventType.Physical)">
+        <label asp-for="TimeZone" class="form-label">@timeText["VenueTimezone"]</label>
+        <select asp-for="TimeZone" class="form-select" required="@(Model.EventType == EventType.Physical)">
+            <option value="">@timeText["ChooseTimezone"]</option>
+            @foreach (var zone in EventTimeZoneService.TimeZones)
+            {
+                <option value="@zone">@zone</option>
+            }
+        </select>
+        <span asp-validation-for="TimeZone" class="text-danger"></span>
+    </div>
+    <p class="form-text">@timeText["EditorTimezone"]: <span data-event-editor-zone>@(Model.EventType == EventType.Physical ? Model.TimeZone ?? "UTC" : "UTC")</span></p>
+    <span asp-validation-for="EditorTimeZone" class="text-danger"></span>
     <div class="row">
         <div class="col-xl-10 col-xxl-constrain">
             <div class="d-flex flex-wrap gap-3 mb-3">
                 <div class="form-group w-250px mb-0">
-                    <label asp-for="StartDate" class="form-label" data-required></label>
+                    <label asp-for="StartLocal" class="form-label" data-required></label>
                     <div class="input-group flex-nowrap">
-                        <input type="datetime-local" asp-for="StartDate" value="@(Model.StartDate.ToString("yyyy-MM-ddTHH:mm", CultureInfo.InvariantCulture))" class="form-control flatdtpicker" placeholder="No Event date has been set" required />
+                        <input type="datetime-local" asp-for="StartLocal" step="1" class="form-control" placeholder="No Event date has been set" required />
                         <button class="btn btn-secondary input-group-clear px-3" type="button" title="Clear">
                             <vc:icon symbol="close" />
                         </button>
                     </div>
-                    <span asp-validation-for="StartDate" class="text-danger"></span>
+                    <span asp-validation-for="StartLocal" class="text-danger"></span>
                 </div>
                 <div class="form-group">
-                    <label asp-for="EndDate" class="form-label"></label>
+                    <label asp-for="EndLocal" class="form-label"></label>
                     <div class="input-group flex-nowrap">
-                        <input type="datetime-local" asp-for="EndDate" value="@(Model.EndDate?.ToString("yyyy-MM-ddTHH:mm", CultureInfo.InvariantCulture))" class="form-control flatdtpicker" placeholder="No Event date has been set" />
+                        <input type="datetime-local" asp-for="EndLocal" step="1" class="form-control" placeholder="No Event date has been set" />
                         <button class="btn btn-secondary input-group-clear px-3" type="button" title="Clear">
                             <vc:icon symbol="close" />
                         </button>
                     </div>
-                    <span asp-validation-for="EndDate" class="text-danger"></span>
+                    <span asp-validation-for="EndLocal" class="text-danger"></span>
                 </div>
             </div>
         </div>
@@ -344,5 +373,6 @@
             });
         });
     </script>
+    <script src="@Url.Action("EventEditorScript", "UITicketSales", new { storeId = Model.StoreId })" defer></script>
 }
 

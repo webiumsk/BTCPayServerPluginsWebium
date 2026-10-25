@@ -1,0 +1,132 @@
+/* Public event sales, scoped to avoid changing merchant/admin or issued-ticket pages. */
+.ticket-sales {
+    --sales-border: var(--btcpay-body-border-medium, var(--bs-border-color, #767c83));
+    --sales-muted: var(--btcpay-body-text, var(--bs-body-color, #292929));
+    --sales-surface: var(--btcpay-bg-tile, var(--bs-tertiary-bg, var(--btcpay-body-bg, #fff)));
+    --sales-accent: var(--btcpay-primary, var(--btcpay-brand-primary, var(--bs-primary, #327f3a)));
+    max-width: 1240px; margin: 0 auto; padding: 24px 32px 64px; color: var(--btcpay-body-text, var(--bs-body-color, inherit));
+    overflow-wrap: anywhere;
+}
+.ticket-sales [hidden] { display: none !important; }
+.ticket-sales :is(button, a, input):focus-visible { outline: 3px solid var(--btcpay-body-text, var(--bs-body-color, #292929)); outline-offset: 4px; }
+.sales-brand { display: flex; justify-content: space-between; gap: 16px; padding: 0 0 22px; margin-bottom: 28px; border-bottom: 1px solid var(--sales-border); font-weight: 600; }
+.sales-brand-label { color: var(--sales-muted); font-weight: 400; }
+.sales-grid { display: grid; grid-template-columns: minmax(0, 1fr) 340px; align-items: start; gap: 36px; }
+.sales-main { min-width: 0; }
+.sales-hero { display: flex; gap: 24px; align-items: flex-start; padding-bottom: 32px; }
+.sales-poster { border: 1px solid var(--sales-border); padding: 0; border-radius: 16px; background: var(--sales-surface); flex: 0 0 174px; overflow: hidden; color: inherit; }
+.sales-poster img { width: 100%; height: 238px; object-fit: contain; display: block; }
+.sales-poster span { display: block; padding: 12px 10px; font-size: .75rem; }
+.sales-intro { min-width: 0; }
+.sales-kicker { display: block; font-size: .75rem; letter-spacing: .07em; font-weight: 600; text-transform: uppercase; margin: 0 0 10px; color: var(--sales-muted); }
+.ticket-sales h1 { font-size: clamp(1.75rem, 3vw, 2.5rem); letter-spacing: -.035em; font-weight: 700; line-height: 1.12; margin: 0 0 22px; }
+.sales-details { font-size: .875rem; margin-bottom: 14px; }
+.sales-details div { margin-top: 12px; }
+.sales-details dt { color: var(--sales-muted); font-size: .75rem; font-weight: 400; margin-bottom: 3px; }
+.sales-details dd { margin: 0; }
+.sales-muted { color: var(--sales-muted); }
+.sales-small { font-size: .8125rem; line-height: 1.5; }
+.sales-delivery { font-size: .8125rem; line-height: 1.5; margin: 0; }
+.sales-section { border-top: 1px solid var(--sales-border); padding-top: 28px; margin-top: 8px; padding-bottom: 20px; }
+.sales-section-heading { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.ticket-sales h2 { font-size: 1.25rem; letter-spacing: -.02em; font-weight: 650; margin: 0; }
+.sales-step { display: inline-flex; width: 28px; height: 28px; flex-shrink: 0; justify-content: center; align-items: center; border-radius: 50%; font-size: .8125rem; border: 1px solid var(--sales-border); }
+.sales-types { display: grid; gap: 12px; margin: 18px 0; }
+.sales-type { display: flex; align-items: center; gap: 16px; justify-content: space-between; border: 1px solid var(--sales-border); padding: 20px; border-radius: 16px; background: var(--sales-surface); }
+.sales-type.is-selected { border-color: var(--sales-accent); box-shadow: inset 0 0 0 1px var(--sales-accent); }
+.sales-type-description { min-width: 0; }
+.sales-type h3 { font-size: 1rem; font-weight: 650; margin: 0 0 6px; }
+.sales-type p { font-size: .8125rem; color: var(--sales-muted); margin: 0 0 12px; white-space: pre-wrap; }
+.sales-price { font-size: .9375rem; }
+.sales-stock { display: block; font-size: .75rem; margin-top: 6px; }
+.sales-quantity { display: inline-flex; flex: 0 0 auto; border: 1px solid var(--sales-border); border-radius: 10px; overflow: hidden; }
+.sales-quantity button, .sales-quantity input { background: transparent; color: inherit; border: 0; min-width: 44px; width: 44px; height: 46px; text-align: center; font-weight: 600; padding: 0; }
+.sales-quantity button { font-size: 1.25rem; }
+.sales-quantity button:disabled { opacity: .4; }
+.sales-quantity input { appearance: textfield; -moz-appearance: textfield; font-size: 1rem; }
+.sales-quantity input::-webkit-inner-spin-button, .sales-quantity input::-webkit-outer-spin-button { appearance: none; margin: 0; }
+.sales-quantity input:invalid { outline: 2px solid var(--bs-danger, #b3261e); outline-offset: -2px; }
+.sales-summary { position: sticky; top: 24px; min-width: 0; }
+.sales-summary-panel { padding: 26px; border: 1px solid var(--sales-border); background: var(--sales-surface); border-radius: 20px; }
+.sales-summary-event { font-size: .875rem; margin-top: 12px; }
+.sales-summary-items { border-top: 1px solid var(--sales-border); margin-top: 22px; padding-top: 22px; font-size: .8125rem; }
+.sales-summary-line { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 14px; }
+.sales-summary-line strong { white-space: nowrap; font-weight: 500; }
+.sales-total { display: flex; gap: 12px; justify-content: space-between; align-items: center; border-top: 1px solid var(--sales-border); padding: 20px 0; margin-top: 22px; }
+.sales-total strong { font-size: 1.35rem; text-align: right; }
+.sales-primary { width: 100%; min-height: 48px; display: flex; justify-content: center; align-items: center; }
+.sales-payment-note { margin: 16px 0 0; }
+.sales-delivery-options { display: flex; flex-direction: column; gap: 4px; margin: 20px 0; }
+.sales-delivery-options label { display: flex; gap: 10px; align-items: center; min-height: 44px; font-size: .875rem; }
+.sales-delivery-options input { width: 18px; height: 18px; flex-shrink: 0; }
+.sales-field { margin-bottom: 18px; min-width: 0; }
+.sales-field label { display: block; font-size: .8125rem; margin-bottom: 6px; }
+.sales-field input { width: 100%; min-height: 46px; }
+.sales-recipient { border-top: 1px solid var(--sales-border); padding-top: 20px; margin-top: 20px; }
+.sales-recipient h3 { font-size: .9375rem; margin: 0 0 16px; font-weight: 600; }
+.sales-name-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+.sales-about { margin-top: 14px; }
+.sales-rich-description { margin-top: 22px; font-size: .9375rem; line-height: 1.7; }
+.sales-rich-description :is(img, video, iframe) { max-width: 100%; }
+.sales-rich-description table { display: block; overflow-x: auto; }
+.sales-rich-description :is(h1,h2,h3,h4) { margin: 1.5em 0 .6em; line-height: 1.25; }
+.sales-rich-description h1 { font-size: 1.75rem; }
+.sales-rich-description h2 { font-size: 1.5rem; }
+.sales-rich-description h3 { font-size: 1.25rem; }
+.sales-mobile-action { display: none; }
+.sales-image-dialog { border: 1px solid var(--sales-border); border-radius: 16px; background: var(--sales-surface); color: inherit; padding: 16px; max-width: min(95vw, 1100px); max-height: 95vh; }
+.sales-image-dialog::backdrop { background: rgba(0, 0, 0, .75); }
+.sales-image-dialog button { display: block; margin: 0 0 12px auto; min-height: 44px; }
+.sales-image-dialog img { max-width: 100%; max-height: 78vh; object-fit: contain; display: block; margin: 0 auto; }
+@media (max-width: 1050px) {
+    .sales-grid { grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; }
+    .sales-hero { flex-direction: column; }
+    .sales-poster { flex-basis: auto; max-width: 200px; }
+    .sales-poster img { height: 200px; }
+}
+@media (max-width: 760px) {
+    .ticket-sales { padding: 16px 16px calc(120px + env(safe-area-inset-bottom)); }
+    .sales-brand { margin-bottom: 20px; padding-bottom: 16px; font-size: .875rem; }
+    .sales-grid { display: block; }
+    .sales-hero { flex-direction: column; gap: 18px; padding-bottom: 20px; }
+    .sales-intro { order: -1; }
+    .sales-poster { width: 100%; max-width: none; display: flex; align-items: center; text-align: left; gap: 16px; }
+    .sales-poster img { max-width: 100px; height: 120px; }
+    .sales-poster span { flex: 1; padding: 16px 16px 16px 0; font-size: .8125rem; }
+    .sales-section { padding-top: 22px; }
+    .sales-type { padding: 16px; align-items: flex-start; flex-direction: column; gap: 14px; }
+    .sales-quantity { align-self: flex-end; }
+    .sales-summary { position: static; margin-top: 20px; }
+    .sales-summary-panel { padding: 20px; border-radius: 16px; }
+    .sales-summary .sales-primary { display: none; }
+    .sales-mobile-action { display: flex; position: fixed; z-index: 1030; bottom: 0; left: 0; right: 0; gap: 16px; align-items: center; justify-content: space-between; padding: 14px 16px calc(14px + env(safe-area-inset-bottom)); background: var(--btcpay-body-bg, var(--bs-body-bg, #fff)); border-top: 1px solid var(--sales-border); box-shadow: 0 -8px 24px rgba(0, 0, 0, .08); }
+    .sales-mobile-action > div { display: flex; flex-direction: column; min-width: 0; }
+    .sales-mobile-action strong { font-size: 1.0625rem; }
+    .sales-mobile-action .btn { min-height: 48px; max-width: 64%; white-space: normal; font-size: .8125rem; }
+    .sales-name-fields { grid-template-columns: minmax(0, 1fr); gap: 0; }
+    .sales-image-dialog { padding: 12px; }
+}
+@media (prefers-reduced-motion: no-preference) {
+    .sales-type { transition: border-color .15s, box-shadow .15s; }
+}
+
+/* A contrast-safe fallback also covers an existing-checkout link before JavaScript starts. */
+.ticket-sales .btn-primary {
+    background-color: var(--sales-action-bg, #186322);
+    border-color: var(--sales-action-bg, #186322);
+    color: var(--sales-action-text, #fff);
+}
+.ticket-sales .btn-primary:is(:hover, :focus, :active) {
+    background-color: var(--sales-action-bg, #186322);
+    border-color: var(--sales-action-bg, #186322);
+    color: var(--sales-action-text, #fff);
+}
+.sales-quantity :is(button, input):focus-visible { outline-offset: -3px; }
+@supports (color: color-mix(in srgb, #000 80%, #fff)) {
+    .ticket-sales { --sales-muted: color-mix(in srgb, var(--btcpay-body-text, var(--bs-body-color, #292929)) 80%, var(--btcpay-body-bg, var(--bs-body-bg, #fff)) 20%); }
+}
+
+.ticket-sales .sales-brand { align-items: center; flex-wrap: wrap; }
+.ticket-sales .sales-language-controls { display: flex; align-items: center; gap: 8px; }
+.ticket-sales .sales-language-controls select { min-height: 44px; }
+.ticket-sales .sales-language-controls select:focus-visible { outline: 3px solid var(--btcpay-body-text, var(--bs-body-color, #292929)); outline-offset: 4px; }

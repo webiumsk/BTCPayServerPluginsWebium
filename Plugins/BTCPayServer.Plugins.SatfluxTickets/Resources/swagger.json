@@ -3,7 +3,7 @@
   "info": {
     "title": "SatfluxTickets Greenfield API",
     "description": "REST API for the SatfluxTickets BTCPay Server plugin. Provides endpoints for managing events, ticket types, tickets, orders, and check-ins.\n\nAll endpoints are scoped to a specific store and require a Greenfield API key with appropriate permissions.\n\n**Authentication:** Pass your API key in the `Authorization` header:\n```\nAuthorization: token YOUR_API_KEY\n```\n\nCreate an API key under **Account > Manage Account > API Keys** in BTCPay Server.",
-    "version": "1.2.2",
+    "version": "2.2.1",
     "contact": {
       "name": "SatfluxTickets",
       "url": "https://github.com/TChukwuleta/BTCPayServerPlugins"
@@ -50,7 +50,9 @@
   "paths": {
     "/events": {
       "get": {
-        "tags": ["Events"],
+        "tags": [
+          "Events"
+        ],
         "summary": "List events",
         "description": "Returns all events for the store (active and disabled). Use `expired=true` to get only past events.",
         "operationId": "getEvents",
@@ -81,10 +83,18 @@
             }
           }
         },
-        "security": [{ "API_Key": ["btcpay.store.canmodifystoresettings"] }]
+        "security": [
+          {
+            "API_Key": [
+              "btcpay.store.canmodifystoresettings"
+            ]
+          }
+        ]
       },
       "post": {
-        "tags": ["Events"],
+        "tags": [
+          "Events"
+        ],
         "summary": "Create event",
         "description": "Creates a new event. Events are created in `Disabled` state by default. Set `enable: true` to activate immediately.\n\nYou must create at least one ticket type before activating an event.",
         "operationId": "createEvent",
@@ -120,12 +130,20 @@
             }
           }
         },
-        "security": [{ "API_Key": ["btcpay.store.canmodifystoresettings"] }]
+        "security": [
+          {
+            "API_Key": [
+              "btcpay.store.canmodifystoresettings"
+            ]
+          }
+        ]
       }
     },
     "/events/{eventId}": {
       "get": {
-        "tags": ["Events"],
+        "tags": [
+          "Events"
+        ],
         "summary": "Get event",
         "description": "Returns a single event by ID (active or disabled).",
         "operationId": "getEvent",
@@ -149,12 +167,20 @@
             "$ref": "#/components/responses/EventNotFound"
           }
         },
-        "security": [{ "API_Key": ["btcpay.store.canmodifystoresettings"] }]
+        "security": [
+          {
+            "API_Key": [
+              "btcpay.store.canmodifystoresettings"
+            ]
+          }
+        ]
       },
       "put": {
-        "tags": ["Events"],
+        "tags": [
+          "Events"
+        ],
         "summary": "Update event",
-        "description": "Updates an existing event.\n\n**Event Logo handling:**\n- Send `eventLogoFileId: \"file-id\"` to set/change the logo\n- Send `eventLogoFileId: \"\"` (empty string) to remove it\n- Omit the field or send `null` to leave unchanged",
+        "description": "Updates an existing event. Upload or remove the logo only through the event-scoped /events/{eventId}/logo endpoint; arbitrary file IDs in event JSON are not supported.",
         "operationId": "updateEvent",
         "parameters": [
           {
@@ -196,10 +222,18 @@
             }
           }
         },
-        "security": [{ "API_Key": ["btcpay.store.canmodifystoresettings"] }]
+        "security": [
+          {
+            "API_Key": [
+              "btcpay.store.canmodifystoresettings"
+            ]
+          }
+        ]
       },
       "delete": {
-        "tags": ["Events"],
+        "tags": [
+          "Events"
+        ],
         "summary": "Delete event",
         "description": "Deletes the event along with all its ticket types and tickets.\n\n**Blocking condition:** Deletion is blocked if the event is in the future and has sold tickets. Past events can always be deleted.",
         "operationId": "deleteEvent",
@@ -230,12 +264,20 @@
             }
           }
         },
-        "security": [{ "API_Key": ["btcpay.store.canmodifystoresettings"] }]
+        "security": [
+          {
+            "API_Key": [
+              "btcpay.store.canmodifystoresettings"
+            ]
+          }
+        ]
       }
     },
     "/events/{eventId}/toggle": {
       "put": {
-        "tags": ["Events"],
+        "tags": [
+          "Events"
+        ],
         "summary": "Toggle event status",
         "description": "Flips event state between `Active` and `Disabled`. Cannot activate an event that has no ticket types.",
         "operationId": "toggleEventStatus",
@@ -273,14 +315,22 @@
             }
           }
         },
-        "security": [{ "API_Key": ["btcpay.store.canmodifystoresettings"] }]
+        "security": [
+          {
+            "API_Key": [
+              "btcpay.store.canmodifystoresettings"
+            ]
+          }
+        ]
       }
     },
     "/events/{eventId}/logo": {
       "post": {
-        "tags": ["Event Logo"],
+        "tags": [
+          "Event Logo"
+        ],
         "summary": "Upload event logo",
-        "description": "Uploads an image file as the event logo. Only requires store-level permissions.\n\n**Constraints:**\n- File must be an image (`image/*` content type)\n- Maximum file size: 1 MB",
+        "description": "Uploads an image file as the event logo using the authorized store context. JPEG, PNG, GIF and WebP raster images are supported, up to 2 MiB (2,097,152 bytes). The response includes the persisted file ID and resolved storage URL.",
         "operationId": "uploadEventLogo",
         "parameters": [
           {
@@ -293,7 +343,9 @@
             "multipart/form-data": {
               "schema": {
                 "type": "object",
-                "required": ["file"],
+                "required": [
+                  "file"
+                ],
                 "properties": {
                   "file": {
                     "type": "string",
@@ -334,10 +386,18 @@
             }
           }
         },
-        "security": [{ "API_Key": ["btcpay.store.canmodifystoresettings"] }]
+        "security": [
+          {
+            "API_Key": [
+              "btcpay.store.canmodifystoresettings"
+            ]
+          }
+        ]
       },
       "delete": {
-        "tags": ["Event Logo"],
+        "tags": [
+          "Event Logo"
+        ],
         "summary": "Delete event logo",
         "description": "Removes the logo from the event and deletes the file from storage.",
         "operationId": "deleteEventLogo",
@@ -361,14 +421,22 @@
             "$ref": "#/components/responses/EventNotFound"
           }
         },
-        "security": [{ "API_Key": ["btcpay.store.canmodifystoresettings"] }]
+        "security": [
+          {
+            "API_Key": [
+              "btcpay.store.canmodifystoresettings"
+            ]
+          }
+        ]
       }
     },
     "/events/{eventId}/ticket-types": {
       "get": {
-        "tags": ["Ticket Types"],
+        "tags": [
+          "Ticket Types"
+        ],
         "summary": "List ticket types",
-        "description": "Returns all ticket types for an event.",
+        "description": "Returns all event ticket types, including disabled types, in persisted merchant order by default. Explicit name and price sorting remains supported with an ID tie-break.",
         "operationId": "getTicketTypes",
         "parameters": [
           {
@@ -381,8 +449,12 @@
             "required": false,
             "schema": {
               "type": "string",
-              "enum": ["Name", "Price"],
-              "default": "Name"
+              "enum": [
+                "DisplayOrder",
+                "Name",
+                "Price"
+              ],
+              "default": "DisplayOrder"
             }
           },
           {
@@ -392,7 +464,10 @@
             "required": false,
             "schema": {
               "type": "string",
-              "enum": ["asc", "desc"],
+              "enum": [
+                "asc",
+                "desc"
+              ],
               "default": "asc"
             }
           }
@@ -415,10 +490,18 @@
             "$ref": "#/components/responses/EventNotFound"
           }
         },
-        "security": [{ "API_Key": ["btcpay.store.canmodifystoresettings"] }]
+        "security": [
+          {
+            "API_Key": [
+              "btcpay.store.canmodifystoresettings"
+            ]
+          }
+        ]
       },
       "post": {
-        "tags": ["Ticket Types"],
+        "tags": [
+          "Ticket Types"
+        ],
         "summary": "Create ticket type",
         "description": "Creates a new ticket type (pricing tier) for an event. The first ticket type created automatically becomes the default.",
         "operationId": "createTicketType",
@@ -462,12 +545,20 @@
             }
           }
         },
-        "security": [{ "API_Key": ["btcpay.store.canmodifystoresettings"] }]
+        "security": [
+          {
+            "API_Key": [
+              "btcpay.store.canmodifystoresettings"
+            ]
+          }
+        ]
       }
     },
     "/events/{eventId}/ticket-types/{ticketTypeId}": {
       "get": {
-        "tags": ["Ticket Types"],
+        "tags": [
+          "Ticket Types"
+        ],
         "summary": "Get ticket type",
         "description": "Returns a single ticket type.",
         "operationId": "getTicketType",
@@ -494,10 +585,18 @@
             "$ref": "#/components/responses/EventNotFound"
           }
         },
-        "security": [{ "API_Key": ["btcpay.store.canmodifystoresettings"] }]
+        "security": [
+          {
+            "API_Key": [
+              "btcpay.store.canmodifystoresettings"
+            ]
+          }
+        ]
       },
       "put": {
-        "tags": ["Ticket Types"],
+        "tags": [
+          "Ticket Types"
+        ],
         "summary": "Update ticket type",
         "description": "Updates an existing ticket type. If `isDefault` is set to `false` and no other type is default, this one remains default.",
         "operationId": "updateTicketType",
@@ -544,16 +643,25 @@
             }
           }
         },
-        "security": [{ "API_Key": ["btcpay.store.canmodifystoresettings"] }]
-      }
-    },
-    "/ticket-types/{ticketTypeId}": {
+        "security": [
+          {
+            "API_Key": [
+              "btcpay.store.canmodifystoresettings"
+            ]
+          }
+        ]
+      },
       "delete": {
-        "tags": ["Ticket Types"],
+        "tags": [
+          "Ticket Types"
+        ],
         "summary": "Delete ticket type",
         "description": "Deletes a ticket type. If the deleted type was the default, another type is automatically assigned as default.",
         "operationId": "deleteTicketType",
         "parameters": [
+          {
+            "$ref": "#/components/parameters/eventId"
+          },
           {
             "$ref": "#/components/parameters/ticketTypeId"
           }
@@ -566,41 +674,20 @@
             "$ref": "#/components/responses/EventNotFound"
           }
         },
-        "security": [{ "API_Key": ["btcpay.store.canmodifystoresettings"] }]
-      }
-    },
-    "/ticket-types/{ticketTypeId}/toggle": {
-      "put": {
-        "tags": ["Ticket Types"],
-        "summary": "Toggle ticket type status",
-        "description": "Flips ticket type state between `Active` and `Disabled`.",
-        "operationId": "toggleTicketTypeStatus",
-        "parameters": [
+        "security": [
           {
-            "$ref": "#/components/parameters/ticketTypeId"
+            "API_Key": [
+              "btcpay.store.canmodifystoresettings"
+            ]
           }
-        ],
-        "responses": {
-          "200": {
-            "description": "Ticket type status toggled",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TicketTypeData"
-                }
-              }
-            }
-          },
-          "404": {
-            "$ref": "#/components/responses/EventNotFound"
-          }
-        },
-        "security": [{ "API_Key": ["btcpay.store.canmodifystoresettings"] }]
+        ]
       }
     },
     "/events/{eventId}/tickets": {
       "get": {
-        "tags": ["Tickets"],
+        "tags": [
+          "Tickets"
+        ],
         "summary": "List tickets",
         "description": "Returns settled (paid) tickets for an event. Supports text search across ticket number, name, and email.",
         "operationId": "getTickets",
@@ -636,12 +723,20 @@
             "$ref": "#/components/responses/EventNotFound"
           }
         },
-        "security": [{ "API_Key": ["btcpay.store.canmodifystoresettings"] }]
+        "security": [
+          {
+            "API_Key": [
+              "btcpay.store.canmodifystoresettings"
+            ]
+          }
+        ]
       }
     },
     "/events/{eventId}/tickets/export": {
       "get": {
-        "tags": ["Tickets"],
+        "tags": [
+          "Tickets"
+        ],
         "summary": "Export tickets as CSV",
         "description": "Downloads a CSV file with all settled tickets. Columns: Purchase Date, Ticket Number, First Name, Last Name, Email, Ticket Tier, Amount, Currency, Attended Event.",
         "operationId": "exportTickets",
@@ -677,12 +772,20 @@
             }
           }
         },
-        "security": [{ "API_Key": ["btcpay.store.canmodifystoresettings"] }]
+        "security": [
+          {
+            "API_Key": [
+              "btcpay.store.canmodifystoresettings"
+            ]
+          }
+        ]
       }
     },
     "/events/{eventId}/tickets/{ticketNumber}/check-in": {
       "post": {
-        "tags": ["Tickets"],
+        "tags": [
+          "Tickets"
+        ],
         "summary": "Check-in ticket",
         "description": "Marks a ticket as checked in. Accepts either the full `ticketNumber` (e.g. `EVT-abc123-260615-xK9mP2qR`) or just the short `txnNumber` (e.g. `xK9mP2qR`).",
         "operationId": "checkinTicket",
@@ -725,12 +828,20 @@
             }
           }
         },
-        "security": [{ "API_Key": ["btcpay.store.canmodifystoresettings"] }]
+        "security": [
+          {
+            "API_Key": [
+              "btcpay.store.canmodifystoresettings"
+            ]
+          }
+        ]
       }
     },
     "/events/{eventId}/purchase": {
       "post": {
-        "tags": ["Orders"],
+        "tags": [
+          "Orders"
+        ],
         "summary": "Create ticket purchase",
         "description": "Creates a ticket order programmatically and returns the BTCPay invoice checkout URL. Use this to integrate ticket sales with external systems (e.g. WooCommerce).\n\n**Flow:** Validates event, ticket types, and availability → creates Order and Tickets in DB → creates BTCPay invoice → returns checkout URL for payment.",
         "operationId": "createPurchase",
@@ -781,12 +892,20 @@
             }
           }
         },
-        "security": [{ "API_Key": ["btcpay.store.canmodifystoresettings"] }]
+        "security": [
+          {
+            "API_Key": [
+              "btcpay.store.canmodifystoresettings"
+            ]
+          }
+        ]
       }
     },
     "/events/{eventId}/create-tickets-offline": {
       "post": {
-        "tags": ["Orders"],
+        "tags": [
+          "Orders"
+        ],
         "summary": "Create tickets (offline payment)",
         "description": "Creates tickets without a BTCPay invoice. Use when payment was already received outside BTCPay (e.g. bank transfer, cash, COD). Validates event and ticket types, creates Order and Tickets with `PaymentStatus=Settled`, updates stock (QuantitySold), and sends ticket emails to recipients.\n\n**Difference from purchase:** Does not create an invoice or checkout URL; the order is immediately settled.",
         "operationId": "createTicketsOffline",
@@ -837,12 +956,20 @@
             }
           }
         },
-        "security": [{ "API_Key": ["btcpay.store.canmodifystoresettings"] }]
+        "security": [
+          {
+            "API_Key": [
+              "btcpay.store.canmodifystoresettings"
+            ]
+          }
+        ]
       }
     },
     "/events/{eventId}/orders": {
       "get": {
-        "tags": ["Orders"],
+        "tags": [
+          "Orders"
+        ],
         "summary": "List orders",
         "description": "Returns settled (paid) orders for an event, each with nested tickets.",
         "operationId": "getOrders",
@@ -878,12 +1005,20 @@
             "$ref": "#/components/responses/EventNotFound"
           }
         },
-        "security": [{ "API_Key": ["btcpay.store.canmodifystoresettings"] }]
+        "security": [
+          {
+            "API_Key": [
+              "btcpay.store.canmodifystoresettings"
+            ]
+          }
+        ]
       }
     },
     "/events/{eventId}/orders/{orderId}/tickets/{ticketId}/send-reminder": {
       "post": {
-        "tags": ["Orders"],
+        "tags": [
+          "Orders"
+        ],
         "summary": "Send ticket reminder email",
         "description": "Re-sends the ticket registration email to the ticket holder. The `ticketId` is the ticket's UUID (`id` field), not the `ticketNumber`.",
         "operationId": "sendReminder",
@@ -970,7 +1105,194 @@
             }
           }
         },
-        "security": [{ "API_Key": ["btcpay.store.canmodifystoresettings"] }]
+        "security": [
+          {
+            "API_Key": [
+              "btcpay.store.canmodifystoresettings"
+            ]
+          }
+        ]
+      }
+    },
+    "/events/{eventId}/ticket-types/order": {
+      "get": {
+        "tags": [
+          "Ticket Types"
+        ],
+        "summary": "Read persisted ticket-type order",
+        "operationId": "getTicketTypeOrder",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/eventId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Complete event ordering snapshot",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketTypeOrderSnapshot"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Insufficient store permission"
+          },
+          "404": {
+            "$ref": "#/components/responses/EventNotFound"
+          }
+        },
+        "security": [
+          {
+            "API_Key": [
+              "btcpay.store.canmodifystoresettings"
+            ]
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "Ticket Types"
+        ],
+        "summary": "Atomically replace ticket-type order",
+        "description": "The IDs must be a complete unique permutation of all event types, including disabled entries. A stale revision or membership conflict returns 409 without partial writes. Prices, stock and issued tickets are unchanged.",
+        "operationId": "updateTicketTypeOrder",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/eventId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TicketTypeOrderRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Complete event ordering snapshot",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketTypeOrderSnapshot"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Insufficient store permission"
+          },
+          "404": {
+            "$ref": "#/components/responses/EventNotFound"
+          },
+          "409": {
+            "description": "Ordering revision or event membership changed; reload the snapshot before retrying."
+          },
+          "422": {
+            "description": "Invalid permutation or request bounds"
+          }
+        },
+        "security": [
+          {
+            "API_Key": [
+              "btcpay.store.canmodifystoresettings"
+            ]
+          }
+        ]
+      }
+    },
+    "/events/{eventId}/ticket-types/{ticketTypeId}/toggle": {
+      "put": {
+        "tags": [
+          "Ticket Types"
+        ],
+        "summary": "Toggle ticket type status",
+        "description": "Flips ticket type state between `Active` and `Disabled`.",
+        "operationId": "toggleTicketTypeStatus",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/eventId"
+          },
+          {
+            "$ref": "#/components/parameters/ticketTypeId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Ticket type status toggled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketTypeData"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/EventNotFound"
+          }
+        },
+        "security": [
+          {
+            "API_Key": [
+              "btcpay.store.canmodifystoresettings"
+            ]
+          }
+        ]
+      }
+    },
+    "/time-zones": {
+      "get": {
+        "summary": "List supported event IANA time zones",
+        "operationId": "GetEventTimeZones",
+        "tags": [
+          "Events"
+        ],
+        "parameters": [
+          {
+            "name": "storeId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Supported, sorted IANA IDs (including UTC and Europe/Bratislava).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "timeZones": {
+                      "type": "array",
+                      "maxItems": 1002,
+                      "items": {
+                        "type": "string",
+                        "maxLength": 100
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "API_Key": [
+              "btcpay.store.canmodifystoresettings"
+            ]
+          }
+        ]
       }
     }
   },
@@ -1022,7 +1344,9 @@
     "schemas": {
       "CreateEventRequest": {
         "type": "object",
-        "required": ["title", "startDate"],
+        "required": [
+          "title"
+        ],
         "properties": {
           "title": {
             "type": "string",
@@ -1035,7 +1359,10 @@
           },
           "eventType": {
             "type": "string",
-            "enum": ["Physical", "Virtual"],
+            "enum": [
+              "Physical",
+              "Virtual"
+            ],
             "default": "Physical",
             "description": "Type of event."
           },
@@ -1047,13 +1374,13 @@
           "startDate": {
             "type": "string",
             "format": "date-time",
-            "description": "Event start date (ISO 8601). Must be in the future."
+            "description": "Canonical instant including Z or explicit UTC offset; never an unqualified civil wall time. Do not also send startLocal."
           },
           "endDate": {
             "type": "string",
             "format": "date-time",
             "nullable": true,
-            "description": "Event end date. Must be after `startDate`."
+            "description": "Canonical instant including Z or explicit UTC offset; never an unqualified civil wall time. Do not also send endLocal."
           },
           "currency": {
             "type": "string",
@@ -1075,12 +1402,33 @@
             "type": "string",
             "nullable": true,
             "description": "Email body template. Same placeholders as `emailSubject`."
+          },
+          "timeZone": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 100,
+            "example": "Europe/Bratislava",
+            "description": "Approved IANA venue time zone. Omitted/null updates preserve the existing value. UTC startDate/endDate remain instants; this metadata never shifts them. New legacy UTC-only creates may omit it."
+          },
+          "startLocal": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 40,
+            "example": "2026-11-28T09:00:00",
+            "description": "Civil wall time in the explicitly supplied timeZone. Mutually exclusive with startDate; nonexistent and ambiguous DST times are rejected."
+          },
+          "endLocal": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 40,
+            "example": "2026-11-29T12:00:00",
+            "description": "Civil wall time in explicitly supplied timeZone, mutually exclusive with endDate. Omitted preserves the end; explicit null clears it."
           }
-        }
+        },
+        "description": "Create an event. Supply exactly one of startDate (UTC/offset instant) or startLocal (civil time with explicit timeZone)."
       },
       "UpdateEventRequest": {
         "type": "object",
-        "required": ["title", "startDate"],
         "properties": {
           "title": {
             "type": "string",
@@ -1093,7 +1441,10 @@
           },
           "eventType": {
             "type": "string",
-            "enum": ["Physical", "Virtual"],
+            "enum": [
+              "Physical",
+              "Virtual"
+            ],
             "description": "Type of event."
           },
           "location": {
@@ -1104,13 +1455,13 @@
           "startDate": {
             "type": "string",
             "format": "date-time",
-            "description": "Event start date (ISO 8601)."
+            "description": "Canonical instant including Z or explicit UTC offset; never an unqualified civil wall time. Do not also send startLocal."
           },
           "endDate": {
             "type": "string",
             "format": "date-time",
             "nullable": true,
-            "description": "Event end date. Must be after `startDate`."
+            "description": "Canonical instant including Z or explicit UTC offset; never an unqualified civil wall time. Do not also send endLocal."
           },
           "currency": {
             "type": "string",
@@ -1131,13 +1482,44 @@
             "type": "string",
             "nullable": true,
             "description": "Email body template."
+          },
+          "timeZone": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 100,
+            "example": "Europe/Bratislava",
+            "description": "Approved IANA venue time zone. Omitted/null updates preserve the existing value. UTC startDate/endDate remain instants; this metadata never shifts them. New legacy UTC-only creates may omit it."
+          },
+          "startLocal": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 40,
+            "example": "2026-11-28T09:00:00",
+            "description": "Civil wall time in the explicitly supplied timeZone. Mutually exclusive with startDate; nonexistent and ambiguous DST times are rejected."
+          },
+          "endLocal": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 40,
+            "example": "2026-11-29T12:00:00",
+            "description": "Civil wall time in explicitly supplied timeZone, mutually exclusive with endDate. Omitted preserves the end; explicit null clears it."
           }
-        }
+        },
+        "description": "Partial metadata update. Omitted fields preserve existing values, including dates. Explicit null endDate or endLocal clears the end. Null timeZone preserves it."
       },
       "EventData": {
         "type": "object",
         "description": "Full event representation.",
         "properties": {
+          "eventLogoFileId": {
+            "type": "string",
+            "description": "Opaque persisted logo file ID, or an empty string if absent. Do not derive a public URL from this identifier."
+          },
+          "eventLogoUrl": {
+            "type": "string",
+            "nullable": true,
+            "description": "Logo URL resolved by the configured storage provider; null if no logo or storage URL is available."
+          },
           "id": {
             "type": "string",
             "description": "Event ID."
@@ -1157,7 +1539,10 @@
           },
           "eventType": {
             "type": "string",
-            "enum": ["Physical", "Virtual"],
+            "enum": [
+              "Physical",
+              "Virtual"
+            ],
             "description": "Type of event."
           },
           "location": {
@@ -1198,7 +1583,10 @@
           },
           "eventState": {
             "type": "string",
-            "enum": ["Active", "Disabled"],
+            "enum": [
+              "Active",
+              "Disabled"
+            ],
             "description": "Current event state."
           },
           "purchaseLink": {
@@ -1214,12 +1602,22 @@
             "type": "string",
             "format": "date-time",
             "description": "When the event was created."
+          },
+          "timeZone": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 100,
+            "example": "Europe/Bratislava",
+            "description": "Approved IANA venue time zone. Omitted/null updates preserve the existing value. UTC startDate/endDate remain instants; this metadata never shifts them. New legacy UTC-only creates may omit it."
           }
         }
       },
       "TicketTypeRequest": {
         "type": "object",
-        "required": ["name", "price"],
+        "required": [
+          "name",
+          "price"
+        ],
         "properties": {
           "name": {
             "type": "string",
@@ -1229,7 +1627,7 @@
             "type": "number",
             "format": "decimal",
             "description": "Price per ticket. Must be > 0.",
-            "example": 50.00
+            "example": 50.0
           },
           "description": {
             "type": "string",
@@ -1303,7 +1701,10 @@
           },
           "ticketTypeState": {
             "type": "string",
-            "enum": ["Active", "Disabled"],
+            "enum": [
+              "Active",
+              "Disabled"
+            ],
             "description": "Current ticket type state."
           },
           "bundledRaffleId": {
@@ -1461,7 +1862,9 @@
           },
           "ticket": {
             "allOf": [
-              { "$ref": "#/components/schemas/TicketData" }
+              {
+                "$ref": "#/components/schemas/TicketData"
+              }
             ],
             "nullable": true,
             "description": "The ticket data, or `null` if the ticket was invalid."
@@ -1470,7 +1873,9 @@
       },
       "CreatePurchaseRequest": {
         "type": "object",
-        "required": ["tickets"],
+        "required": [
+          "tickets"
+        ],
         "description": "Request body for creating a ticket purchase.",
         "properties": {
           "tickets": {
@@ -1495,7 +1900,9 @@
       },
       "CreateTicketsOfflineRequest": {
         "type": "object",
-        "required": ["tickets"],
+        "required": [
+          "tickets"
+        ],
         "description": "Request body for creating tickets without a BTCPay invoice (offline payment).",
         "properties": {
           "tickets": {
@@ -1536,7 +1943,11 @@
       },
       "PurchaseTicketItemRequest": {
         "type": "object",
-        "required": ["ticketTypeId", "quantity", "recipients"],
+        "required": [
+          "ticketTypeId",
+          "quantity",
+          "recipients"
+        ],
         "properties": {
           "ticketTypeId": {
             "type": "string",
@@ -1558,7 +1969,9 @@
       },
       "RecipientRequest": {
         "type": "object",
-        "required": ["email"],
+        "required": [
+          "email"
+        ],
         "properties": {
           "firstName": {
             "type": "string",
@@ -1625,6 +2038,56 @@
               "type": "string",
               "description": "Validation message."
             }
+          }
+        }
+      },
+      "TicketTypeOrderSnapshot": {
+        "type": "object",
+        "required": [
+          "ticketTypeIds",
+          "revision"
+        ],
+        "properties": {
+          "ticketTypeIds": {
+            "type": "array",
+            "maxItems": 1000,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        }
+      },
+      "TicketTypeOrderRequest": {
+        "type": "object",
+        "required": [
+          "ticketTypeIds",
+          "expectedRevision"
+        ],
+        "properties": {
+          "ticketTypeIds": {
+            "type": "array",
+            "maxItems": 1000,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          "expectedRevision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0,
+            "maximum": 9007199254740991
           }
         }
       }

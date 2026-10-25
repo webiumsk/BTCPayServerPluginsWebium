@@ -7,6 +7,7 @@ public class Event
 {
     [DatabaseGenerated(DatabaseGeneratedOption.Identity)]
     public string Id { get; set; }
+    public long TicketTypeOrderRevision { get; set; }
     public string StoreId { get; set; }
     public string Title { get; set; }
     public string Description { get; set; }
@@ -14,6 +15,8 @@ public class Event
     public string RedirectUrl { get; set; }
     public EventType EventType { get; set; }
     public string Location { get; set; }
+    [System.ComponentModel.DataAnnotations.MaxLength(100)]
+    public string TimeZone { get; set; }
     public DateTime StartDate { get; set; }
     public DateTime? EndDate { get; set; }
     public DateTimeOffset CreatedAt { get; set; }

@@ -10,6 +10,8 @@ using BTCPayServer.Plugins.SatfluxTickets.Services;
 using BTCPayServer.Plugins.SatfluxTickets.ViewModels;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using BTCPayServer.Plugins.SatfluxTickets.Models.Api;
 using EntityState = BTCPayServer.Plugins.SatfluxTickets.Data.EntityState;
 
 namespace BTCPayServer.Plugins.SatfluxTickets;
@@ -18,26 +20,27 @@ namespace BTCPayServer.Plugins.SatfluxTickets;
 [Route("~/plugins/{storeId}/satflux-tickets/event/{eventId}/tickettype/")]
 [Authorize(AuthenticationSchemes = AuthenticationSchemes.Cookie, Policy = Policies.CanModifyStoreSettings)]
 [AutoValidateAntiforgeryToken]
-public class UITicketTypeController(SimpleTicketSalesDbContextFactory dbContextFactory) : Controller
+public class UITicketTypeController(SimpleTicketSalesDbContextFactory dbContextFactory, TicketTypeOrderService orderService) : Controller
 {
     private StoreData CurrentStore => HttpContext.GetStoreData();
 
     [HttpGet("list")]
-    public async Task<IActionResult> List(string storeId, string eventId, string sortBy = "Name", string sortDir = "asc")
+    public async Task<IActionResult> List(string storeId, string eventId, string sortBy = "DisplayOrder", string sortDir = "asc")
     {
-        if (string.IsNullOrEmpty(CurrentStore.Id))
+        if (CurrentStore is null || !string.Equals(CurrentStore.Id, storeId, StringComparison.Ordinal))
             return NotFound();
 
-        await using var ctx = dbContextFactory.CreateContext();
-        var ticketEvent = ctx.Events.FirstOrDefault(c => c.StoreId == CurrentStore.Id && c.Id == eventId);
+        await using var ctx = TicketTypeOrderService.CreateContext(dbContextFactory);
+        await using var transaction = await ctx.Database.BeginTransactionAsync();
+        var ticketEvent = await TicketTypeOrderService.LockEventAsync(ctx, storeId, eventId);
         if (ticketEvent == null) return NotFound();
 
         var ticketTypes = ctx.TicketTypes.Where(c => c.EventId == ticketEvent.Id);
         ticketTypes = sortBy switch
         {
-            "Price" => sortDir == "desc" ? ticketTypes.OrderByDescending(t => t.Price) : ticketTypes.OrderBy(t => t.Price),
-            "Name" => sortDir == "desc" ? ticketTypes.OrderByDescending(t => t.Name) : ticketTypes.OrderBy(t => t.Name),
-            _ => ticketTypes.OrderBy(t => t.Name)
+            "Price" => sortDir == "desc" ? ticketTypes.OrderByDescending(t => t.Price).ThenBy(t => t.Id) : ticketTypes.OrderBy(t => t.Price).ThenBy(t => t.Id),
+            "Name" => sortDir == "desc" ? ticketTypes.OrderByDescending(t => t.Name).ThenBy(t => t.Id) : ticketTypes.OrderBy(t => t.Name).ThenBy(t => t.Id),
+            _ => TicketTypeOrderService.InDisplayOrder(ticketTypes)
         };
         var tickets = ticketTypes.ToList().Select(x => new TicketTypeViewModel
         {
@@ -52,14 +55,39 @@ public class UITicketTypeController(SimpleTicketSalesDbContextFactory dbContextF
             Description = x.Description,
             IsDefault = x.IsDefault
         }).ToList();
+        ViewData["TicketTypeOrderRevision"] = ticketEvent.TicketTypeOrderRevision;
+        await transaction.CommitAsync();
         return View(new TicketTypeListViewModel { SortBy = sortBy, SortDir = sortDir, TicketTypes = tickets, EventId = eventId, StoreId = CurrentStore.Id });
     }
 
 
+    [HttpPost("order")]
+    [RequestSizeLimit(262144)]
+    public async Task<IActionResult> SaveTicketTypeOrder(string storeId, string eventId, [FromForm] TicketTypeOrderRequest request)
+    {
+        if (CurrentStore is null || !string.Equals(CurrentStore.Id, storeId, StringComparison.Ordinal))
+            return NotFound();
+        if (!TicketTypeOrderService.IsValidRequest(request))
+            return BadRequest(TicketTypeOrderText.Get("Invalid"));
+        try
+        {
+            var snapshot = await orderService.SetAsync(storeId, eventId, request, HttpContext.RequestAborted);
+            if (snapshot is null) return NotFound();
+            if (Request.Headers.Accept.Any(value => value != null && value.Contains("application/json", StringComparison.OrdinalIgnoreCase)))
+                return Ok(snapshot);
+            TempData[WellKnownTempData.SuccessMessage] = TicketTypeOrderText.Get("Saved");
+            return RedirectToAction(nameof(List), new { storeId, eventId });
+        }
+        catch (TicketTypeOrderConflictException)
+        {
+            return StatusCode(409, TicketTypeOrderText.Get("Conflict"));
+        }
+    }
+
     [HttpGet("view")]
     public async Task<IActionResult> ViewTicketType(string storeId, string eventId, string ticketTypeId)
     {
-        if (string.IsNullOrEmpty(CurrentStore.Id))
+        if (CurrentStore is null || !string.Equals(CurrentStore.Id, storeId, StringComparison.Ordinal))
             return NotFound();
 
         await using var ctx = dbContextFactory.CreateContext();
@@ -88,11 +116,12 @@ public class UITicketTypeController(SimpleTicketSalesDbContextFactory dbContextF
     [HttpPost("create")]
     public async Task<IActionResult> CreateTicketType(string storeId, string eventId, TicketTypeViewModel vm)
     {
-        if (string.IsNullOrEmpty(CurrentStore.Id))
+        if (CurrentStore is null || !string.Equals(CurrentStore.Id, storeId, StringComparison.Ordinal))
             return NotFound();
 
-        await using var ctx = dbContextFactory.CreateContext();
-        var ticketEvent = ctx.Events.FirstOrDefault(c => c.Id == eventId && c.StoreId == CurrentStore.Id);
+        await using var ctx = TicketTypeOrderService.CreateContext(dbContextFactory);
+        await using var transaction = await ctx.Database.BeginTransactionAsync();
+        var ticketEvent = await TicketTypeOrderService.LockEventAsync(ctx, storeId, eventId);
         if (ticketEvent == null)
         {
             TempData[WellKnownTempData.ErrorMessage] = "Invalid event";
@@ -107,6 +136,7 @@ public class UITicketTypeController(SimpleTicketSalesDbContextFactory dbContextF
             return View("ViewTicketType", vm);
         }
         var entity = TicketTypeViewModelToEntity(vm, eventId);
+        entity.DisplayOrder = checked((await ctx.TicketTypes.Where(t => t.EventId == eventId).MaxAsync(t => (int?)t.DisplayOrder) ?? -1) + 1);
         entity.IsDefault = vm.IsDefault;
         if (entity.IsDefault)
         {
@@ -115,7 +145,9 @@ public class UITicketTypeController(SimpleTicketSalesDbContextFactory dbContextF
         }
 
         ctx.TicketTypes.Add(entity);
+        ticketEvent.TicketTypeOrderRevision = checked(ticketEvent.TicketTypeOrderRevision + 1);
         await ctx.SaveChangesAsync();
+        await transaction.CommitAsync();
         TempData[WellKnownTempData.SuccessMessage] = "Ticket type created successfully";
         return RedirectToAction(nameof(List), new { storeId, eventId });
     }
@@ -124,7 +156,7 @@ public class UITicketTypeController(SimpleTicketSalesDbContextFactory dbContextF
     [HttpPost("update/{ticketTypeId}")]
     public async Task<IActionResult> UpdateTicketType(string storeId, string eventId, string ticketTypeId, TicketTypeViewModel vm)
     {
-        if (string.IsNullOrEmpty(CurrentStore.Id))
+        if (CurrentStore is null || !string.Equals(CurrentStore.Id, storeId, StringComparison.Ordinal))
             return NotFound();
 
         await using var ctx = dbContextFactory.CreateContext();
@@ -200,7 +232,7 @@ public class UITicketTypeController(SimpleTicketSalesDbContextFactory dbContextF
     [HttpGet("toggle/{ticketTypeId}")]
     public async Task<IActionResult> ToggleTicketTypeStatus(string storeId, string eventId, string ticketTypeId, bool enable)
     {
-        if (string.IsNullOrEmpty(CurrentStore.Id))
+        if (CurrentStore is null || !string.Equals(CurrentStore.Id, storeId, StringComparison.Ordinal))
             return NotFound();
 
         await using var ctx = dbContextFactory.CreateContext();
@@ -222,7 +254,7 @@ public class UITicketTypeController(SimpleTicketSalesDbContextFactory dbContextF
     [HttpPost("toggle/{ticketTypeId}")]
     public async Task<IActionResult> ToggleTicketTypeStatusPost(string storeId, string eventId, string ticketTypeId, bool enable)
     {
-        if (string.IsNullOrEmpty(CurrentStore.Id))
+        if (CurrentStore is null || !string.Equals(CurrentStore.Id, storeId, StringComparison.Ordinal))
             return NotFound();
 
         await using var ctx = dbContextFactory.CreateContext();
@@ -244,7 +276,7 @@ public class UITicketTypeController(SimpleTicketSalesDbContextFactory dbContextF
     [HttpGet("delete/{ticketTypeId}")]
     public async Task<IActionResult> DeleteTicketType(string storeId, string eventId, string ticketTypeId)
     {
-        if (string.IsNullOrEmpty(CurrentStore.Id))
+        if (CurrentStore is null || !string.Equals(CurrentStore.Id, storeId, StringComparison.Ordinal))
             return NotFound();
 
         await using var ctx = dbContextFactory.CreateContext();
@@ -264,11 +296,12 @@ public class UITicketTypeController(SimpleTicketSalesDbContextFactory dbContextF
     [HttpPost("delete/{ticketTypeId}")]
     public async Task<IActionResult> DeleteTicketTypePost(string storeId, string eventId, string ticketTypeId)
     {
-        if (string.IsNullOrEmpty(CurrentStore.Id))
+        if (CurrentStore is null || !string.Equals(CurrentStore.Id, storeId, StringComparison.Ordinal))
             return NotFound();
 
-        await using var ctx = dbContextFactory.CreateContext();
-        var ticketEvent = ctx.Events.FirstOrDefault(c => c.StoreId == CurrentStore.Id && c.Id == eventId);
+        await using var ctx = TicketTypeOrderService.CreateContext(dbContextFactory);
+        await using var transaction = await ctx.Database.BeginTransactionAsync();
+        var ticketEvent = await TicketTypeOrderService.LockEventAsync(ctx, storeId, eventId);
         if (ticketEvent == null) return NotFound();
 
         var ticketType = ctx.TicketTypes.FirstOrDefault(c => c.EventId == ticketEvent.Id && c.Id == ticketTypeId);
@@ -278,7 +311,9 @@ public class UITicketTypeController(SimpleTicketSalesDbContextFactory dbContextF
             return RedirectToAction(nameof(List), new { storeId, eventId });
         }
         ctx.TicketTypes.Remove(ticketType);
+        ticketEvent.TicketTypeOrderRevision = checked(ticketEvent.TicketTypeOrderRevision + 1);
         await ctx.SaveChangesAsync();
+        await transaction.CommitAsync();
         TempData[WellKnownTempData.SuccessMessage] = "Ticket type deleted successfully";
         return RedirectToAction(nameof(List), new { storeId, eventId });
     }

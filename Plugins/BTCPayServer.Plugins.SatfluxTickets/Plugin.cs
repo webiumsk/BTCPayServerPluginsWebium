@@ -23,6 +23,7 @@ public class Plugin : BaseBTCPayServerPlugin
         services.AddSingleton<IUIExtension>(new UIExtension("SimpleTicketSalesPluginHeaderNav", "header-nav"));
         services.AddSingleton<EmailService>();
         services.AddSingleton<TicketService>();
+        services.AddSingleton<TicketTypeOrderService>();
         services.AddSingleton<RaffleEventBundleClientProvider>();
         services.AddSingleton<SatfluxTicketsRaffleBundleService>();
         services.AddSingleton<RaffleListClientProvider>();

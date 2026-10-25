@@ -1,9 +1,11 @@
+@using BTCPayServer.Plugins.SatfluxTickets.Services
 @using BTCPayServer.Abstractions.Models
 @using BTCPayServer.Plugins.SatfluxTickets.Data
 @using BTCPayServer.Plugins.SatfluxTickets.ViewModels
 @using BTCPayServer.Abstractions.Extensions
 @model TicketTypeListViewModel
 @{
+    string T(string key) => TicketTypeOrderText.Get(key);
     Layout = "_Layout";
     ViewData.SetLayoutModel(new LayoutModel(nameof(SatfluxTicketNavPages.SatfluxTicketIndex), "Ticket Tiers") { ActiveCategory = nameof(SatfluxTicketNavPages) });
 }
@@ -25,13 +27,39 @@
     </div>
 </div>
 <partial name="_StatusMessage" />
+<style>
+.ticket-order-controls .btn { min-width: 2.75rem; min-height: 2.75rem; }
+.ticket-drag-handle { cursor: grab; }
+</style>
 
 @if (Model.TicketTypes.Any())
 {
+    <form id="ticket-order-form" method="post" asp-action="SaveTicketTypeOrder" asp-route-storeId="@Model.StoreId" asp-route-eventId="@Model.EventId">
+        <div id="ticket-order-labels" hidden
+             data-published="@T("PublishedHint")" data-unsaved="@T("Unsaved")" data-edit="@T("EditHint")"
+             data-moved="@T("Moved")" data-saving="@T("Saving")" data-conflict="@T("Conflict")"
+             data-failed="@T("SaveFailed")" data-uncertain="@T("Uncertain")"></div>
+        <input type="hidden" name="ExpectedRevision" value="@ViewData["TicketTypeOrderRevision"]" />
+        <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+            @if (Model.SortBy == "DisplayOrder")
+            {
+                <button type="button" id="edit-ticket-order" class="btn btn-secondary">@T("Edit")</button>
+                <button type="submit" id="save-ticket-order" class="btn btn-primary" hidden disabled>@T("Save")</button>
+                <button type="button" id="cancel-ticket-order" class="btn btn-secondary" hidden>@T("Cancel")</button>
+                <button type="button" id="reload-ticket-order" class="btn btn-secondary" hidden>@T("Reload")</button>
+                <span id="ticket-order-status" class="text-muted" role="status" aria-live="polite">@T("PublishedHint")</span>
+            }
+            else
+            {
+                <a class="btn btn-secondary" asp-action="List" asp-route-storeId="@Model.StoreId" asp-route-eventId="@Model.EventId">@T("ShowPublished")</a>
+                <span class="text-muted">@T("SortedHint")</span>
+            }
+        </div>
     <div class="table-responsive">
         <table class="table table-hover">
             <thead>
                 <tr>
+                    <th scope="col">@T("Position")</th>
                     <th>
                         <a asp-action="List"
                            asp-route-storeId="@Model.StoreId"
@@ -60,7 +88,19 @@
             <tbody id="UsersList">
                 @foreach (var ticketType in Model.TicketTypes)
                 {
-                    <tr id="tickettype_@ticketType.TicketTypeId" class="user-overview-row mass-action-row">
+                    <tr id="tickettype_@ticketType.TicketTypeId" class="user-overview-row mass-action-row" data-ticket-type-id="@ticketType.TicketTypeId">
+                        <td>
+                            <input type="hidden" name="TicketTypeIds" value="@ticketType.TicketTypeId" />
+                            <span class="ticket-order-position"></span>
+                            @if (Model.SortBy == "DisplayOrder")
+                            {
+                                <span class="ticket-order-controls" hidden>
+                                    <span class="btn btn-sm btn-secondary ticket-drag-handle" draggable="true" aria-hidden="true" title="@T("Drag")">↕</span>
+                                    <button type="button" class="btn btn-sm btn-secondary ticket-move-up" aria-label="@TicketTypeOrderText.Format("MoveUp", ticketType.Name)">↑</button>
+                                    <button type="button" class="btn btn-sm btn-secondary ticket-move-down" aria-label="@TicketTypeOrderText.Format("MoveDown", ticketType.Name)">↓</button>
+                                </span>
+                            }
+                        </td>
                         <td>
                             <div class="d-inline-flex align-items-center gap-3">
                                 <a asp-action="ViewTicketType"
@@ -98,8 +138,114 @@
             </tbody>
         </table>
     </div>
+    </form>
 }
 else
 {
     <p class="text-secondary mt-4">No tickets tiers found</p>
+}
+@section PageFootContent {
+<script>
+(() => {
+    const form = document.getElementById('ticket-order-form');
+    if (!form) return;
+    const body = document.getElementById('UsersList');
+    const text = document.getElementById('ticket-order-labels').dataset;
+    const original = Array.from(body.rows);
+    const edit = document.getElementById('edit-ticket-order');
+    const save = document.getElementById('save-ticket-order');
+    const cancel = document.getElementById('cancel-ticket-order');
+    const status = document.getElementById('ticket-order-status');
+    let editing = false;
+    let saving = false;
+    let reloadRequired = false;
+    let dragging = null;
+    const update = () => {
+        const rows = Array.from(body.rows);
+        rows.forEach((row, index) => {
+            row.querySelector('.ticket-order-position').textContent = String(index + 1);
+            const up = row.querySelector('.ticket-move-up');
+            const down = row.querySelector('.ticket-move-down');
+            if (up) up.disabled = index === 0;
+            if (down) down.disabled = index === rows.length - 1;
+        });
+        if (!save) return;
+        const dirty = rows.some((row, index) => row !== original[index]);
+        save.disabled = saving || reloadRequired || !dirty;
+        status.textContent = dirty ? text.unsaved : (editing ? text.edit : text.published);
+    };
+    const setEditing = value => {
+        editing = value;
+        edit.hidden = value;
+        save.hidden = !value;
+        cancel.hidden = !value;
+        form.querySelectorAll('.ticket-order-controls').forEach(el => el.hidden = !value);
+        update();
+    };
+    if (edit) {
+        edit.addEventListener('click', () => setEditing(true));
+        cancel.addEventListener('click', () => {
+            original.forEach(row => body.appendChild(row));
+            setEditing(false);
+            edit.focus();
+        });
+        body.addEventListener('click', event => {
+            const button = event.target.closest('.ticket-move-up, .ticket-move-down');
+            if (!editing || saving || reloadRequired || !button) return;
+            const row = button.closest('tr');
+            const upward = button.classList.contains('ticket-move-up');
+            const sibling = upward ? row.previousElementSibling : row.nextElementSibling;
+            if (!sibling) return;
+            body.insertBefore(upward ? row : sibling, upward ? sibling : row);
+            update();
+            status.textContent = text.moved.replace('{0}', String(Array.from(body.rows).indexOf(row) + 1));
+            const focused = button.disabled ? row.querySelector(upward ? '.ticket-move-down' : '.ticket-move-up') : button;
+            focused.focus();
+        });
+        body.addEventListener('dragstart', event => {
+            if (!editing || saving || reloadRequired || !event.target.closest('.ticket-drag-handle')) { event.preventDefault(); return; }
+            dragging = event.target.closest('tr');
+            event.dataTransfer.effectAllowed = 'move';
+            event.dataTransfer.setData('text/plain', 'ticket-order');
+        });
+        body.addEventListener('dragover', event => {
+            const target = event.target.closest('tr');
+            if (!dragging || !target || dragging === target) return;
+            event.preventDefault();
+            const after = event.clientY > target.getBoundingClientRect().top + target.offsetHeight / 2;
+            body.insertBefore(dragging, after ? target.nextSibling : target);
+            update();
+        });
+        body.addEventListener('drop', event => { if (dragging) event.preventDefault(); dragging = null; });
+        body.addEventListener('dragend', () => { dragging = null; });
+        document.getElementById('reload-ticket-order').addEventListener('click', () => window.location.reload());
+        form.addEventListener('submit', async event => {
+            event.preventDefault();
+            if (!editing || save.disabled || saving || reloadRequired) return;
+            saving = true;
+            save.disabled = true;
+            cancel.disabled = true;
+            status.textContent = text.saving;
+            try {
+                const response = await fetch(form.action, {
+                    method: 'POST', body: new FormData(form), credentials: 'same-origin',
+                    headers: { Accept: 'application/json' }, redirect: 'error'
+                });
+                if (response.ok) { window.location.reload(); return; }
+                reloadRequired = true;
+                status.textContent = response.status === 409
+                    ? text.conflict : text.failed;
+            } catch {
+                reloadRequired = true;
+                status.textContent = text.uncertain;
+            }
+            saving = false;
+            const reload = document.getElementById('reload-ticket-order');
+            reload.hidden = false;
+            reload.focus();
+        });
+    }
+    update();
+})();
+</script>
 }

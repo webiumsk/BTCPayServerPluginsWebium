@@ -50,6 +50,13 @@ Automated QR Code Generation: Each ticket is linked to a unique QR code for seam
 
 **Email Notifications:** Buyers receive confirmation emails with their QR-coded tickets.
 
+Tickets addressed to the same mailbox within an order are delivered together in one
+email, with a short ticket number, inline QR code and online link for each ticket.
+Different recipients receive only their own tickets. Scheduled reminders include
+all of a recipient's settled tickets for the current store and event; manually
+resending a selected ticket sends that ticket only. QR codes retain the complete
+check-in identifier, and a plain-text alternative includes every short number and link.
+
 **Ticket Scanner:** For physical events, events managers can now scan events to grant entry to attendee
 
 
@@ -153,3 +160,43 @@ This BTCPay Server plugin is built and maintained entirely by contributors aroun
 Do you notice any errors or bug? are you having issues with using the plugin? would you like to request a feature? or are you generally looking to support the project and plugin please [create an issue](https://github.com/TChukwuleta/BTCPayServerPlugins/issues/new)
 
 Feel free to join our support channel over at [https://chat.btcpayserver.org/](https://chat.btcpayserver.org/) or [https://t.me/btcpayserver](https://t.me/btcpayserver) if you need help or have any further questions.
+
+
+## Unified sales and ticket-type ordering (2.1.0 candidate)
+
+The public event overview, ticket selection and attendee details share one page on the BTCPay host. Existing public URLs remain valid and payment still opens hosted BTCPay checkout. The layout uses saved event fields and supports physical and virtual events without event-specific hardcoded copy. Sales labels support EN/SK/ES/DE/CS. From 2.1.1, language follows a supported explicit `lang` query/form choice or weighted browser preferences, independently of host invariant culture. From 2.1.2, the header selector updates trusted public copy immediately in the existing DOM without requests or reload; it preserves quantities, recipient inputs, incomplete drafts and checkout nonce. The selected form language and shareable URL stay synchronized. The bounded CSRF-protected presentation action remains a compatibility fallback. Sales JS/CSS use validated content-hash paths and explicit revalidation, while legacy asset URLs remain available without storage caching. This prevents the reproduced stale-2.1.0-script combination from silently retaining UTC or the old language-button behavior; the actual origin of an operator cache still requires browser/network evidence. Event dates remain UTC instants in storage. From 2.2.0, physical events use explicit venue time and virtual events use labelled visitor time, with a clear UTC fallback. See the venue-time section below; no zone is inferred from location text. Hosted BTCPay checkout language remains independently controlled.
+
+In the existing ticket-type management list, edit the order with drag/drop or labelled up/down buttons, then save or cancel. The authoritative persisted order is also used by the public offer and compatible Satflux clients. New types append; disabled types remain in the management sequence but are filtered publicly. Ordering does not change prices, capacities, defaults or issued tickets.
+
+The `GET`/`PUT events/{eventId}/ticket-types/order` contract returns `{ticketTypeIds,revision}`; PUT accepts `{ticketTypeIds,expectedRevision}`. Send all event types, including disabled ones. Stale membership or revision returns 409. Explicit legacy name/price sorting remains supported. The migration adds ordering fields and backfills by name then ID; it does not infer historical creation order.
+
+Install the compatible plugin before enabling the Satflux consumer's ordering controls. This candidate remains subject to review and release approval. Preserve database backups and use additive-schema-compatible rollback; do not remove ordering columns during active sales.
+
+### Venue time zones (2.2.0)
+
+Physical events show the local time at the venue with the event-specific UTC offset
+and IANA zone, independent of a visitor's browser or VPN. Virtual events retain
+visitor-local public formatting with an explicit UTC fallback. Choose the venue
+zone in the existing event editor; dates remain stored as UTC instants.
+
+The additive 2.2.0 migration backfills existing physical events to
+`Europe/Bratislava`, as confirmed by this deployment's Product Owner. It changes
+metadata only. Virtual events and stored timestamps/reminders remain unchanged.
+New legacy API creates without a zone are not assigned an inferred venue; their
+public schedule clearly shows UTC until an administrator assigns one.
+
+Authenticated store-scoped `GET .../satflux-tickets/time-zones` returns the
+provider-authoritative IANA catalog. Create/update accept `timeZone`, `startLocal`
+and nullable `endLocal` civil fields, or the existing explicit UTC/offset instant
+fields. Do not send both representations for the same date. Partial updates preserve
+omitted dates and their exact precision; omitted/null zone preserves metadata, while
+`endLocal:null` clears the end. Edited non-existent or ambiguous DST hours are rejected
+rather than assigned an arbitrary offset. Explicit instant API clients remain compatible.
+
+This candidate is built against the pinned BTCPay 2.4.5 / .NET 10 host. Install it
+before the dependent Satflux event-form changes. Retain additive schema on rollback;
+do not drop metadata or rewrite UTC dates. Normal database backups and the earlier
+checkout reconciliation/worker compatibility constraints still apply. No new environment
+variable, server timezone change, core modification or third-party plugin change is needed.
+
+Satflux preselects its own locally saved store zone for new physical events; a per-event override is preserved independently. The pinned BTCPay Store API does not persist that Satflux setting, so native BTCPay creation requires an explicit venue selection. Native edits carry original UTC schedule hints and reject detected stale start/end values before saving, retaining the draft for review and reload. This is not full event-metadata compare-and-swap.

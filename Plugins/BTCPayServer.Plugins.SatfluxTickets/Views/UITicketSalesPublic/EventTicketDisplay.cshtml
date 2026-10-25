@@ -26,7 +26,8 @@
 
                 <div class="mb-4">
                     <p class="mb-1">@Model.Location</p>
-                    <p class="mb-1">@Model.StartDate.ToString("yyyy-MM-dd HH:mm:ss UTC") - @Model.EndDate?.ToString("yyyy-MM-dd HH:mm:ss UTC")</p>
+                    @if (!string.IsNullOrEmpty(Model.TimeZoneLabel)) { <p class="mb-1">@Model.TimeZoneLabel</p> }
+                    <p class="mb-1">@(Model.DisplayStart ?? Model.StartDate.ToString("yyyy-MM-dd HH:mm:ss UTC")) - @(Model.DisplayEnd ?? Model.EndDate?.ToString("yyyy-MM-dd HH:mm:ss UTC"))</p>
                     <p class="mb-1">@ticket.Amount @ticket.Currency</p>
                 </div>
 

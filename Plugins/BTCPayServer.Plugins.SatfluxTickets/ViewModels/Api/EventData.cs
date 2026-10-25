@@ -6,10 +6,13 @@ public class EventData
 {
     public string Id { get; set; }
     public string StoreId { get; set; }
+    public string EventLogoFileId { get; set; }
+    public string EventLogoUrl { get; set; }
     public string Title { get; set; }
     public string Description { get; set; }
     public string EventType { get; set; }
     public string Location { get; set; }
+    public string TimeZone { get; set; }
     public DateTime StartDate { get; set; }
     public DateTime? EndDate { get; set; }
     public string Currency { get; set; }
