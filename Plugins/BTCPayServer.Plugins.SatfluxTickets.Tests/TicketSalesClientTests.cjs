@@ -127,12 +127,13 @@ test('physical events without a venue zone keep explicit UTC instead of using th
     assert.equal(start.textContent, '08:00 UTC'); assert.equal(note.hidden, true);
 });
 test('native virtual editor normalizes only known checked IANA renames and clearly falls back to UTC', () => {
-    const catalog = ['UTC', 'Asia/Kolkata', 'Europe/Kyiv', 'Asia/Kathmandu', 'Europe/Bratislava'];
+    const catalog = ['UTC', 'Asia/Kolkata', 'Europe/Kyiv', 'Asia/Kathmandu', 'Europe/Prague'];
     assert.equal(normalizeEditorZone('Asia/Calcutta', catalog), 'Asia/Kolkata');
     assert.equal(normalizeEditorZone('Europe/Kiev', catalog), 'Europe/Kyiv');
     assert.equal(normalizeEditorZone('Asia/Katmandu', catalog), 'Asia/Kathmandu');
-    assert.equal(normalizeEditorZone('Europe/Bratislava', catalog), 'Europe/Bratislava');
+    assert.equal(normalizeEditorZone('Europe/Bratislava', catalog), 'Europe/Prague');
     assert.equal(normalizeEditorZone('unknown/browser-zone', catalog), 'UTC');
     assert.equal(normalizeEditorZone('Asia/Calcutta', ['UTC']), 'UTC');
     assert.equal(normalizeEditorZone('CET', catalog), 'UTC');
+    assert.equal(normalizeEditorZone('Europe/Bratislava', ['UTC']), 'UTC');
 });

@@ -170,13 +170,13 @@ public class UITicketSalesPublicController(UriResolver uriResolver,
             CheckoutUrl = existing?.InvoiceId == null ? null : Url.Action(nameof(UIInvoiceController.Checkout), "UIInvoice", new { invoiceId = existing.InvoiceId }),
             Text = text,
             IsPhysical = ev.EventType == EventType.Physical,
-            MissingVenueTimeZone = ev.EventType == EventType.Physical && !EventTimeZoneService.TryGet(ev.TimeZone, out _),
-            VenueDates = ev.EventType == EventType.Physical && EventTimeZoneService.TryGet(ev.TimeZone, out _)
+            MissingVenueTimeZone = ev.EventType == EventType.Physical && !EventTimeZoneService.TryGetStored(ev.TimeZone, out _),
+            VenueDates = ev.EventType == EventType.Physical && EventTimeZoneService.TryGetStored(ev.TimeZone, out _)
                 ? TicketSalesText.Translations().Keys.ToDictionary(language => language, language => new TicketSalesVenueDates
                 {
                     Start = EventTimeZoneService.VenueDate(ev.StartDate, ev.TimeZone, new TicketSalesText(language).Culture),
                     End = ev.EndDate.HasValue ? EventTimeZoneService.VenueDate(ev.EndDate.Value, ev.TimeZone, new TicketSalesText(language).Culture) : null,
-                    Label = new TicketSalesText(language)["VenueTimezone"] + ": " + ev.TimeZone
+                    Label = new TicketSalesText(language)["VenueTimezone"] + ": " + EventTimeZoneService.StoredId(ev.TimeZone)
                 }) : new(),
             TicketTypes = types.Select(t => new TicketSalesTypeViewModel
             {
@@ -381,13 +381,13 @@ public class UITicketSalesPublicController(UriResolver uriResolver,
             EventName = ticketEvent.Title,
             Location = ticketEvent.Location,
             StartDate = ticketEvent.StartDate,
-            DisplayStart = ticketEvent.EventType == EventType.Physical && EventTimeZoneService.TryGet(ticketEvent.TimeZone, out _)
+            DisplayStart = ticketEvent.EventType == EventType.Physical && EventTimeZoneService.TryGetStored(ticketEvent.TimeZone, out _)
                 ? EventTimeZoneService.VenueDate(ticketEvent.StartDate, ticketEvent.TimeZone, new TicketSalesText(TicketSalesText.ResolveLanguage(Request.Query["lang"], Request.Headers.AcceptLanguage)).Culture) : null,
-            DisplayEnd = ticketEvent.EventType == EventType.Physical && ticketEvent.EndDate.HasValue && EventTimeZoneService.TryGet(ticketEvent.TimeZone, out _)
+            DisplayEnd = ticketEvent.EventType == EventType.Physical && ticketEvent.EndDate.HasValue && EventTimeZoneService.TryGetStored(ticketEvent.TimeZone, out _)
                 ? EventTimeZoneService.VenueDate(ticketEvent.EndDate.Value, ticketEvent.TimeZone, new TicketSalesText(TicketSalesText.ResolveLanguage(Request.Query["lang"], Request.Headers.AcceptLanguage)).Culture) : null,
             TimeZoneLabel = ticketEvent.EventType == EventType.Physical
-                ? new TicketSalesText(TicketSalesText.ResolveLanguage(Request.Query["lang"], Request.Headers.AcceptLanguage))[EventTimeZoneService.TryGet(ticketEvent.TimeZone, out _) ? "VenueTimezone" : "MissingVenueTimezone"]
-                    + (EventTimeZoneService.TryGet(ticketEvent.TimeZone, out _) ? ": " + ticketEvent.TimeZone : "") : null,
+                ? new TicketSalesText(TicketSalesText.ResolveLanguage(Request.Query["lang"], Request.Headers.AcceptLanguage))[EventTimeZoneService.TryGetStored(ticketEvent.TimeZone, out _) ? "VenueTimezone" : "MissingVenueTimezone"]
+                    + (EventTimeZoneService.TryGetStored(ticketEvent.TimeZone, out _) ? ": " + EventTimeZoneService.StoredId(ticketEvent.TimeZone) : "") : null,
             EndDate = ticketEvent.EndDate,
             PurchaseDate = order.PurchaseDate ?? order.CreatedAt,
             Tickets = tickets.Select(t => new TicketListViewModel

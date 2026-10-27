@@ -1,9 +1,9 @@
-/* Authoring preview only. The provider validates IANA zones and converts civil times to canonical UTC. */
+/* Authoring preview only. The provider validates native BTCPay time zones and converts civil times to canonical UTC. */
 (function () {
     'use strict';
     function normalizeEditorZone(browser, catalog) {
         if (catalog.includes(browser)) return browser;
-        const aliases = { 'Asia/Calcutta': 'Asia/Kolkata', 'Europe/Kiev': 'Europe/Kyiv', 'Asia/Katmandu': 'Asia/Kathmandu' };
+        const aliases = { 'Europe/Bratislava': 'Europe/Prague', 'Asia/Calcutta': 'Asia/Kolkata', 'Europe/Kiev': 'Europe/Kyiv', 'Asia/Katmandu': 'Asia/Kathmandu' };
         const canonical = Object.prototype.hasOwnProperty.call(aliases, browser) ? aliases[browser] : null;
         return canonical && catalog.includes(canonical) ? canonical : 'UTC';
     }
