@@ -24,6 +24,7 @@ jobs:
     env:
       CASHUMELT_TEST_CONNECTION: Host=127.0.0.1;Port=5432;Database=cashu_safety;Username=postgres;Password=cashu-test-only
       TICKETS_ORDER_TEST_CONNECTION: Host=127.0.0.1;Port=5432;Database=satflux_tickets_ordering_ci;Username=postgres;Password=cashu-test-only
+      SEPA_ISOLATION_TEST_CONNECTION: Host=127.0.0.1;Port=5432;Database=satflux_sepa_isolation_qa;Username=synthetic;Password=sepa-test-only
     steps:
       - uses: actions/checkout@v4
       - run: git submodule update --init --depth 1 submodules/btcpayserver
@@ -37,6 +38,10 @@ jobs:
       - run: bash scripts/verify-btcpay-host.sh
       - name: Create disposable Tickets test database
         run: docker exec "${{ job.services.postgres.id }}" createdb -U postgres satflux_tickets_ordering_ci
+      - name: Create disposable SEPA isolation test database
+        run: |
+          docker exec "${{ job.services.postgres.id }}" psql -U postgres -d postgres -v ON_ERROR_STOP=1 -c "CREATE USER synthetic WITH PASSWORD 'sepa-test-only';"
+          docker exec "${{ job.services.postgres.id }}" createdb -U postgres -O synthetic satflux_sepa_isolation_qa
       - name: Tickets client regression tests
         run: node --test Plugins/BTCPayServer.Plugins.SatfluxTickets.Tests/TicketSalesClientTests.cjs
       - name: Build exact host and maintained plugins

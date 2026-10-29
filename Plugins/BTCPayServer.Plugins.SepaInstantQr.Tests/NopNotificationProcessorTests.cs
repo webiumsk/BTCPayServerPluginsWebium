@@ -46,7 +46,7 @@ public class NopNotificationProcessorTests
                 "SK4811000000002944116480", "123.45", "EUR", "QR-ab29e346f1d841c8a95a63d857490818"));
 
         var notification = _processor.Parse(GoldenPayload)!;
-        Assert.True(_processor.VerifyHash(notification, fallbackIban: "SK0000000000000000000000"));
+        Assert.True(_processor.VerifyHash(notification, "SK4811000000002944116480"));
     }
 
     [Fact]
@@ -56,42 +56,46 @@ public class NopNotificationProcessorTests
         var notification = _processor.Parse(payload)!;
 
         Assert.Null(notification.CreditorIban);
-        Assert.True(_processor.VerifyHash(notification, fallbackIban: "SK4811000000002944116480"));
-        Assert.False(_processor.VerifyHash(notification, fallbackIban: "SK6807200002891987426353"));
+        Assert.True(_processor.VerifyHash(notification, "SK4811000000002944116480"));
+        Assert.False(_processor.VerifyHash(notification, "SK6807200002891987426353"));
     }
 
     [Fact]
     public void Settled_notification_maps_to_a_confirmed_payment()
     {
         var notification = _processor.Parse(GoldenPayload)!;
-        var confirmed = _processor.ToConfirmedPayment(notification, "SK4811000000002944116480");
+        var confirmed = _processor.ToConfirmedPayment(notification);
 
         Assert.NotNull(confirmed);
         Assert.Equal("QR-ab29e346f1d841c8a95a63d857490818", confirmed.Reference);
         Assert.Equal(123.45m, confirmed.Amount);
         Assert.Equal("EUR", confirmed.Currency);
         Assert.Null(confirmed.IntegrityFailure);
+        Assert.Equal("SK4811000000002944116480", confirmed.CreditorIban);
+        Assert.NotNull(confirmed.NopIntegrity);
         Assert.Equal("nop:QR-ab29e346f1d841c8a95a63d857490818:2025-08-16T20:43:37.562311Z", confirmed.DedupKey);
     }
 
     [Fact]
     public void Dedup_key_is_stable_for_duplicate_deliveries()
     {
-        var first = _processor.ToConfirmedPayment(_processor.Parse(GoldenPayload)!, "SK4811000000002944116480")!;
-        var second = _processor.ToConfirmedPayment(_processor.Parse(GoldenPayload)!, "SK4811000000002944116480")!;
+        var first = _processor.ToConfirmedPayment(_processor.Parse(GoldenPayload)!)!;
+        var second = _processor.ToConfirmedPayment(_processor.Parse(GoldenPayload)!)!;
 
         Assert.Equal(first.DedupKey, second.DedupKey);
     }
 
     [Fact]
-    public void Tampered_amount_flags_integrity_failure_instead_of_settling()
+    public void Tampered_amount_preserves_evidence_for_snapshot_bound_matching()
     {
         var tampered = GoldenPayload.Replace("\"amount\": \"123.45\"", "\"amount\": \"1.00\"");
         var notification = _processor.Parse(tampered)!;
-        var confirmed = _processor.ToConfirmedPayment(notification, "SK4811000000002944116480");
+        var confirmed = _processor.ToConfirmedPayment(notification);
 
         Assert.NotNull(confirmed);
-        Assert.Equal("dataIntegrityHash mismatch", confirmed.IntegrityFailure);
+        Assert.NotNull(confirmed.NopIntegrity);
+        Assert.Equal("1.00", confirmed.NopIntegrity.AmountRaw);
+        Assert.Equal("b150d2343fefd404f89788efece5e0c6bd423005553d708fb40bf600b1f4c8ae", confirmed.NopIntegrity.DataIntegrityHash);
     }
 
     [Fact]
@@ -100,7 +104,7 @@ public class NopNotificationProcessorTests
         var pending = GoldenPayload.Replace("\"ACCC\"", "\"PDNG\"");
         var notification = _processor.Parse(pending)!;
 
-        Assert.Null(_processor.ToConfirmedPayment(notification, "SK4811000000002944116480"));
+        Assert.Null(_processor.ToConfirmedPayment(notification));
     }
 
     [Theory]

@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.8.2 - unreleased
+
+- Bind automatic confirmations to the source store and original receiving account;
+  preserve observed FIO account evidence and verify NOP integrity against invoice
+  snapshots. Keep authorized manual confirmation separate.
+- Expose confirmation contract version 2. External reports require verified bank
+  origin and observed receiving-account evidence; legacy/incomplete reports remain
+  review-only without consuming a valid corrected retry's delivery identity.
+- Reserve scoped dedup identities before recording and preserve retry/reconciliation
+  after recording failures. Keep public payment history diagnostic.
+- Correct the NOP receipt timeline label. Provider and BTCPay transactions remain
+  separate; no universal instant-verification guarantee is introduced.
+
 ## 0.8.0 - unreleased
 
 - "Where is my payment": public NOP diagnostics
