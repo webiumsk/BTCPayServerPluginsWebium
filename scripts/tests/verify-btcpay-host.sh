@@ -25,6 +25,12 @@ verify
 mkdir -p "$host/bin"
 echo 'build output' > "$host/bin/untracked.dll"
 verify
+echo 'injected source' > "$host/injected.cs"
+reject 'untracked compiled source'
+rm "$host/injected.cs"
+echo '<Project />' > "$host/Directory.Build.targets"
+reject 'untracked build configuration'
+rm "$host/Directory.Build.targets"
 echo 'modified source' > "$host/source.cs"
 reject 'unstaged source changes'
 git -C "$host" add source.cs

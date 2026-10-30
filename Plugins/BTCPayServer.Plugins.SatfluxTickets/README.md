@@ -202,7 +202,7 @@ canonicalizing supported legacy metadata, and
 `endLocal:null` clears the end. Edited non-existent or ambiguous DST hours are rejected
 rather than assigned an arbitrary offset. Explicit instant API clients remain compatible.
 
-This candidate is built against the pinned BTCPay 2.4.5 / .NET 10 host. Install it
+Version 2.2.3 targets the pinned BTCPay 2.4.7 / .NET 10 host. Install it
 before the dependent Satflux event-form changes. Retain additive schema on rollback;
 do not drop metadata or rewrite UTC dates. Normal database backups and the earlier
 checkout reconciliation/worker compatibility constraints still apply. No new environment

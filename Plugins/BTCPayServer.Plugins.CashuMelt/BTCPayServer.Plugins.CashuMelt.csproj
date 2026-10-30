@@ -8,7 +8,7 @@
   <PropertyGroup>
     <Product>Cashu Melt</Product>
     <Description>Cashu-assisted checkout: mint quote, forward to merchant Lightning address after melt, optional fee caps and trusted mint list, background reconciliation. BTCPay temporarily holds encrypted ecash until payout or recovery.</Description>
-    <Version>1.4.0.8</Version>
+    <Version>1.4.0.9</Version>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
   </PropertyGroup>
 
@@ -29,7 +29,7 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.0" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
-    <PackageReference Include="QRCoder" Version="1.8.0" />
+    <PackageReference Include="QRCoder" Version="1.8.1" />
   </ItemGroup>
 
 

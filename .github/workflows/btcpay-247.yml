@@ -1,4 +1,4 @@
-name: BTCPay 2.4.5 compatibility
+name: BTCPay 2.4.7 compatibility
 on:
   pull_request:
     branches: [main]

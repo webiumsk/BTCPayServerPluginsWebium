@@ -1,3 +1,9 @@
+# 2.2.3 (BTCPay 2.4.7 compatibility)
+
+- Require the exact-tested BTCPay 2.4.7 host for new artifacts; preserve standalone plugin identity and migration history.
+- Render merchant event descriptions through the bounded host rich-text policy and sanitize saved event/ticket-type content before native editor initialization.
+- Validate optional event and purchase redirects as absolute HTTP(S) before new invoice creation; preserve stored defaults and outstanding checkout recovery.
+
 # 2.2.2 (native BTCPay time-zone catalog)
 
 - Use the host's native time-zone catalog and resolver rather than injecting a Bratislava alias that is absent from the native picker.

@@ -157,6 +157,63 @@ public class EventTimeZoneDatabaseTests
             Assert.Equal(original.ReminderSentAt, persisted.ReminderSentAt);
         }
     }
+    [OrderDatabaseFact]
+    public async Task Invalid_redirect_update_does_not_persist_other_submitted_fields()
+    {
+        var (factory, original) = await Seed();
+        var controller = Controller(factory, original.StoreId);
+        var result = Assert.IsType<UnprocessableEntityObjectResult>(await controller.UpdateEvent(original.StoreId, original.Id,
+            new() { Title = "Must not persist", RedirectUrl = "javascript:alert(1)" }));
+        Assert.Equal(422, result.StatusCode);
+        Assert.Contains(Assert.IsType<List<GreenfieldValidationError>>(result.Value),
+            error => error.Path == nameof(ApiEventRequest.RedirectUrl));
+        await using var verify = factory.CreateContext();
+        var persisted = await verify.Events.AsNoTracking().SingleAsync(e => e.Id == original.Id);
+        Assert.Equal(original.Title, persisted.Title);
+        Assert.Equal(original.RedirectUrl, persisted.RedirectUrl);
+    }
+
+    [OrderDatabaseFact]
+    public async Task Unrelated_partial_update_does_not_silently_rewrite_a_legacy_redirect()
+    {
+        var (factory, original) = await Seed();
+        await using (var writer = factory.CreateContext())
+        {
+            var legacy = await writer.Events.SingleAsync(e => e.Id == original.Id);
+            legacy.RedirectUrl = "/old-relative-return";
+            await writer.SaveChangesAsync();
+        }
+        var controller = Controller(factory, original.StoreId);
+        Assert.IsType<OkObjectResult>(await controller.UpdateEvent(original.StoreId, original.Id,
+            new() { Title = "Ordinary edit" }));
+        await using var verify = factory.CreateContext();
+        var persisted = await verify.Events.AsNoTracking().SingleAsync(e => e.Id == original.Id);
+        Assert.Equal("Ordinary edit", persisted.Title);
+        Assert.Equal("/old-relative-return", persisted.RedirectUrl);
+    }
+
+    [OrderDatabaseFact]
+    public async Task Invalid_effective_redirect_is_rejected_before_persisting_a_new_purchase()
+    {
+        var (factory, original) = await Seed();
+        await using (var writer = factory.CreateContext())
+        {
+            var legacy = await writer.Events.SingleAsync(e => e.Id == original.Id);
+            legacy.RedirectUrl = "/old-relative-return";
+            legacy.EventState = Data.EntityState.Active;
+            await writer.SaveChangesAsync();
+        }
+        var controller = new GreenfieldSatfluxTicketsController(null!, factory, null!, null!, null!, null!, null!, null!, null!)
+        { ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() } };
+        controller.HttpContext.SetStoreData(new BTCPayServer.Data.StoreData { Id = original.StoreId });
+        var result = Assert.IsType<ObjectResult>(await controller.CreatePurchase(original.StoreId, original.Id,
+            new() { Tickets = new[] { new PurchaseTicketItemRequest { TicketTypeId = "synthetic", Quantity = 1 } } }));
+        Assert.Equal(422, result.StatusCode);
+        Assert.Equal(TicketRedirectUrlAttribute.ValidationMessage, Assert.IsType<GreenfieldAPIError>(result.Value).Message);
+        await using var verify = factory.CreateContext();
+        Assert.False(await verify.Orders.AnyAsync(o => o.EventId == original.Id));
+    }
+
     private sealed class EmptyTempData : ITempDataProvider
     {
         public IDictionary<string, object> LoadTempData(HttpContext context) => new Dictionary<string, object>();

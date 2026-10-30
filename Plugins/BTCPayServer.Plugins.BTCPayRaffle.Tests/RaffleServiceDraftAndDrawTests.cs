@@ -12,7 +12,7 @@ public class RaffleServiceDraftAndDrawTests
 {
     private static RaffleService CreateService() =>
         new(new InMemoryRaffleDbFactory(),
-            new RaffleDescriptionHtml(new Ganss.Xss.HtmlSanitizer()),
+            new RaffleDescriptionHtml(HostRichTextPolicy.Create()),
             NullLogger<RaffleService>.Instance);
 
     [Fact]

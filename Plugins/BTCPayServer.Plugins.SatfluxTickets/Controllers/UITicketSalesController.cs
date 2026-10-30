@@ -800,6 +800,11 @@ public class UITicketSalesController(UriResolver uriResolver,
 
     private bool ApplyNativeTimes(UpdateSimpleTicketSalesEventViewModel vm, Event current)
     {
+        if (!TicketRedirectUrlAttribute.IsAllowed(vm.RedirectUrl))
+        {
+            ModelState.AddModelError(nameof(vm.RedirectUrl), TicketRedirectUrlAttribute.ValidationMessage);
+            return false;
+        }
         if (!Enum.IsDefined(vm.EventType))
         {
             ModelState.AddModelError(nameof(vm.EventType), "Invalid event type");

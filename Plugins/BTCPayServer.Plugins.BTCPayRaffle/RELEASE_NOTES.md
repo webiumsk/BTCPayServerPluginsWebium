@@ -1,3 +1,10 @@
+# 1.3.2.4 - BTCPay 2.4.7 compatibility
+
+- Require BTCPay 2.4.7 for new artifacts.
+- Preserve supported merchant rich media using the bounded host policy on writes, legacy public/admin output and native editor initialization. Forms, unsafe URLs/CSS and script attributes remain disallowed; old stored originals are not bulk rewritten.
+- Preserve payment, draw, fulfillment and migration identities.
+- Align known legacy plain-varchar description/invoice widths without narrowing wider or unbounded columns, replacing custom domains, repricing rows or stamping migration history. Preserve column collation, defaults and nullability. The existing EF fallback warning remains visible; this does not repair its historical migration model.
+
 # BTCPay Raffle plugin — release notes
 
 ## 1.3.2.0 (public buy page layout)

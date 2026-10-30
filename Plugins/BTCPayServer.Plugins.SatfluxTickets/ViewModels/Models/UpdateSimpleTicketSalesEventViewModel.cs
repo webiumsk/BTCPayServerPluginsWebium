@@ -58,6 +58,7 @@ public class UpdateSimpleTicketSalesEventViewModel : IValidatableObject
     [Display(Name = "Email Body")]
     public string EmailBody { get; set; }
 
+    [TicketRedirectUrl]
     [Display(Name = "Redirect Url after ticket purchase")]
     public string RedirectUrl { get; set; }
 

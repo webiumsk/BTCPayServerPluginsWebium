@@ -46,7 +46,7 @@ supports LUD-21 verify (the test invoice can be ignored; it simply expires).
 
 ```bash
 cd Plugins/BTCPayServer.Plugins.Blitz
-dotnet build -c Release      # requires BTCPay Server ≥ 2.3.7 sources (see csproj reference paths)
+dotnet build -c Release      # requires the exact pinned BTCPay Server 2.4.7 sources (run the repository host guard)
 ./build-plugin.sh            # packages ../../packaged/BTCPayServer.Plugins.Blitz/<version>/*.btcpay
 ```
 

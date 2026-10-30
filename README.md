@@ -2,6 +2,10 @@
 
 This repository contains BTCPay Server plugins.
 
+## Current compatibility line
+
+The maintained compatibility branch pins BTCPay **2.4.7** exactly and all eight new artifacts require at least 2.4.7. Use the existing host submodule and its source guard; the legacy module list and sibling-build notes below do not replace that pin. See [the current version, test and package matrix](docs/BTCPAY_2_4_7_COMPATIBILITY.md), including SEPA prerequisites and Raffle schema-history boundaries.
+
 ## Plugins
 
 ### [Cashu Melt](Plugins/BTCPayServer.Plugins.CashuMelt/README.md)

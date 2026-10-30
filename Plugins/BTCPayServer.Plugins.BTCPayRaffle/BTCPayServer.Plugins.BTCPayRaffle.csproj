@@ -9,7 +9,7 @@
   <PropertyGroup>
     <Product>BTCPay Raffle</Product>
     <Description>Raffle / tombola plugin for BTCPay Server. Organise Lightning-powered ticket sales, perform live prize draws with animated slot-machine UI, and distribute verifiable digital tickets to buyers.</Description>
-    <Version>1.3.2.3</Version>
+    <Version>1.3.2.4</Version>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
   </PropertyGroup>
 
@@ -29,7 +29,7 @@
 
   <ItemGroup>
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
-    <PackageReference Include="QRCoder" Version="1.8.0" />
+    <PackageReference Include="QRCoder" Version="1.8.1" />
   </ItemGroup>
 
   <ItemGroup>
