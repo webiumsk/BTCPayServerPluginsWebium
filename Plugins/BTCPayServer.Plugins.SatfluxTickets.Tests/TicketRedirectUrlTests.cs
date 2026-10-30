@@ -59,6 +59,56 @@ public class TicketRedirectUrlTests
         Assert.Equal("/relative", model.RedirectUrl);
     }
 
+    [Theory]
+    [InlineData("RedirectUrl")]
+    [InlineData("vm.RedirectUrl")]
+    public void Unchanged_legacy_native_redirect_clears_only_its_validation_error(string key)
+    {
+        var controller = NativeController();
+        var current = new BTCPayServer.Plugins.SatfluxTickets.Data.Event
+        {
+            RedirectUrl = "/legacy", EventType = BTCPayServer.Plugins.SatfluxTickets.Data.EventType.Physical,
+            TimeZone = "UTC", StartDate = new DateTime(2035, 11, 28, 8, 0, 0, DateTimeKind.Utc)
+        };
+        var model = new UpdateSimpleTicketSalesEventViewModel
+        {
+            RedirectUrl = current.RedirectUrl, EventType = current.EventType, TimeZone = "UTC",
+            StartLocal = EventTimeZoneService.Civil(current.StartDate, "UTC")
+        };
+        controller.ModelState.AddModelError(key, TicketRedirectUrlAttribute.ValidationMessage);
+        Assert.True(Apply(controller, model, current));
+        Assert.True(controller.ModelState.IsValid);
+        Assert.Equal("/legacy", model.RedirectUrl);
+        Assert.False(TicketRedirectUrlAttribute.IsAllowed(model.RedirectUrl)); // Still unsuitable for new purchases.
+
+        controller.ModelState.AddModelError(key, TicketRedirectUrlAttribute.ValidationMessage);
+        controller.ModelState.AddModelError(key, "Other binding error");
+        Assert.False(Apply(controller, model, current));
+        Assert.Equal("Other binding error", Assert.Single(controller.ModelState[key]!.Errors).ErrorMessage);
+        Assert.False(controller.ModelState.IsValid);
+    }
+
+    [Theory]
+    [InlineData("/changed")]
+    [InlineData("javascript:alert(1)")]
+    public void Native_edit_cannot_replace_a_legacy_redirect_with_another_invalid_destination(string destination)
+    {
+        var controller = NativeController();
+        var model = new UpdateSimpleTicketSalesEventViewModel { RedirectUrl = destination };
+        var current = new BTCPayServer.Plugins.SatfluxTickets.Data.Event { RedirectUrl = "/legacy" };
+        Assert.False(Apply(controller, model, current));
+        Assert.NotEmpty(controller.ModelState[nameof(model.RedirectUrl)]!.Errors);
+    }
+
+    private static UITicketSalesController NativeController() =>
+        new(null!, null!, null!, null!, null!, null!, null!, null!, null!, null!)
+        { ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() } };
+
+    private static bool Apply(UITicketSalesController controller, UpdateSimpleTicketSalesEventViewModel model,
+        BTCPayServer.Plugins.SatfluxTickets.Data.Event current) =>
+        (bool)typeof(UITicketSalesController).GetMethod("ApplyNativeTimes", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(controller, new object[] { model, current })!;
+
     [Fact]
     public void Url_length_is_bounded_with_no_truncation()
     {

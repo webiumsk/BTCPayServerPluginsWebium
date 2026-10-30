@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Reflection;
@@ -81,16 +82,19 @@ public class SepaConfirmationIsolationTests
         private int _calls;
         public int Calls => _calls;
         public Queue<bool> Outcomes { get; } = new();
+        public Queue<SepaRecordingResult> Results { get; } = new();
         public Action<SepaPaymentRequest>? BeforeOutcome { get; set; }
 
         public RecordingSpy() : base(null!, null!, null!, null!, NullLogger<SepaPaymentRecorder>.Instance) { }
 
-        public override Task<bool> RecordAsync(SepaPaymentRequest request, decimal amount,
+        public override Task<SepaRecordingResult> RecordAsync(SepaPaymentRequest request, decimal amount,
             CancellationToken cancellationToken = default)
         {
             Interlocked.Increment(ref _calls);
             BeforeOutcome?.Invoke(request);
-            return Task.FromResult(Outcomes.Count == 0 || Outcomes.Dequeue());
+            return Task.FromResult(Results.Count > 0 ? Results.Dequeue()
+                : Outcomes.Count == 0 || Outcomes.Dequeue()
+                    ? SepaRecordingResult.Recorded : SepaRecordingResult.RetryableFailure);
         }
     }
 
@@ -311,6 +315,43 @@ public class SepaConfirmationIsolationTests
         Assert.Equal(2, recorder.Calls);
     }
 
+    [Theory]
+    [InlineData(SepaRecordingResult.MissingInvoice)]
+    [InlineData(SepaRecordingResult.InvoiceStoreMismatch)]
+    [InlineData(SepaRecordingResult.MissingPaymentHandler)]
+    public async Task Permanent_recording_prerequisites_require_review_without_consuming_the_bank_event(SepaRecordingResult result)
+    {
+        var (matcher, recorder) = await ArrangeAsync();
+        recorder.Results.Enqueue(result);
+
+        Assert.Equal(MatchOutcome.ManualReview,
+            await matcher.ProcessAsync(Store, "fio", Credit(), 0m));
+        var row = await ReadAsync();
+        Assert.Equal(SepaPaymentRequestState.ManualReview, row.State);
+        Assert.NotNull(row.ReviewReason);
+        Assert.Null(row.DedupKey);
+        Assert.Null(row.ConfirmedAt);
+        Assert.Null(row.ConfirmedBy);
+
+        // A later explicit repair can retry the same evidence and identity.
+        Assert.Equal(MatchOutcome.Settled,
+            await matcher.ProcessAsync(Store, "fio", Credit(), 0m));
+        Assert.Equal(2, recorder.Calls);
+    }
+
+    [Fact]
+    public async Task Unknown_recording_outcome_remains_retryable_and_never_marks_paid()
+    {
+        var (matcher, recorder) = await ArrangeAsync();
+        recorder.Results.Enqueue((SepaRecordingResult)999);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => matcher.ProcessAsync(Store, "fio", Credit(), 0m));
+        var row = await ReadAsync();
+        Assert.Equal(SepaPaymentRequestState.Pending, row.State);
+        Assert.Null(row.DedupKey);
+        Assert.Null(row.ConfirmedAt);
+    }
+
     [Fact]
     public async Task A_retry_after_external_success_uses_the_same_invoice_payment_identity()
     {
@@ -394,6 +435,142 @@ public class SepaConfirmationIsolationTests
         Assert.Equal(SepaPaymentRequestState.Confirmed, (await ReadAsync()).State);
         Assert.Equal(2, recorder.Calls);
         Assert.Equal(3, bank.Paths.Count);
+    }
+
+    [Theory]
+    [InlineData(SepaRecordingResult.MissingInvoice)]
+    [InlineData(SepaRecordingResult.InvoiceStoreMismatch)]
+    [InlineData(SepaRecordingResult.MissingPaymentHandler)]
+    public async Task Actual_fio_poll_continues_after_a_permanent_recording_prerequisite(SepaRecordingResult failure)
+    {
+        var (matcher, recorder) = await ArrangeAsync();
+        const string laterReference = "QR-00000000000000000000000000000002";
+        await using (var context = _database.Factory.CreateContext())
+        {
+            context.SepaPaymentRequests.Add(new SepaPaymentRequest
+            {
+                Reference = laterReference, StoreId = Store, InvoiceId = "synthetic-invoice-b",
+                Iban = OriginalIban, Backend = "fio", AmountDue = 12.50m, Currency = "EUR",
+            });
+            await context.SaveChangesAsync();
+        }
+        recorder.Results.Enqueue(failure);
+        var statement = JsonSerializer.Serialize(new
+        {
+            accountStatement = new
+            {
+                info = new { iban = OriginalIban, currency = "EUR", idLastDownload = 7L },
+                transactionList = new
+                {
+                    transaction = new[] { Reference, laterReference }.Select((reference, index) => new
+                    {
+                        column22 = new { value = 9L + index }, column1 = new { value = 12.50m },
+                        column14 = new { value = "EUR" }, column27 = new { value = reference },
+                    }).ToArray(),
+                },
+            },
+        });
+        using var bank = new FioBankFixture(statement);
+        var config = new SepaConfigService(_database.Factory, new EphemeralDataProtectionProvider());
+        var settings = new SepaStoreSettings { StoreId = Store, Iban = OriginalIban, ConfirmationBackend = "fio" };
+        config.ApplyCredentials(settings, new SepaBackendCredentials { FioToken = new string('a', 64) });
+        var poller = new SepaPollingHostedService(_database.Factory, config, new NopNotificationProcessor(),
+            new FioApiClient(bank), new FioTransactionProcessor(), matcher,
+            NullLogger<SepaPollingHostedService>.Instance);
+        var poll = typeof(SepaPollingHostedService).GetMethod("PollFioStoreAsync", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(poll);
+
+        await (Task)poll.Invoke(poller, new object[] { settings, CancellationToken.None })!;
+
+        var review = await ReadAsync();
+        Assert.Equal(SepaPaymentRequestState.ManualReview, review.State);
+        Assert.Null(review.DedupKey);
+        Assert.Equal(SepaPaymentRequestState.Confirmed, (await ReadAsync(laterReference)).State);
+        Assert.DoesNotContain(bank.Paths, path => path.Contains("/set-last-id/", StringComparison.Ordinal));
+        Assert.Equal(2, recorder.Calls);
+    }
+
+    private sealed class NopBankFixture : HttpMessageHandler
+    {
+        private readonly string _json;
+        public NopBankFixture(string json) => _json = json;
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            var response = new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(_json, Encoding.UTF8, "application/json"),
+            };
+            response.Headers.Add("x-result-truncated", "False");
+            return Task.FromResult(response);
+        }
+    }
+
+    private sealed class MqttListenerWithRetainedBank : NopMqttListener
+    {
+        private readonly HttpMessageHandler _bank;
+        public MqttListenerWithRetainedBank(SepaMatchingService matcher, HttpMessageHandler bank)
+            : base(null!, null!, new NopNotificationProcessor(), matcher, NullLogger<NopMqttListener>.Instance)
+            => _bank = bank;
+
+        protected override NopRestClient CreateCatchUpClient(SepaBackendCredentials credentials)
+            => new(new HttpClient(_bank, disposeHandler: false)
+            {
+                BaseAddress = new Uri(NopRestClient.BaseUrlFor("INT")),
+            }, NullLogger<NopMqttListener>.Instance);
+    }
+
+    [Fact]
+    public async Task Mqtt_catchup_processes_later_retained_notifications_and_retries_the_failed_item_without_advancing_checkpoint()
+    {
+        var (matcher, recorder) = await ArrangeAsync("nop-mqtt");
+        var references = new[] { Reference, "QR-00000000000000000000000000000002", "QR-00000000000000000000000000000003" };
+        await using (var context = _database.Factory.CreateContext())
+        {
+            foreach (var reference in references.Skip(1))
+                context.SepaPaymentRequests.Add(new SepaPaymentRequest
+                {
+                    Reference = reference, StoreId = Store, InvoiceId = "synthetic-invoice-" + reference,
+                    Iban = OriginalIban, Backend = "nop-mqtt", AmountDue = 12.50m, Currency = "EUR",
+                });
+            await context.SaveChangesAsync();
+        }
+        var payload = JsonSerializer.Serialize(references.Select(reference => new
+        {
+            transactionStatus = "ACCC", endToEndId = reference,
+            transactionAmount = new { currency = "EUR", amount = "12.50" },
+            creditorAccount = new { iban = OriginalIban }, receivedAt = "synthetic-received-event",
+            dataIntegrityHash = NopNotificationProcessor.ComputeHash(OriginalIban, "12.50", "EUR", reference),
+        }).ToArray());
+        using var bank = new NopBankFixture(payload);
+        var listener = new MqttListenerWithRetainedBank(matcher, bank);
+        var marker = typeof(NopMqttListener).GetField("_lastCatchUp", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(marker);
+        var checkpoints = (IDictionary<string, DateTimeOffset>)marker.GetValue(listener)!;
+        checkpoints[Store] = DateTimeOffset.UnixEpoch;
+        var settings = new SepaStoreSettings { StoreId = Store, NopPokladnica = "synthetic" };
+        recorder.Outcomes.Enqueue(true);
+        recorder.Outcomes.Enqueue(false);
+        recorder.Outcomes.Enqueue(true);
+
+        Assert.False(await listener.CatchUpAsync(settings, new SepaBackendCredentials(), CancellationToken.None));
+        Assert.Equal(SepaPaymentRequestState.Confirmed, (await ReadAsync(references[0])).State);
+        Assert.Equal(SepaPaymentRequestState.Pending, (await ReadAsync(references[1])).State);
+        Assert.Equal(SepaPaymentRequestState.Confirmed, (await ReadAsync(references[2])).State);
+        Assert.Null((await ReadAsync(references[1])).DedupKey);
+        Assert.Equal(DateTimeOffset.UnixEpoch, checkpoints[Store]);
+        Assert.Equal(3, recorder.Calls);
+
+        Assert.True(await listener.CatchUpAsync(settings, new SepaBackendCredentials(), CancellationToken.None));
+        Assert.Equal(SepaPaymentRequestState.Confirmed, (await ReadAsync(references[1])).State);
+        Assert.True(checkpoints[Store] > DateTimeOffset.UnixEpoch);
+        Assert.Equal(4, recorder.Calls);
+
+        using var cancelled = new CancellationTokenSource();
+        cancelled.Cancel();
+        var completedAt = checkpoints[Store];
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            listener.CatchUpAsync(settings, new SepaBackendCredentials(), cancelled.Token));
+        Assert.Equal(completedAt, checkpoints[Store]);
     }
 
     [Fact]

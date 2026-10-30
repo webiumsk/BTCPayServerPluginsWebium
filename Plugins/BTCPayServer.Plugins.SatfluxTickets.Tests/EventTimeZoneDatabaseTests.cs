@@ -24,6 +24,40 @@ namespace BTCPayServer.Plugins.SatfluxTickets.Tests;
 [Collection("Tickets disposable PostgreSQL")]
 public class EventTimeZoneDatabaseTests
 {
+    [OrderDatabaseFact]
+    public async Task Native_title_only_edit_preserves_unchanged_legacy_redirect_after_model_validation()
+    {
+        var (factory, original) = await Seed();
+        original.RedirectUrl = "/legacy";
+        await using (var writer = factory.CreateContext())
+        {
+            var saved = await writer.Events.SingleAsync(e => e.Id == original.Id);
+            saved.RedirectUrl = original.RedirectUrl;
+            await writer.SaveChangesAsync();
+        }
+        var context = new DefaultHttpContext();
+        context.SetStoreData(new BTCPayServer.Data.StoreData { Id = original.StoreId });
+        var services = new ServiceCollection().BuildServiceProvider();
+        var controller = new UITicketSalesController(null!, null!, null!, null!, null!, null!, factory, null!,
+            new RaffleEventBundleClientProvider(services), new RaffleListClientProvider(services))
+        { ControllerContext = new ControllerContext { HttpContext = context }, TempData = new TempDataDictionary(context, new EmptyTempData()) };
+        var map = typeof(UITicketSalesController).GetMethod("TicketSalesEventToViewModel",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        var model = (UpdateSimpleTicketSalesEventViewModel)map.Invoke(controller, new object[] { original })!;
+        model.Title = "Changed title only";
+        var validation = new List<System.ComponentModel.DataAnnotations.ValidationResult>();
+        Assert.False(System.ComponentModel.DataAnnotations.Validator.TryValidateProperty(model.RedirectUrl,
+            new System.ComponentModel.DataAnnotations.ValidationContext(model) { MemberName = nameof(model.RedirectUrl) }, validation));
+        controller.ModelState.AddModelError(nameof(model.RedirectUrl), Assert.Single(validation).ErrorMessage!);
+        Assert.IsType<RedirectToActionResult>(await controller.UpdateEvent(original.StoreId, original.Id, model));
+        Assert.True(controller.ModelState.IsValid);
+        await using var verify = factory.CreateContext();
+        var persisted = await verify.Events.AsNoTracking().SingleAsync(e => e.Id == original.Id);
+        Assert.Equal("Changed title only", persisted.Title);
+        Assert.Equal("/legacy", persisted.RedirectUrl);
+        Assert.False(TicketRedirectUrlAttribute.IsAllowed(persisted.RedirectUrl));
+    }
+
     private static SimpleTicketSalesDbContextFactory Factory()
     {
         var connection = Environment.GetEnvironmentVariable("TICKETS_ORDER_TEST_CONNECTION");

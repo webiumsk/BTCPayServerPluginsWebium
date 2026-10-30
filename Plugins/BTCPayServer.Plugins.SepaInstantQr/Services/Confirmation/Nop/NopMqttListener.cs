@@ -147,6 +147,9 @@ public class NopMqttListener : BackgroundService
 
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, DateTimeOffset> _lastCatchUp = new();
 
+    protected virtual NopRestClient CreateCatchUpClient(SepaBackendCredentials credentials)
+        => NopRestClient.Create(credentials, _logger);
+
     /// <summary>
     /// Missed-notification catch-up: NOP retains notifications for 2 hours.
     /// The per-store timestamp advances only after a fully successful pass,
@@ -158,7 +161,7 @@ public class NopMqttListener : BackgroundService
         var startedAt = DateTimeOffset.UtcNow;
         try
         {
-            using var client = NopRestClient.Create(credentials, _logger);
+            using var client = CreateCatchUpClient(credentials);
             var json = await client.GetAllTransactionsAsync(
                 $"POKLADNICA-{settings.NopPokladnica}",
                 ct);
@@ -166,11 +169,32 @@ public class NopMqttListener : BackgroundService
             if (json.ValueKind != System.Text.Json.JsonValueKind.Array)
                 throw new InvalidOperationException("NOP returned an invalid notification collection.");
 
-            if (json.ValueKind == System.Text.Json.JsonValueKind.Array)
+            var processingFailed = false;
+            foreach (var element in json.EnumerateArray())
             {
-                foreach (var element in json.EnumerateArray())
+                ct.ThrowIfCancellationRequested();
+                try
+                {
                     await HandleNotificationAsync(settings, element.GetRawText(), "nop-mqtt:catchup", ct);
+                }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception)
+                {
+                    processingFailed = true;
+                    // A failed item cannot starve later retained notifications.
+                    // Do not include the payload or exception text in diagnostics.
+                    _logger.LogWarning(
+                        "NOP catch-up notification processing failed for store {StoreId}; continuing with the batch",
+                        settings.StoreId);
+                }
             }
+
+            ct.ThrowIfCancellationRequested();
+            if (processingFailed)
+                return false;
 
             _lastCatchUp[settings.StoreId] = startedAt;
             return true;

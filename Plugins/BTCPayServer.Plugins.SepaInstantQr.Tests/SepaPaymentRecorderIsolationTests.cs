@@ -2,6 +2,7 @@ using System;
 using System.Threading.Tasks;
 using BTCPayServer.Plugins.SepaInstantQr.Data.Entities;
 using BTCPayServer.Plugins.SepaInstantQr.Services;
+using BTCPayServer.Payments;
 using BTCPayServer.Services.Invoices;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
@@ -17,8 +18,8 @@ public class SepaPaymentRecorderIsolationTests
 
         // Null downstream dependencies are deliberate tripwires: an ownership
         // mismatch must return before touching a handler, payment service or event.
-        public RecorderWithObservedInvoice(InvoiceEntity? invoice)
-            : base(null!, null!, null!, null!, NullLogger<SepaPaymentRecorder>.Instance)
+        public RecorderWithObservedInvoice(InvoiceEntity? invoice, PaymentMethodHandlerDictionary? handlers = null)
+            : base(null!, null!, handlers!, null!, NullLogger<SepaPaymentRecorder>.Instance)
             => _invoice = invoice;
 
         protected override Task<InvoiceEntity?> GetInvoiceAsync(string invoiceId)
@@ -41,7 +42,7 @@ public class SepaPaymentRecorderIsolationTests
             Iban = "SK4811000000002944116480", AmountDue = 12.50m, Currency = "EUR",
         };
 
-        Assert.False(await recorder.RecordAsync(request, 12.50m));
+        Assert.Equal(SepaRecordingResult.InvoiceStoreMismatch, await recorder.RecordAsync(request, 12.50m));
         Assert.Equal(1, recorder.InvoiceLookups);
     }
 
@@ -49,9 +50,22 @@ public class SepaPaymentRecorderIsolationTests
     public async Task Missing_invoice_never_reaches_payment_dependencies()
     {
         var recorder = new RecorderWithObservedInvoice(null);
-        Assert.False(await recorder.RecordAsync(new SepaPaymentRequest
+        Assert.Equal(SepaRecordingResult.MissingInvoice, await recorder.RecordAsync(new SepaPaymentRequest
         {
             StoreId = "store-a", InvoiceId = "missing-synthetic-invoice", Reference = "1234567890",
+        }, 12.50m));
+        Assert.Equal(1, recorder.InvoiceLookups);
+    }
+
+    [Fact]
+    public async Task Missing_handler_requires_review_before_payment_dependencies()
+    {
+        var handlers = new PaymentMethodHandlerDictionary(Array.Empty<IPaymentMethodHandler>());
+        var recorder = new RecorderWithObservedInvoice(new InvoiceEntity { StoreId = "store-a" }, handlers);
+
+        Assert.Equal(SepaRecordingResult.MissingPaymentHandler, await recorder.RecordAsync(new SepaPaymentRequest
+        {
+            StoreId = "store-a", InvoiceId = "synthetic-invoice", Reference = "1234567890",
         }, 12.50m));
         Assert.Equal(1, recorder.InvoiceLookups);
     }

@@ -1,3 +1,8 @@
+# 1.3.2.5 - sanitized description bounds
+
+- Validate the final sanitized description length before every write, including host-added image markup. Native forms display a description validation error rather than a database error or a value that cannot be edited later.
+- Preserve safe rendering of longer legacy descriptions without modifying stored originals, and retain the existing non-narrowing schema alignment.
+
 # 1.3.2.4 - BTCPay 2.4.7 compatibility
 
 - Require BTCPay 2.4.7 for new artifacts.

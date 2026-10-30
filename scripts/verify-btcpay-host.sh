@@ -13,11 +13,31 @@ if ! git -C "$repo_root/submodules/btcpayserver" diff --quiet HEAD --; then
     exit 1
 fi
 
-# .NET discovers new source and build configuration through globs/imports too.
-# Ignore normal generated output, but do not call an injected build input an exact host.
-untracked_inputs="$(git -C "$repo_root/submodules/btcpayserver" ls-files --others --exclude-standard -- \
-    '*.cs' '*.cshtml' '*.csproj' '*.props' '*.targets' '*.rsp' 'NuGet.Config' 'global.json')"
-if [ -n "$untracked_inputs" ]; then
-    echo "Build requires no untracked source or build configuration in the pinned BTCPay host." >&2
+# Git ignore rules and filename extensions are not build-input exclusions.
+# Require a clean source tree, exempting only normal output roots directly under
+# tracked project directories. This covers response/config/resource/Razor inputs
+# and links without depending on a list of recognized file extensions.
+host_root="$repo_root/submodules/btcpayserver"
+scan="$(mktemp)"
+projects="$(mktemp)"
+trap 'rm -f "$scan" "$projects"' EXIT
+git -C "$host_root" ls-files -z -- '*.csproj' > "$projects"
+output_roots=()
+while IFS= read -r -d '' project; do
+    prefix="${project%/*}/"
+    if [ "$project" = "${project%/*}" ]; then prefix=""; fi
+    output_roots+=("${prefix}bin/" "${prefix}obj/")
+done < "$projects"
+git -C "$host_root" ls-files --others -z -- > "$scan"
+while IFS= read -r -d '' path; do
+    generated=false
+    for output in "${output_roots[@]}"; do
+        if [[ "$path" == "$output"* ]] && [ -d "$host_root/${output%/}" ] && [ ! -L "$host_root/${output%/}" ]; then
+            generated=true
+            break
+        fi
+    done
+    if [ "$generated" = true ]; then continue; fi
+    echo "Build requires no untracked or ignored files or links outside tracked project output roots in the pinned BTCPay host." >&2
     exit 1
-fi
+done < "$scan"

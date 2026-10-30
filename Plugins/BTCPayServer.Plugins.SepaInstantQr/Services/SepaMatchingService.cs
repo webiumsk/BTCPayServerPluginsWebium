@@ -140,6 +140,7 @@ public class SepaMatchingService
             return MatchOutcome.ManualReview;
         }
 
+        var originalDedupKey = request.DedupKey;
         if (!string.IsNullOrWhiteSpace(confirmation.DedupKey))
         {
             var account = IbanValidator.Normalize(request.Iban);
@@ -168,8 +169,30 @@ public class SepaMatchingService
         }
 
         var recorded = await _paymentRecorder.RecordAsync(request, confirmation.Amount, cancellationToken);
-        if (!recorded)
+        if (recorded != SepaRecordingResult.Recorded)
         {
+            var reviewReason = recorded switch
+            {
+                SepaRecordingResult.MissingInvoice => "original BTCPay invoice is missing",
+                SepaRecordingResult.InvoiceStoreMismatch => "original BTCPay invoice belongs to a different store",
+                SepaRecordingResult.MissingPaymentHandler => "SEPA payment handler is unavailable",
+                _ => null,
+            };
+            if (reviewReason is not null)
+            {
+                // Do not strand later bank movements behind an unrecoverable
+                // invoice. Retain the evidence for an explicit operator decision,
+                // without reserving this event or erasing earlier recovery state.
+                request.DedupKey = originalDedupKey;
+                request.State = SepaPaymentRequestState.ManualReview;
+                request.ReviewReason = reviewReason;
+                request.RawConfirmationJson = confirmation.RawJson;
+                await ctx.SaveChangesAsync(cancellationToken);
+                await transaction.CommitAsync(cancellationToken);
+                _logger.LogWarning("sepa_recording_review source={Source}", DiagnosticSource(sourceId, manual));
+                return MatchOutcome.ManualReview;
+            }
+
             // Roll back the reservation and preserve the previous state. The
             // source may retry; the stable BTCPay payment id remains Reference
             // even if an earlier external recording outlived a failed commit.

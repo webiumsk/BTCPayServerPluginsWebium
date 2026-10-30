@@ -12,6 +12,16 @@ using Microsoft.Extensions.Logging;
 
 namespace BTCPayServer.Plugins.SepaInstantQr.Services;
 
+/// <summary>Explicitly separates operator-review cases from retryable recording failures.</summary>
+public enum SepaRecordingResult
+{
+    RetryableFailure,
+    Recorded,
+    MissingInvoice,
+    InvoiceStoreMismatch,
+    MissingPaymentHandler,
+}
+
 /// <summary>
 /// The single place that records a settled SEPA payment in BTCPay - mirrors
 /// CashuMelt's TryRecordPaymentInBtcPayAsync: PaymentData(Settled) +
@@ -44,7 +54,7 @@ public class SepaPaymentRecorder
     protected virtual Task<InvoiceEntity?> GetInvoiceAsync(string invoiceId)
         => _invoiceRepository.GetInvoice(invoiceId);
 
-    public virtual async Task<bool> RecordAsync(
+    public virtual async Task<SepaRecordingResult> RecordAsync(
         SepaPaymentRequest request,
         decimal amount,
         CancellationToken cancellationToken = default)
@@ -55,13 +65,13 @@ public class SepaPaymentRecorder
             _logger.LogWarning(
                 "Invoice {InvoiceId} not found while recording SEPA payment {Reference}",
                 request.InvoiceId, request.Reference);
-            return false;
+            return SepaRecordingResult.MissingInvoice;
         }
 
         if (!string.Equals(invoice.StoreId, request.StoreId, StringComparison.Ordinal))
         {
             _logger.LogWarning("SEPA invoice ownership mismatch; payment recording refused");
-            return false;
+            return SepaRecordingResult.InvoiceStoreMismatch;
         }
 
         if (!_handlers.TryGetValue(SepaInstantQrPlugin.SepaPaymentMethodId, out var handler))
@@ -69,7 +79,7 @@ public class SepaPaymentRecorder
             _logger.LogWarning(
                 "SEPA payment handler missing; cannot record payment for invoice {InvoiceId} reference {Reference}",
                 request.InvoiceId, request.Reference);
-            return false;
+            return SepaRecordingResult.MissingPaymentHandler;
         }
 
         var paymentData = new SepaPaymentData
@@ -113,7 +123,7 @@ public class SepaPaymentRecorder
                     p.Id == request.Reference &&
                     p.PaymentMethodId == SepaInstantQrPlugin.SepaPaymentMethodId);
             if (paymentEntity is null)
-                return false;
+                return SepaRecordingResult.RetryableFailure;
         }
 
         var updatedInvoice = await GetInvoiceAsync(request.InvoiceId);
@@ -125,6 +135,6 @@ public class SepaPaymentRecorder
         _logger.LogInformation(
             "sepa_payment_recorded invoice={InvoiceId} reference={Reference} amount={Amount} {Currency}",
             request.InvoiceId, request.Reference, amount, request.Currency);
-        return true;
+        return SepaRecordingResult.Recorded;
     }
 }

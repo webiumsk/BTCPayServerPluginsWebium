@@ -1,6 +1,6 @@
 # BTCPay 2.4.7 compatibility candidate
 
-The compatibility branch targets exact host commit `2868deedd9d911b715fec7306ea9cada36d86bff` (tag `v2.4.7`). The host gitlink, source guard and CI workflow are updated together. Guard checks reject a different revision, tracked source changes and untracked .NET source/build inputs; generated build outputs remain allowed. No upstream host source change is required.
+The compatibility branch targets exact host commit `2868deedd9d911b715fec7306ea9cada36d86bff` (tag `v2.4.7`). The host gitlink, source guard and CI workflow are updated together. Guard checks reject a different revision, tracked source changes, all ignored or untracked host entries outside normal bin/obj outputs directly beneath tracked project directories. This includes response/config/resource/Razor inputs and source links, without an extension allowlist; arbitrary nested bin/obj folders are not exempt. Keep developer-only notes/configuration outside this pinned dependency when qualifying a build. No upstream host source change is required.
 
 ## Candidate versions
 
@@ -8,23 +8,23 @@ The compatibility branch targets exact host commit `2868deedd9d911b715fec7306ea9
 | --- | --- | --- |
 | CashuMelt | 1.4.0.9 | 2.4.7 |
 | LNAddressConnect | 1.0.4.1 | 2.4.7 |
-| Satflux Tickets | 2.2.3 | 2.4.7 |
-| BTCPay Raffle | 1.3.2.4 | 2.4.7 |
-| SEPA Instant QR | 0.8.1.1 | 2.4.7 |
+| Satflux Tickets | 2.2.3.1 | 2.4.7 |
+| BTCPay Raffle | 1.3.2.5 | 2.4.7 |
+| SEPA Instant QR | 0.8.2.0 | 2.4.7 |
 | Blitz | 1.0.2 | 2.4.7 |
 | Flash | 1.0.2 | 2.4.7 |
 | EmailConfirm | 1.0.2 | 2.4.7 |
 
-These are locally built installable candidates, not package releases or production installations. Older 2.4.5 artifacts remain independent controls; new minimum-host declarations intentionally reject older hosts. All eight archive manifests, loaded instances and embedded assembly identities were verified.
+These are locally built installable candidates, not package releases or production installations. Older 2.4.5 artifacts remain independent controls; new minimum-host declarations intentionally reject older hosts. The original `ed250c2` compatibility archive identities were qualified separately. These rows identify current source candidates; final archive hashes and packaged-DLL evidence must identify the delivered versions.
 
-SEPA 0.8.1.1 here contains compatibility metadata/dependency changes on the maintained 0.8.1 source. The separate store/account-isolation repair at `8afed1a` (0.8.2) is preserved in its independent branch and has not been integrated. This compatibility candidate alone is not SEPA release readiness.
+SEPA 0.8.2.0 integrates the prepared `8afed1a` store/account-isolation repair and confirmation contract v2 with exact 2.4.7 compatibility. The earlier delivered 0.8.1.1 archive remains compatibility-only historical evidence and must not be selected as the repaired provider. See [the integration record](SEPA_247_INTEGRATION.md) for source/runtime and final artifact qualification boundaries.
 
 ## Changed behavior
 
 - Tickets public descriptions and Raffle public/admin descriptions use the host bounded merchant-rich-text output policy, including legacy stored content without a resave. Raffle writes use the same policy. No stored originals are bulk rewritten.
 - Native event, ticket-type and Raffle description editors opt into the host sanitized textarea helper before Summernote initialization. Supported images/video/inline formatting remain; forms, data attributes, style blocks, unsafe URLs/CSS and script attributes remain disallowed. Iframes retain host sandbox/trusted-origin distinctions.
 - Optional event and purchase redirects accept only absolute HTTP(S), at most 2,048 characters. Omitted/empty fields retain their existing API meaning. Invalid new saved values fail validation; legacy defaults are not silently rewritten. New purchases validate their effective redirect before persisting an order. Existing attempted public checkouts remain lookup-only recovery even if event settings later change.
-- Direct dependency downgrades revealed by the new host are aligned: QRCoder 1.8.1, MailKit/MimeKit test dependencies 4.18.2, Lightning.Common test dependency 1.7.5, NBXplorer.Client test dependency 5.0.12 and applicable Microsoft packages 10.0.14. Payment/recovery/fulfillment algorithms and historical migration identities are unchanged; the bounded legacy width alignment is described below.
+- Direct dependency downgrades revealed by the new host are aligned: QRCoder 1.8.1, MailKit/MimeKit test dependencies 4.18.2, Lightning.Common test dependency 1.7.5, NBXplorer.Client test dependency 5.0.12 and applicable Microsoft packages 10.0.14. Those dependency alignments do not alter payment/recovery/fulfillment algorithms or historical migration identities. Separate SEPA recovery/isolation changes are recorded in the integration document; the bounded legacy width alignment is described below.
 
 ## Qualification boundaries
 
@@ -34,11 +34,11 @@ The rich-text regressions instantiate the exact host's internal DI sanitizer fac
 
 A provider worktree nested under a parent JavaScript package with `type=module` changes Node's interpretation of the existing CommonJS test imports. Use a byte-identical temporary provider layout outside that parent package scope for those tests; do not mistake package-scope inheritance for a payment or host regression. Normal CI runs at the provider repository root.
 
-Build/test success is distinct from installed package identity, startup/migration/restart, native browser rendering, outstanding payment recovery and matched host/plugin/database/Data Protection-key restore. Independent source security/QA and final immutable-artifact evidence remain required before any release/deployment decision. No publication, merge or deployment is performed by this source compatibility work.
+Build/test success is distinct from installed package identity, startup/migration/restart, native browser rendering, outstanding payment recovery and matched host/plugin/database/Data Protection-key restore. Independent source security/QA and final immutable-artifact evidence remain required before any release/deployment decision. No package release, merge or deployment is implied by source publication.
 
-## Local source verification (2026-10-30)
+## Historical compatibility source verification (ed250c2, 2026-10-30)
 
-All eight maintained plugins build against the exact unmodified host. All existing and new .NET suites pass with disposable PostgreSQL configured, without skipped cases:
+At the original `ed250c2` compatibility checkpoint, all eight maintained plugins built against the exact unmodified host and the following suites passed with disposable PostgreSQL, without skipped cases. These historical counts and original archive identities do not establish the later integrated source or current patch-version archive identity:
 
 | Suite | Passed | Skipped |
 | --- | ---: | ---: |

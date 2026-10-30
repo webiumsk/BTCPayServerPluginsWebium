@@ -1,3 +1,9 @@
+# 2.2.3.1 (redirect and public rich-text review fixes)
+
+- Permit an unchanged legacy redirect during unrelated native event edits; new invalid destinations and new purchases remain rejected.
+- Render ticket-type descriptions through the same bounded host rich-text output policy as event descriptions, including unsafe legacy content without a resave.
+- Retain API redirect attributes: the exact 2.4.7 host already converts automatic model-validation failures to Greenfield 422 responses.
+
 # 2.2.3 (BTCPay 2.4.7 compatibility)
 
 - Require the exact-tested BTCPay 2.4.7 host for new artifacts; preserve standalone plugin identity and migration history.

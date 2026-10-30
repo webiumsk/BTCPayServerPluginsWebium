@@ -76,4 +76,44 @@ public class HostRichTextPolicyTests
         Assert.Contains("<video", updated!.Description);
         Assert.DoesNotContain("<form", updated.Description);
     }
+
+    [Fact]
+    public async Task Host_added_image_markup_is_bounded_before_create_and_update_writes()
+    {
+        var html = new RaffleDescriptionHtml(HostRichTextPolicy.Create());
+        const string image = "<img src=\"https://example.test/image.png\">";
+        var raw = new string('x', RaffleDescriptionHtml.MaximumLength - image.Length) + image;
+        Assert.Equal(8000, raw.Length);
+        Assert.True(html.Sanitize(raw)!.Length > 8000);
+        var service = new RaffleService(new InMemoryRaffleDbFactory(), html,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<RaffleService>.Instance);
+        var error = await Assert.ThrowsAsync<ArgumentException>(() =>
+            service.CreateRaffleAsync("test-store", "Rejected", raw, "SATS", 100));
+        Assert.Equal("description", error.ParamName);
+        Assert.Empty(await service.GetRafflesForStoreAsync("test-store"));
+
+        var raffle = await service.CreateRaffleAsync("test-store", "Saved", "Original", "SATS", 100);
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            service.UpdateDraftRaffleAsync(raffle.Id, "Changed", raw, "SATS", 100, null));
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            service.UpdateRaffleAsync(raffle.Id, "Changed", raw, null, null, null));
+        var unchanged = await service.GetRaffleAsync(raffle.Id);
+        Assert.Equal("Saved", unchanged!.Name);
+        Assert.Equal("Original", unchanged.Description);
+    }
+
+    [Fact]
+    public void Exactly_bounded_sanitized_output_can_be_saved_again_and_legacy_reads_remain_safe()
+    {
+        var html = new RaffleDescriptionHtml(HostRichTextPolicy.Create());
+        const string image = "<img src=\"https://example.test/image.png\">";
+        var input = new string('x', 8000 - html.Sanitize(image)!.Length) + image;
+        var saved = html.SanitizeForStorage(input);
+        Assert.Equal(8000, saved!.Length);
+        Assert.Equal(saved, html.SanitizeForStorage(saved));
+        var legacy = new string('x', 8001) + "<script>bad()</script>";
+        var rendered = html.Sanitize(legacy);
+        Assert.DoesNotContain("<script", rendered);
+        Assert.True(rendered!.Length > 8000); // Safe legacy reads do not rewrite or reject old records.
+    }
 }

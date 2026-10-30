@@ -202,10 +202,15 @@ canonicalizing supported legacy metadata, and
 `endLocal:null` clears the end. Edited non-existent or ambiguous DST hours are rejected
 rather than assigned an arbitrary offset. Explicit instant API clients remain compatible.
 
-Version 2.2.3 targets the pinned BTCPay 2.4.7 / .NET 10 host. Install it
+Version 2.2.3.1 targets the pinned BTCPay 2.4.7 / .NET 10 host. Install it
 before the dependent Satflux event-form changes. Retain additive schema on rollback;
 do not drop metadata or rewrite UTC dates. Normal database backups and the earlier
 checkout reconciliation/worker compatibility constraints still apply. No new environment
 variable, server timezone change, core modification or third-party plugin change is needed.
 
 Satflux preselects its own locally saved store zone for new physical events; a per-event override is preserved independently. The pinned BTCPay Store API does not persist that Satflux setting, so native BTCPay creation requires an explicit venue selection. Native edits carry original UTC schedule hints and reject detected stale start/end values before saving, retaining the draft for review and reload. This is not full event-metadata compare-and-swap.
+
+Unchanged legacy redirect values can remain during unrelated native event edits;
+new invalid destinations and new checkout attempts remain rejected until corrected.
+Public ticket-type descriptions use the same host rich-text policy as event
+content, including safe rendering of older stored markup without a resave.
