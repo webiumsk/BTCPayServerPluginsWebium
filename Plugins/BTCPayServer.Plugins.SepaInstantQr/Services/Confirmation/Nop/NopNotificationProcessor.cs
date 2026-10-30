@@ -76,8 +76,7 @@ public class NopNotificationProcessor
     /// <summary>
     /// SBA Standard for Push Payment Notification, Annex B: SHA-256 lowercase
     /// hex of "IBAN|amount|currency|endToEndId". The amount is hashed exactly
-    /// as delivered; the IBAN comes from creditorAccount, else the merchant's
-    /// configured IBAN (same account).
+    /// as delivered; matching supplies the immutable invoice receiving IBAN.
     /// </summary>
     public static string ComputeHash(string iban, string amountRaw, string currency, string endToEndId)
     {
@@ -86,27 +85,26 @@ public class NopNotificationProcessor
         return Convert.ToHexStringLower(bytes);
     }
 
-    public bool VerifyHash(NopNotification notification, string fallbackIban)
+    public bool VerifyHash(NopNotification notification, string expectedIban)
     {
-        var iban = string.IsNullOrEmpty(notification.CreditorIban) ? fallbackIban : notification.CreditorIban;
-        var expected = ComputeHash(iban, notification.AmountRaw, notification.Currency, notification.EndToEndId);
+        if (!string.IsNullOrWhiteSpace(notification.CreditorIban)
+            && !string.Equals(IbanValidator.Normalize(notification.CreditorIban),
+                IbanValidator.Normalize(expectedIban), StringComparison.Ordinal))
+            return false;
+
+        var expected = ComputeHash(expectedIban, notification.AmountRaw, notification.Currency, notification.EndToEndId);
         return string.Equals(expected, notification.DataIntegrityHash, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
     /// Maps a notification to a ConfirmedPayment; null when the notification
-    /// is not a settled credit (only ACCC counts). A failed integrity check
-    /// still produces a payment - flagged so matching routes it to manual
-    /// review instead of settling.
+    /// is not a settled credit (only ACCC counts). Integrity verification is
+    /// deferred until matching can use the invoice's original receiving IBAN.
     /// </summary>
-    public ConfirmedPayment? ToConfirmedPayment(NopNotification notification, string fallbackIban)
+    public ConfirmedPayment? ToConfirmedPayment(NopNotification notification)
     {
         if (!string.Equals(notification.TransactionStatus, "ACCC", StringComparison.OrdinalIgnoreCase))
             return null;
-
-        var integrityFailure = VerifyHash(notification, fallbackIban)
-            ? null
-            : "dataIntegrityHash mismatch";
 
         return new ConfirmedPayment(
             notification.EndToEndId,
@@ -114,7 +112,9 @@ public class NopNotificationProcessor
             notification.Currency,
             notification.RawJson,
             DedupKey: $"nop:{notification.EndToEndId}:{notification.Timestamp ?? ""}",
-            IntegrityFailure: integrityFailure);
+            CreditorIban: notification.CreditorIban,
+            BankOriginVerified: true,
+            NopIntegrity: new NopPaymentIntegrity(notification.AmountRaw, notification.DataIntegrityHash));
     }
 
     private static string? GetString(JsonElement obj, string name)

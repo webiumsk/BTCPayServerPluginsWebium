@@ -278,8 +278,8 @@ public class SepaApiController : ControllerBase
         if (settings is null)
             return Problem(statusCode: 400, detail: "Save the settings first (PUT settings).");
 
-        // Tenant isolation: the matcher itself looks up by reference only,
-        // so verify the reference belongs to the route store before it runs
+        // Verify the reference belongs to the authenticated route store.
+        // The matcher independently enforces this same store boundary.
         // (same scoped lookup as ConfirmManually). Unknown references are an
         // EXPECTED case on this channel (the b-mail flow probes variable-
         // symbol candidates), so they answer outcome=unknown, not 404 -
@@ -292,13 +292,16 @@ public class SepaApiController : ControllerBase
             return Ok(new { outcome = "unknown" });
 
         var outcome = await _matchingService.ProcessAsync(
+            storeId,
             "bmail",
             new ConfirmedPayment(
                 request.Reference,
                 request.Amount,
                 request.Currency.ToUpperInvariant(),
                 RawJson: null,
-                DedupKey: string.IsNullOrWhiteSpace(request.DedupKey) ? null : $"bmail:{request.DedupKey}"),
+                DedupKey: string.IsNullOrWhiteSpace(request.DedupKey) ? null : $"bmail:{request.DedupKey}",
+                CreditorIban: request.CreditorIban,
+                BankOriginVerified: request.BankOriginVerified),
             settings.AmountTolerance,
             cancellationToken);
 
@@ -357,11 +360,10 @@ public class SepaApiController : ControllerBase
         if (request is null)
             return NotFound();
 
-        var settings = await _configService.GetSettingsAsync(storeId, cancellationToken);
-        var outcome = await _matchingService.ProcessAsync(
-            $"manual:{User.Identity?.Name ?? "greenfield"}",
-            new ConfirmedPayment(reference, request.AmountDue, request.Currency, RawJson: null, DedupKey: null),
-            settings?.AmountTolerance ?? 0m,
+        var outcome = await _matchingService.ConfirmManuallyAsync(
+            storeId,
+            User.Identity?.Name ?? "greenfield",
+            reference,
             cancellationToken);
 
         return outcome switch

@@ -26,8 +26,6 @@ public class SepaPollingHostedService : BackgroundService
     // 35 s: the Fio bank minimum is 30 s per token (+ margin); polling
     // only runs for stores with pending requests, so load stays bounded.
     private static readonly TimeSpan TickInterval = TimeSpan.FromSeconds(35);
-    private static readonly TimeSpan InitialLookback = TimeSpan.FromHours(2); // NOP notification retention
-    private static readonly TimeSpan Overlap = TimeSpan.FromMinutes(5);
 
     private readonly SepaDbContextFactory _dbContextFactory;
     private readonly SepaConfigService _configService;
@@ -142,13 +140,13 @@ public class SepaPollingHostedService : BackgroundService
             return;
 
         var startedAt = DateTimeOffset.UtcNow;
-        var dateFrom = _lastSuccessfulPoll.TryGetValue(settings.StoreId, out var last)
-            ? last - Overlap
-            : startedAt - InitialLookback;
-
         using var client = NopRestClient.Create(credentials, _logger);
-        var json = await client.GetAllTransactionsAsync($"POKLADNICA-{settings.NopPokladnica}", dateFrom, ct);
+        var json = await client.GetAllTransactionsAsync($"POKLADNICA-{settings.NopPokladnica}", ct);
 
+        if (json.ValueKind != System.Text.Json.JsonValueKind.Array)
+            throw new InvalidOperationException("NOP returned an invalid notification collection.");
+
+        var processingFailed = false;
         if (json.ValueKind == System.Text.Json.JsonValueKind.Array)
         {
             foreach (var element in json.EnumerateArray())
@@ -160,11 +158,11 @@ public class SepaPollingHostedService : BackgroundService
                     if (notification is null)
                         continue;
 
-                    var confirmed = _processor.ToConfirmedPayment(notification, settings.Iban);
+                    var confirmed = _processor.ToConfirmedPayment(notification);
                     if (confirmed is null)
                         continue;
 
-                    await _matchingService.ProcessAsync(NopRestPollerSource.BackendId, confirmed, settings.AmountTolerance, ct);
+                    await _matchingService.ProcessAsync(settings.StoreId, NopRestPollerSource.BackendId, confirmed, settings.AmountTolerance, ct);
                 }
                 catch (OperationCanceledException) when (ct.IsCancellationRequested)
                 {
@@ -172,9 +170,9 @@ public class SepaPollingHostedService : BackgroundService
                 }
                 catch (Exception ex)
                 {
-                    // One broken notification must not sink the rest of the
-                    // batch; the checkpoint below still advances - the dedup
-                    // key makes any re-delivery harmless anyway.
+                    processingFailed = true;
+                    // Process the remainder, but leave the completion marker
+                    // unchanged so the full retained set is retried as well.
                     _logger.LogWarning(ex,
                         "NOP REST notification processing failed for store {StoreId}; continuing with the batch",
                         settings.StoreId);
@@ -182,9 +180,12 @@ public class SepaPollingHostedService : BackgroundService
             }
         }
 
+        if (processingFailed)
+            throw new InvalidOperationException("SEPA notification processing did not complete; retry pending confirmations.");
+
         // Checkpoint advances only after the whole batch was fetched and
-        // walked - a thrown fetch keeps the previous window so unprocessed
-        // confirmations are retrieved again next tick.
+        // walked. Every fetch includes all retained notifications: date_from
+        // filters ID creation and would miss old invoices paid only recently.
         _lastSuccessfulPoll[settings.StoreId] = startedAt;
     }
 
@@ -218,7 +219,7 @@ public class SepaPollingHostedService : BackgroundService
             ct.ThrowIfCancellationRequested();
             try
             {
-                await _matchingService.ProcessAsync(FioSource.BackendId, movement.Payment, settings.AmountTolerance, ct);
+                await _matchingService.ProcessAsync(settings.StoreId, FioSource.BackendId, movement.Payment, settings.AmountTolerance, ct);
                 lastProcessedId = movement.MovementId;
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)

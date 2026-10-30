@@ -59,9 +59,16 @@ public partial class FioTransactionProcessor
             || transactions.ValueKind != JsonValueKind.Array)
             return results;
 
+        var creditorIban = statement.TryGetProperty("info", out var info)
+                           && info.ValueKind == JsonValueKind.Object
+                           && info.TryGetProperty("iban", out var iban)
+                           && iban.ValueKind == JsonValueKind.String
+            ? iban.GetString()
+            : null;
+
         foreach (var transaction in transactions.EnumerateArray())
         {
-            var payment = ToConfirmedPayment(transaction);
+            var payment = ToConfirmedPayment(transaction, creditorIban);
             if (payment is null)
                 continue;
             var movementId = long.Parse(payment.DedupKey!["fio:".Length..], CultureInfo.InvariantCulture);
@@ -73,7 +80,7 @@ public partial class FioTransactionProcessor
         return results.OrderBy(m => m.MovementId).ToList();
     }
 
-    public ConfirmedPayment? ToConfirmedPayment(JsonElement transaction)
+    public ConfirmedPayment? ToConfirmedPayment(JsonElement transaction, string? creditorIban = null)
     {
         var amount = GetDecimal(transaction, "column1");
         if (amount is null or <= 0)
@@ -87,7 +94,7 @@ public partial class FioTransactionProcessor
         if (string.IsNullOrWhiteSpace(movementId))
             return null;
 
-        var reference = ResolveReference(transaction);
+        var reference = ResolveReference(transaction, out var ambiguousReference);
         if (reference is null)
             return null; // no reference we could ever match - not ours
 
@@ -96,11 +103,15 @@ public partial class FioTransactionProcessor
             amount.Value,
             currency!.ToUpperInvariant(),
             transaction.GetRawText(),
-            DedupKey: $"fio:{movementId}");
+            DedupKey: $"fio:{movementId}",
+            IntegrityFailure: ambiguousReference ? "ambiguous payment references" : null,
+            CreditorIban: creditorIban,
+            BankOriginVerified: true);
     }
 
-    private static string? ResolveReference(JsonElement transaction)
+    private static string? ResolveReference(JsonElement transaction, out bool ambiguous)
     {
+        ambiguous = false;
         var payerReference = GetString(transaction, "column27");
         if (!string.IsNullOrWhiteSpace(payerReference))
             return payerReference!.Trim();
@@ -112,9 +123,17 @@ public partial class FioTransactionProcessor
         var message = GetString(transaction, "column16");
         if (!string.IsNullOrWhiteSpace(message))
         {
-            var match = EndToEndInMessage().Match(message!);
-            if (match.Success)
-                return match.Value;
+            var references = EndToEndInMessage().Matches(message!).Cast<Match>()
+                .Select(match => match.Value)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            if (references.Length != 0)
+            {
+                // Keep one scoped request reviewable without treating either
+                // of two distinct fallback references as settlement evidence.
+                ambiguous = references.Length > 1;
+                return references[0];
+            }
         }
 
         return null;
