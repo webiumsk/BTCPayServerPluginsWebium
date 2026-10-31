@@ -115,7 +115,7 @@
                                 <h3 id="sales-type-title-@i">@type.Name</h3>
                                 @if (!string.IsNullOrWhiteSpace(type.Description))
                                 {
-                                    <p>@type.Description</p>
+                                    @await Html.PartialAsync("_TicketTypeDescription", type.Description)
                                 }
                                 <strong class="sales-price">@t.Money(type.Price, Model.CurrencyDecimals, Model.Currency)</strong>
                                 @if (type.Maximum == 0)
@@ -152,7 +152,7 @@
             {
                 <section class="sales-section sales-about" aria-labelledby="sales-about-title">
                     <h2 id="sales-about-title" data-sales-copy="About">@t["About"]</h2>
-                    <div class="sales-rich-description">@Safe.Raw(Model.Description)</div>
+                    <div class="sales-rich-description">@Safe.RawRichText(Model.Description)</div>
                 </section>
             }
         </main>

@@ -1,0 +1,31 @@
+{
+  "consumerPriorManifest": "9d227c2ad3a9ed433f60e344d61f6131b13954fc2dabb6855ebc2d9d095f6942",
+  "consumerSourceUnchanged": true,
+  "hostPin": "2868deedd9d911b715fec7306ea9cada36d86bff",
+  "providerBase": "e37347888fecdca390733e5f889a4853bd19c632",
+  "providerFiles": {
+    "Plugins/BTCPayServer.Plugins.BTCPayRaffle.Tests/HostRichTextPolicyTests.cs": "078c68fff01dd26cb27d3a67dab814971517302e34e79bbac599739d38a7bd1c",
+    "Plugins/BTCPayServer.Plugins.BTCPayRaffle/BTCPayServer.Plugins.BTCPayRaffle.csproj": "0a4f650971c71b72533098ddf9fd4a1faf86c2232c24b89ab3697386b71e5cf6",
+    "Plugins/BTCPayServer.Plugins.BTCPayRaffle/Controllers/UIRaffleController.cs": "15d03b06a7a83a406470b7e0d07cc44309381b0ce12d48722efff340547892d8",
+    "Plugins/BTCPayServer.Plugins.BTCPayRaffle/RELEASE_NOTES.md": "becc43b1dbbe9aad056b473e56601db35a1061402d6e4288013a82f51f9cfe48",
+    "Plugins/BTCPayServer.Plugins.BTCPayRaffle/Services/RaffleDescriptionHtml.cs": "c7002df8b41edb349bc1892ad64877144841c5cc7496fd383b83056c867a3eec",
+    "Plugins/BTCPayServer.Plugins.BTCPayRaffle/Services/RaffleService.cs": "a7b6cf7291a35a31647dd192d3b7ae8aab219bce1ec6a849f3f6b8d855adb6ba",
+    "Plugins/BTCPayServer.Plugins.SatfluxTickets.Tests/EventTimeZoneDatabaseTests.cs": "ecf1f6831fd3ddfd5cde33e434395c71f37a472001d194f7084641f65848f14d",
+    "Plugins/BTCPayServer.Plugins.SatfluxTickets.Tests/TicketRedirectUrlTests.cs": "bafe40f38f27a49b88aa59fcfd4ed3a0ad4205b8266e25518b90c3b3d59c7d3a",
+    "Plugins/BTCPayServer.Plugins.SatfluxTickets.Tests/TicketTypeRichTextRenderingTests.cs": "963a6e890c250a458648a6be8d4a08f049cf531a5947928946b99539acae7abc",
+    "Plugins/BTCPayServer.Plugins.SatfluxTickets/BTCPayServer.Plugins.SatfluxTickets.csproj": "c438ae77c3ded70cf4fbe8ae78994425ba5a9753ae815b8df7d58cc65dc66d25",
+    "Plugins/BTCPayServer.Plugins.SatfluxTickets/CHANGELOG-FORK.md": "f5bb310be09df0b921e413528605bfd2bb94b0f4e2856c55a778b665f7d163ed",
+    "Plugins/BTCPayServer.Plugins.SatfluxTickets/Controllers/UITicketSalesController.cs": "1bf30b7ce6a507c35aab84a4a53ff15f8c28d8974e7c7a8a11fe1935b28d0aef",
+    "Plugins/BTCPayServer.Plugins.SatfluxTickets/README.md": "f2439f6fc998a7a1e35b26fb6a253b78f37e3fe1eb43d6d7e52f14fdbf572d7b",
+    "Plugins/BTCPayServer.Plugins.SatfluxTickets/Views/UITicketSalesPublic/EventSummary.cshtml": "2152d23c7c0eac382cf8e82b4c235f33d9801bffe48c3c4dbc067a6a77c71567",
+    "Plugins/BTCPayServer.Plugins.SatfluxTickets/Views/UITicketSalesPublic/_TicketTypeDescription.cshtml": "2bec28a47966d25644029f2270eebdeb1582735af95df451a8f411bbfa294fe0",
+    "Plugins/BTCPayServer.Plugins.SepaInstantQr.Tests/SepaConfirmationIsolationTests.cs": "ba482b25e964a9c0c4e8e5a0006efe00979da46068c21c97674412c76fc5b319",
+    "Plugins/BTCPayServer.Plugins.SepaInstantQr.Tests/SepaPaymentRecorderIsolationTests.cs": "8631e006b177ef5a1ad64e97a7a6cb7881a72546377c2d6daaa6bf417f239a60",
+    "Plugins/BTCPayServer.Plugins.SepaInstantQr/Services/Confirmation/Nop/NopMqttListener.cs": "f63815320b6cfddd97deff34470821e81f9f21b3fd7e6546250d2c471a982373",
+    "Plugins/BTCPayServer.Plugins.SepaInstantQr/Services/SepaMatchingService.cs": "91a64369c1581afa2ca23520a353a38271c12bd44578ba4b9ec94f43fe7eb049",
+    "Plugins/BTCPayServer.Plugins.SepaInstantQr/Services/SepaPaymentRecorder.cs": "0f21f72366f5f5525c11eae35d9fef577e4ed4ed3258ad3b1c6cb359e5d6e790",
+    "scripts/tests/verify-btcpay-host.sh": "78391e9e04a9928c7ffad152ce425172ba14a07feb7ca2b2d3229f4ff09fe4d2",
+    "scripts/verify-btcpay-host.sh": "3c49af97bfbd7c79227be2e262405c39831c53a96316a1692dd386c8445a2e6a"
+  },
+  "reviewer": "sepa247_security"
+}

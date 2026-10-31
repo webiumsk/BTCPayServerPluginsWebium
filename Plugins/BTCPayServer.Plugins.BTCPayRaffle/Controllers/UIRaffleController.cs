@@ -64,7 +64,7 @@ public class UIRaffleController : Controller
         }
         catch (ArgumentException ex)
         {
-            ModelState.AddModelError("", ex.Message);
+            ModelState.AddModelError(ex.ParamName == "description" ? nameof(vm.Description) : "", ex.Message);
             return View(vm);
         }
     }
@@ -97,6 +97,11 @@ public class UIRaffleController : Controller
                 vm.CanEditPricing ? vm.TicketCurrency : null,
                 vm.CanEditPricing ? vm.TicketPrice : null,
                 vm.CanEditMaxTickets ? vm.MaxTickets : raffle.MaxTickets);
+        }
+        catch (ArgumentException ex) when (ex.ParamName == "description")
+        {
+            ModelState.AddModelError(nameof(vm.Description), ex.Message);
+            return View(vm);
         }
         catch (InvalidOperationException ex)
         {

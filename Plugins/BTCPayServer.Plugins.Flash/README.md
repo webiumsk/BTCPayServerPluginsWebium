@@ -50,7 +50,7 @@ confirm the server supports LUD-21 verify (the test invoice can be ignored; it s
 
 ```bash
 cd Plugins/BTCPayServer.Plugins.Flash
-dotnet build -c Release      # requires BTCPay Server ≥ 2.3.7 sources (see csproj reference paths)
+dotnet build -c Release      # requires the exact pinned BTCPay Server 2.4.7 sources (run the repository host guard)
 ./build-plugin.sh            # packages ../../packaged/BTCPayServer.Plugins.Flash/<version>/*.btcpay
 ```
 

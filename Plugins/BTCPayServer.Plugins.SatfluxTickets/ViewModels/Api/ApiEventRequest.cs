@@ -1,3 +1,4 @@
+using BTCPayServer.Plugins.SatfluxTickets.Services;
 using System;
 using System.Collections.Generic;
 
@@ -29,6 +30,7 @@ public class ApiEventRequest
     private string _currency;
     public string Currency { get => _currency; set { _currency = value; _specified.Add(nameof(Currency)); } }
     private string _redirectUrl;
+    [TicketRedirectUrl]
     public string RedirectUrl { get => _redirectUrl; set { _redirectUrl = value; _specified.Add(nameof(RedirectUrl)); } }
     private string _emailSubject;
     public string EmailSubject { get => _emailSubject; set { _emailSubject = value; _specified.Add(nameof(EmailSubject)); } }

@@ -293,11 +293,10 @@ public class UISepaController : Controller
         if (request is null)
             return NotFound();
 
-        var settings = await _configService.GetSettingsAsync(storeId, cancellationToken);
-        var outcome = await _matchingService.ProcessAsync(
-            $"manual:{User.Identity?.Name ?? "unknown"}",
-            new ConfirmedPayment(reference, request.AmountDue, request.Currency, RawJson: null, DedupKey: null),
-            settings?.AmountTolerance ?? 0m,
+        var outcome = await _matchingService.ConfirmManuallyAsync(
+            storeId,
+            User.Identity?.Name ?? "unknown",
+            reference,
             cancellationToken);
 
         TempData.SetStatusMessageModel(new StatusMessageModel

@@ -98,6 +98,8 @@ public class GreenfieldSatfluxTicketsEventsController(StoreRepository storeRepo,
             return createStoreError;
         if (string.IsNullOrWhiteSpace(request.Title))
             ModelState.AddModelError(nameof(request.Title), "Title is required");
+        if (!TicketRedirectUrlAttribute.IsAllowed(request.RedirectUrl))
+            ModelState.AddModelError(nameof(request.RedirectUrl), TicketRedirectUrlAttribute.ValidationMessage);
         var time = EventTimeZoneService.Resolve(request);
         if (time.Errors.Count > 0) return TimeValidationError(time);
         if (time.StartDate.HasValue && time.StartDate.Value <= DateTime.UtcNow)
@@ -167,6 +169,8 @@ public class GreenfieldSatfluxTicketsEventsController(StoreRepository storeRepo,
 
         if (request.Has(nameof(request.Title)) && string.IsNullOrWhiteSpace(request.Title))
             ModelState.AddModelError(nameof(request.Title), "Title is required");
+        if (!TicketRedirectUrlAttribute.IsAllowed(request.RedirectUrl))
+            ModelState.AddModelError(nameof(request.RedirectUrl), TicketRedirectUrlAttribute.ValidationMessage);
         var time = EventTimeZoneService.Resolve(request, entity);
         if (time.Errors.Count > 0) return TimeValidationError(time);
         if (time.StartDate.HasValue && time.StartDate.Value != entity.StartDate && time.StartDate.Value <= DateTime.UtcNow)

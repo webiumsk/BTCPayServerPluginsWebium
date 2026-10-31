@@ -1,3 +1,20 @@
+# 2.2.3.2 (legacy ticket-type text rendering)
+
+- Preserve bracketed email addresses and following instructions in legacy ticket-type descriptions before the unchanged host rich-text sanitizer runs.
+- Preserve line breaks and whitespace for plain-text ticket-type descriptions while retaining normal rich-text layout.
+
+# 2.2.3.1 (redirect and public rich-text review fixes)
+
+- Permit an unchanged legacy redirect during unrelated native event edits; new invalid destinations and new purchases remain rejected.
+- Render ticket-type descriptions through the same bounded host rich-text output policy as event descriptions, including unsafe legacy content without a resave.
+- Retain API redirect attributes: the exact 2.4.7 host already converts automatic model-validation failures to Greenfield 422 responses.
+
+# 2.2.3 (BTCPay 2.4.7 compatibility)
+
+- Require the exact-tested BTCPay 2.4.7 host for new artifacts; preserve standalone plugin identity and migration history.
+- Render merchant event descriptions through the bounded host rich-text policy and sanitize saved event/ticket-type content before native editor initialization.
+- Validate optional event and purchase redirects as absolute HTTP(S) before new invoice creation; preserve stored defaults and outstanding checkout recovery.
+
 # 2.2.2 (native BTCPay time-zone catalog)
 
 - Use the host's native time-zone catalog and resolver rather than injecting a Bratislava alias that is absent from the native picker.

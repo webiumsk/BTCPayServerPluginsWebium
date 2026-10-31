@@ -7,6 +7,9 @@ namespace BTCPayServer.Plugins.SepaInstantQr.Models;
 /// <summary>Settings snapshot returned by the Greenfield API. Secrets never leave the server - only *Set flags and the parsed identity.</summary>
 public class SepaSettingsData
 {
+    /// <summary>Automatic reports require verified bank origin and observed receiving account.</summary>
+    public int ConfirmationContractVersion { get; set; } = 2;
+
     public bool Configured { get; set; }
     public bool Enabled { get; set; }
     public string CountryProfile { get; set; } = "SK";
@@ -90,10 +93,9 @@ public class SepaFioTokenRequest
 }
 
 /// <summary>
-/// Amount-verified external confirmation (satflux b-mail channel): unlike
-/// the manual confirm endpoint, the reported amount/currency must match the
-/// pending request (within the store tolerance) or the payment lands in
-/// manual review instead of settling.
+/// Bank-origin and account-bound external confirmation (satflux b-mail).
+/// Legacy reports lacking these proofs remain review-only; explicit merchant
+/// confirmation is available through the separate manual endpoint.
 /// </summary>
 public class SepaReportPaymentRequest
 {
@@ -112,6 +114,13 @@ public class SepaReportPaymentRequest
     /// <summary>Optional idempotency key of the delivery (e.g. inbound mail id).</summary>
     [MaxLength(120)]
     public string? DedupKey { get; set; }
+
+    /// <summary>Receiving IBAN parsed from authenticated bank evidence; never inferred from configuration.</summary>
+    [MaxLength(42)]
+    public string? CreditorIban { get; set; }
+
+    /// <summary>The authenticated store-scoped caller verified the bank origin of this report.</summary>
+    public bool BankOriginVerified { get; set; }
 }
 
 public class SepaPaymentRequestData

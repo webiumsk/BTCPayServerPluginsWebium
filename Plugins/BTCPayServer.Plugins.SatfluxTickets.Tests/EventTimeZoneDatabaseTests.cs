@@ -24,6 +24,40 @@ namespace BTCPayServer.Plugins.SatfluxTickets.Tests;
 [Collection("Tickets disposable PostgreSQL")]
 public class EventTimeZoneDatabaseTests
 {
+    [OrderDatabaseFact]
+    public async Task Native_title_only_edit_preserves_unchanged_legacy_redirect_after_model_validation()
+    {
+        var (factory, original) = await Seed();
+        original.RedirectUrl = "/legacy";
+        await using (var writer = factory.CreateContext())
+        {
+            var saved = await writer.Events.SingleAsync(e => e.Id == original.Id);
+            saved.RedirectUrl = original.RedirectUrl;
+            await writer.SaveChangesAsync();
+        }
+        var context = new DefaultHttpContext();
+        context.SetStoreData(new BTCPayServer.Data.StoreData { Id = original.StoreId });
+        var services = new ServiceCollection().BuildServiceProvider();
+        var controller = new UITicketSalesController(null!, null!, null!, null!, null!, null!, factory, null!,
+            new RaffleEventBundleClientProvider(services), new RaffleListClientProvider(services))
+        { ControllerContext = new ControllerContext { HttpContext = context }, TempData = new TempDataDictionary(context, new EmptyTempData()) };
+        var map = typeof(UITicketSalesController).GetMethod("TicketSalesEventToViewModel",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        var model = (UpdateSimpleTicketSalesEventViewModel)map.Invoke(controller, new object[] { original })!;
+        model.Title = "Changed title only";
+        var validation = new List<System.ComponentModel.DataAnnotations.ValidationResult>();
+        Assert.False(System.ComponentModel.DataAnnotations.Validator.TryValidateProperty(model.RedirectUrl,
+            new System.ComponentModel.DataAnnotations.ValidationContext(model) { MemberName = nameof(model.RedirectUrl) }, validation));
+        controller.ModelState.AddModelError(nameof(model.RedirectUrl), Assert.Single(validation).ErrorMessage!);
+        Assert.IsType<RedirectToActionResult>(await controller.UpdateEvent(original.StoreId, original.Id, model));
+        Assert.True(controller.ModelState.IsValid);
+        await using var verify = factory.CreateContext();
+        var persisted = await verify.Events.AsNoTracking().SingleAsync(e => e.Id == original.Id);
+        Assert.Equal("Changed title only", persisted.Title);
+        Assert.Equal("/legacy", persisted.RedirectUrl);
+        Assert.False(TicketRedirectUrlAttribute.IsAllowed(persisted.RedirectUrl));
+    }
+
     private static SimpleTicketSalesDbContextFactory Factory()
     {
         var connection = Environment.GetEnvironmentVariable("TICKETS_ORDER_TEST_CONNECTION");
@@ -157,6 +191,63 @@ public class EventTimeZoneDatabaseTests
             Assert.Equal(original.ReminderSentAt, persisted.ReminderSentAt);
         }
     }
+    [OrderDatabaseFact]
+    public async Task Invalid_redirect_update_does_not_persist_other_submitted_fields()
+    {
+        var (factory, original) = await Seed();
+        var controller = Controller(factory, original.StoreId);
+        var result = Assert.IsType<UnprocessableEntityObjectResult>(await controller.UpdateEvent(original.StoreId, original.Id,
+            new() { Title = "Must not persist", RedirectUrl = "javascript:alert(1)" }));
+        Assert.Equal(422, result.StatusCode);
+        Assert.Contains(Assert.IsType<List<GreenfieldValidationError>>(result.Value),
+            error => error.Path == nameof(ApiEventRequest.RedirectUrl));
+        await using var verify = factory.CreateContext();
+        var persisted = await verify.Events.AsNoTracking().SingleAsync(e => e.Id == original.Id);
+        Assert.Equal(original.Title, persisted.Title);
+        Assert.Equal(original.RedirectUrl, persisted.RedirectUrl);
+    }
+
+    [OrderDatabaseFact]
+    public async Task Unrelated_partial_update_does_not_silently_rewrite_a_legacy_redirect()
+    {
+        var (factory, original) = await Seed();
+        await using (var writer = factory.CreateContext())
+        {
+            var legacy = await writer.Events.SingleAsync(e => e.Id == original.Id);
+            legacy.RedirectUrl = "/old-relative-return";
+            await writer.SaveChangesAsync();
+        }
+        var controller = Controller(factory, original.StoreId);
+        Assert.IsType<OkObjectResult>(await controller.UpdateEvent(original.StoreId, original.Id,
+            new() { Title = "Ordinary edit" }));
+        await using var verify = factory.CreateContext();
+        var persisted = await verify.Events.AsNoTracking().SingleAsync(e => e.Id == original.Id);
+        Assert.Equal("Ordinary edit", persisted.Title);
+        Assert.Equal("/old-relative-return", persisted.RedirectUrl);
+    }
+
+    [OrderDatabaseFact]
+    public async Task Invalid_effective_redirect_is_rejected_before_persisting_a_new_purchase()
+    {
+        var (factory, original) = await Seed();
+        await using (var writer = factory.CreateContext())
+        {
+            var legacy = await writer.Events.SingleAsync(e => e.Id == original.Id);
+            legacy.RedirectUrl = "/old-relative-return";
+            legacy.EventState = Data.EntityState.Active;
+            await writer.SaveChangesAsync();
+        }
+        var controller = new GreenfieldSatfluxTicketsController(null!, factory, null!, null!, null!, null!, null!, null!, null!)
+        { ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() } };
+        controller.HttpContext.SetStoreData(new BTCPayServer.Data.StoreData { Id = original.StoreId });
+        var result = Assert.IsType<ObjectResult>(await controller.CreatePurchase(original.StoreId, original.Id,
+            new() { Tickets = new[] { new PurchaseTicketItemRequest { TicketTypeId = "synthetic", Quantity = 1 } } }));
+        Assert.Equal(422, result.StatusCode);
+        Assert.Equal(TicketRedirectUrlAttribute.ValidationMessage, Assert.IsType<GreenfieldAPIError>(result.Value).Message);
+        await using var verify = factory.CreateContext();
+        Assert.False(await verify.Orders.AnyAsync(o => o.EventId == original.Id));
+    }
+
     private sealed class EmptyTempData : ITempDataProvider
     {
         public IDictionary<string, object> LoadTempData(HttpContext context) => new Dictionary<string, object>();

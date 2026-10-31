@@ -1,3 +1,4 @@
+using BTCPayServer.Plugins.SatfluxTickets.Services;
 using System.ComponentModel.DataAnnotations;
 
 namespace BTCPayServer.Plugins.SatfluxTickets.Models.Api;
@@ -7,6 +8,7 @@ public class CreatePurchaseRequest
     [Required]
     [MinLength(1)]
     public PurchaseTicketItemRequest[] Tickets { get; set; }
+    [TicketRedirectUrl]
     public string RedirectUrl { get; set; }
     /// <summary>
     /// Optional. When set (e.g. by WooCommerce), the invoice amount will use this value instead of the sum of ticket prices.

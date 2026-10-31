@@ -6,7 +6,7 @@
 
 ## Requirements
 
-- BTCPay Server ≥ 2.4.5 (targets .NET 10; see [Migrating to .NET 10](https://blog.btcpayserver.org/migrating-to-net10/))
+- BTCPay Server >= 2.4.7 (targets .NET 10; see [Migrating to .NET 10](https://blog.btcpayserver.org/migrating-to-net10/))
 - .NET 10 (SDK matching the plugin target)
 - PostgreSQL (already used by BTCPay Server)
 

@@ -11,6 +11,30 @@ cashless payment without a card terminal.
 merchant's own account; Lightning stays self-custodial via BTCPay's native
 capabilities.
 
+## Account-bound confirmation (0.8.2.0)
+
+This candidate combines the isolation repair with the exact BTCPay 2.4.7 host and
+requires BTCPay >=2.4.7. Compatibility-only 0.8.1.1 does not include this repair.
+
+Automatic confirmation now binds the authenticated source store and observed
+receiving account to the original invoice request before matching credit amount,
+currency and reference. FIO statement receiving-account evidence is preserved;
+NOP integrity uses the original invoice IBAN. Authorized manual confirmation is
+a separate action. Public NOP history remains diagnostic only.
+
+Settings expose `confirmationContractVersion: 2`. External bank-mail producers
+must check this capability before reporting, and send observed `creditorIban`
+plus `bankOriginVerified: true` only after independently verifying bank origin.
+These fields cannot be inferred from expected invoice settings or sender text.
+Legacy/incomplete reports return review and do not settle. Deploy the provider
+before an updated consumer; older providers may ignore unknown evidence fields.
+
+Recording failures remain retryable; source checkpoints must not advance past
+failed processing. The plugin and BTCPay transactions are not atomic together;
+same-reference retries retain the stable BTCPay payment identity. Preserve bank
+evidence and account snapshots during recovery. No claim of universal instant
+confirmation or arbitrary cross-reference crash atomicity follows from this repair.
+
 ## v0.1 scope
 
 - Payment method `SEPA_INSTANT` (EUR invoices; the CZ profile also

@@ -25,7 +25,7 @@ public class FioTransactionProcessorTests
 
     private static JsonDocument Statement(params string[] transactions)
         => JsonDocument.Parse(
-            "{\"accountStatement\":{\"info\":{\"iban\":\"SK6883300000002600000000\",\"currency\":\"EUR\"}," +
+            "{\"accountStatement\":{\"info\":{\"iban\":\"SK4811000000002944116480\",\"currency\":\"EUR\"}," +
             "\"transactionList\":{\"transaction\":[" + string.Join(',', transactions) + "]}}}");
 
     private static string Transaction(params string[] cells) => "{" + string.Join(',', cells) + "}";
@@ -51,6 +51,8 @@ public class FioTransactionProcessorTests
         Assert.Equal("EUR", payment.Currency);
         Assert.Equal("fio:1148734530", payment.DedupKey);
         Assert.Null(payment.IntegrityFailure);
+        Assert.Equal("SK4811000000002944116480", payment.CreditorIban);
+        Assert.True(payment.BankOriginVerified);
     }
 
     [Fact]
@@ -114,6 +116,52 @@ public class FioTransactionProcessorTests
 
         Assert.Equal(new long[] { 10, 20, 30 }, movements.Select(m => m.MovementId));
         Assert.Equal(1150392361L, FioTransactionProcessor.GetPreviousCursor(doc));
+    }
+
+    [Fact]
+    public void A_missing_statement_account_cannot_be_filled_from_a_payer_account()
+    {
+        using var doc = JsonDocument.Parse(
+            "{\"accountStatement\":{\"info\":{},\"transactionList\":{\"transaction\":[" +
+            Transaction(Cell("column22", 31), Cell("column1", 12.50), Cell("column14", "EUR"),
+                Cell("column2", "SK4811000000002944116480"), Cell("column5", "1234567890")) + "]}}}");
+
+        var payment = Assert.Single(Processor.Parse(doc)).Payment;
+
+        Assert.Null(payment.CreditorIban);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Fallback_message_requires_one_distinct_reference(bool differentReferences)
+    {
+        const string first = "QR-ab29e346f1d841c8a95a63d857490818";
+        var second = differentReferences ? "QR-00000000000000000000000000000002" : first.ToUpperInvariant();
+        using var doc = Statement(Transaction(Cell("column22", 40), Cell("column1", 12.50),
+            Cell("column14", "EUR"), Cell("column16", first + " or " + second)));
+
+        var payment = Assert.Single(Processor.Parse(doc)).Payment;
+
+        Assert.Equal(first, payment.Reference);
+        if (differentReferences)
+            Assert.NotNull(payment.IntegrityFailure);
+        else
+            Assert.Null(payment.IntegrityFailure);
+    }
+
+    [Fact]
+    public void Explicit_payer_reference_remains_authoritative_over_multiple_memo_references()
+    {
+        const string reference = "QR-00000000000000000000000000000001";
+        using var doc = Statement(Transaction(Cell("column22", 41), Cell("column1", 12.50),
+            Cell("column14", "EUR"), Cell("column27", reference),
+            Cell("column16", "QR-00000000000000000000000000000002 QR-00000000000000000000000000000003")));
+
+        var payment = Assert.Single(Processor.Parse(doc)).Payment;
+
+        Assert.Equal(reference, payment.Reference);
+        Assert.Null(payment.IntegrityFailure);
     }
 
     [Fact]

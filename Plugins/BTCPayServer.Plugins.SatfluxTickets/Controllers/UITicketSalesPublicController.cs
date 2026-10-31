@@ -242,6 +242,13 @@ public class UITicketSalesPublicController(UriResolver uriResolver,
         if ((existing == null || existing.InvoiceStatus != TicketSalesInvoiceRecovery.CreationAttempted)
             && (ev == null || !ValidateEvent(ctx, storeId, eventId))) return NotFound();
         var sessionKey = OrderSessionKey(eventId, model.TxnId);
+        // Lookup-only recovery of an attempted checkout must survive a later settings change.
+        if (existing?.InvoiceStatus != TicketSalesInvoiceRecovery.CreationAttempted
+            && !TicketRedirectUrlAttribute.IsAllowed(ev?.RedirectUrl))
+        {
+            Response.StatusCode = StatusCodes.Status422UnprocessableEntity;
+            return await SalesPage(storeId, eventId, model.TxnId, true, model, "CheckoutConfigurationInvalid", false);
+        }
         if (existing == null)
         {
             // Bind errors and malformed indices are never accepted, even when the visible portion looks valid.

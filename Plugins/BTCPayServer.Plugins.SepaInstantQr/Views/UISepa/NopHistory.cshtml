@@ -8,10 +8,10 @@
     var steps = new (string Label, DateTimeOffset? At, string Hint)[]
     {
         ("Transaction id created", r.CreatedAt, "The cash register asked NOP for this id."),
+        ("Bank notification received by NOP", r.ReceivedAt, "NOP recorded receipt of the bank notification."),
         ("Bank notification stored", r.IndexedAt, "The payer's transfer reached a notification-enabled account and the bank told NOP."),
         ("Matched to the cash register", r.MatchedAt, "NOP paired the notification with the id it issued."),
         ("Published to the cash register", r.PublishedAt, "The notification was made available on MQTT / REST."),
-        ("Received by the cash register", r.ReceivedAt, "The cash register acknowledged it."),
     };
 }
 
@@ -37,7 +37,7 @@
                     }
                     @if (!string.IsNullOrEmpty(r.OrganizationName))
                     {
-                        <text>Cash register: <strong>@r.OrganizationName</strong>.</text>
+                        <text>Notifying bank: <strong>@r.OrganizationName</strong>.</text>
                     }
                     @if (!string.IsNullOrEmpty(r.NopStatus))
                     {

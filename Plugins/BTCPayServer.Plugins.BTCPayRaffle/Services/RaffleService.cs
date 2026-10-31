@@ -41,7 +41,7 @@ public class RaffleService
         {
             StoreId = storeId,
             Name = name,
-            Description = _descriptionHtml.Sanitize(description),
+            Description = _descriptionHtml.SanitizeForStorage(description),
             MaxTickets = maxTickets
         };
         RafflePricing.ApplyPricing(raffle, ticketCurrency, ticketPrice);
@@ -87,7 +87,7 @@ public class RaffleService
             throw new InvalidOperationException("Only Draft raffles can be updated via the API");
 
         raffle.Name = name;
-        raffle.Description = _descriptionHtml.Sanitize(description);
+        raffle.Description = _descriptionHtml.SanitizeForStorage(description);
         RafflePricing.ApplyPricing(raffle, ticketCurrency, ticketPrice);
         raffle.MaxTickets = maxTickets;
         await ctx.SaveChangesAsync();
@@ -119,7 +119,7 @@ public class RaffleService
             throw new InvalidOperationException("Completed raffles cannot be edited");
 
         raffle.Name = name;
-        raffle.Description = _descriptionHtml.Sanitize(description);
+        raffle.Description = _descriptionHtml.SanitizeForStorage(description);
 
         if (ticketCurrency is not null && ticketPrice is not null)
         {

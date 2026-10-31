@@ -1,0 +1,9 @@
+@using BTCPayServer.Abstractions.Services
+@using BTCPayServer.Plugins.SatfluxTickets.Services
+@inject Safe Safe
+@model string
+@{
+    var description = TicketDescriptionHtml.PreserveBracketedEmails(Model);
+    var plainClass = TicketDescriptionHtml.IsPlainText(description) ? " sales-plain-description" : "";
+}
+<div class="sales-rich-description@(plainClass)">@Safe.RawRichText(description)</div>
