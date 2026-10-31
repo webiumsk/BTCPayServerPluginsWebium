@@ -8,8 +8,8 @@ The compatibility branch targets exact host commit `2868deedd9d911b715fec7306ea9
 | --- | --- | --- |
 | CashuMelt | 1.4.0.9 | 2.4.7 |
 | LNAddressConnect | 1.0.4.1 | 2.4.7 |
-| Satflux Tickets | 2.2.3.1 | 2.4.7 |
-| BTCPay Raffle | 1.3.2.5 | 2.4.7 |
+| Satflux Tickets | 2.2.3.2 | 2.4.7 |
+| BTCPay Raffle | 1.3.2.6 | 2.4.7 |
 | SEPA Instant QR | 0.8.2.0 | 2.4.7 |
 | Blitz | 1.0.2 | 2.4.7 |
 | Flash | 1.0.2 | 2.4.7 |
@@ -22,7 +22,8 @@ SEPA 0.8.2.0 integrates the prepared `8afed1a` store/account-isolation repair an
 ## Changed behavior
 
 - Tickets public descriptions and Raffle public/admin descriptions use the host bounded merchant-rich-text output policy, including legacy stored content without a resave. Raffle writes use the same policy. No stored originals are bulk rewritten.
-- Native event, ticket-type and Raffle description editors opt into the host sanitized textarea helper before Summernote initialization. Supported images/video/inline formatting remain; forms, data attributes, style blocks, unsafe URLs/CSS and script attributes remain disallowed. Iframes retain host sandbox/trusted-origin distinctions.
+- Ticket-type descriptions preserve bracketed contact addresses and plain-text whitespace. The shared native Raffle create/edit fields display description validation errors.
+- Native event, ticket-type and Raffle description editors opt into the host textarea helper, which sanitizes content before Summernote initialization. Supported images/video/inline formatting remain; forms, data attributes, style blocks, unsafe URLs/CSS and script attributes remain disallowed. Iframes retain host sandbox/trusted-origin distinctions.
 - Optional event and purchase redirects accept only absolute HTTP(S), at most 2,048 characters. Omitted/empty fields retain their existing API meaning. Invalid new saved values fail validation; legacy defaults are not silently rewritten. New purchases validate their effective redirect before persisting an order. Existing attempted public checkouts remain lookup-only recovery even if event settings later change.
 - Direct dependency downgrades revealed by the new host are aligned: QRCoder 1.8.1, MailKit/MimeKit test dependencies 4.18.2, Lightning.Common test dependency 1.7.5, NBXplorer.Client test dependency 5.0.12 and applicable Microsoft packages 10.0.14. Those dependency alignments do not alter payment/recovery/fulfillment algorithms or historical migration identities. Separate SEPA recovery/isolation changes are recorded in the integration document; the bounded legacy width alignment is described below.
 

@@ -27,6 +27,7 @@
 <div class="mb-3">
     <label asp-for="Description" class="form-label fw-semibold">Description (optional)</label>
     <textarea asp-for="Description" rich-text class="form-control richtext" rows="5"></textarea>
+    <span asp-validation-for="Description" class="text-danger small"></span>
 </div>
 
 @if (Model.CanEditPricing)

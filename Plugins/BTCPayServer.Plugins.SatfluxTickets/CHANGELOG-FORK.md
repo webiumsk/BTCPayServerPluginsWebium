@@ -1,3 +1,8 @@
+# 2.2.3.2 (legacy ticket-type text rendering)
+
+- Preserve bracketed email addresses and following instructions in legacy ticket-type descriptions before the unchanged host rich-text sanitizer runs.
+- Preserve line breaks and whitespace for plain-text ticket-type descriptions while retaining normal rich-text layout.
+
 # 2.2.3.1 (redirect and public rich-text review fixes)
 
 - Permit an unchanged legacy redirect during unrelated native event edits; new invalid destinations and new purchases remain rejected.

@@ -26,6 +26,6 @@ The parent granted a single exclusive shared compilation/database window; no com
 
 ## Provenance and limits
 
-`source-manifest.json` captures all owned changed/new files; `test-summary.json` records final TRX counters. The exact host is coordinator-restored and guarded; provider Graphify is absent, so the earlier primary query and targeted reads were used without graph installation/rebuild. No real store, bank, wallet, secret or production database was used.
+[`content-source.json`](content-source.json) captures all owned changed/new files; `test-summary.json` records final TRX counters. The exact host is coordinator-restored and guarded; provider Graphify is absent, so the earlier primary query and targeted reads were used without graph installation/rebuild. No real store, bank, wallet, secret or production database was used.
 
 These are build/unit/database/compiled-partial results. They do not establish full installed-host HTTP behavior, native-browser form submission, final package byte identity or production rollout. Main and independent reviewers own those final source/artifact gates. No shared coordination state or other worker's source was modified.

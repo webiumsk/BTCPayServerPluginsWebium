@@ -1,0 +1,21 @@
+{
+  "reviewer": "sepa247_security",
+  "repository": "webiumsk/BTCPayServerPluginsWebium",
+  "base_revision": "c1912bfcdcbc7237b79d9ddc6f057cf519c1dcba",
+  "scope": "Independent read-only review of PR45 round2 Tickets/Raffle content/forms; uncommitted twelve-file diff",
+  "files": {
+    "Plugins/BTCPayServer.Plugins.BTCPayRaffle.Tests/RaffleFormValidationRenderingTests.cs": "ec025fbb2d34889491c80a1de2a001d30224bbb1b281af3594b298e982426e93",
+    "Plugins/BTCPayServer.Plugins.BTCPayRaffle/BTCPayServer.Plugins.BTCPayRaffle.csproj": "f560f1e8ed1d492a0b5a7c7366c5d32be9a6d553ced2c38bf66924d9db54757c",
+    "Plugins/BTCPayServer.Plugins.BTCPayRaffle/RELEASE_NOTES.md": "2c0c5c0fdb5ae36710aba20cdb3d1fe28ab293e65e329550b44b037cc1ea8719",
+    "Plugins/BTCPayServer.Plugins.BTCPayRaffle/Views/UIRaffle/_RaffleFormFields.cshtml": "c93204f94c19721ba39fe95f264bea3513b125a6abe4805379ff27eee1c88c96",
+    "Plugins/BTCPayServer.Plugins.SatfluxTickets.Tests/TicketTypeRichTextRenderingTests.cs": "412e0033f1e42d24af8944769bea29dfc4c8d545afbf37143168c2fe0b339b49",
+    "Plugins/BTCPayServer.Plugins.SatfluxTickets/BTCPayServer.Plugins.SatfluxTickets.csproj": "eb2d12c5b15ca04d30bf8f6a2b20aaf33295680aa7b502463af37cc05c26773f",
+    "Plugins/BTCPayServer.Plugins.SatfluxTickets/CHANGELOG-FORK.md": "a5b30499cc73fb8650b2827585570c362fd1b79d130b7fcf457d98668c34388c",
+    "Plugins/BTCPayServer.Plugins.SatfluxTickets/Resources/css/ticket-sales.css": "b19e46172c7209353f080d93e21d86a3fbee1b0183a97bd4eea5cdbd7f7d6599",
+    "Plugins/BTCPayServer.Plugins.SatfluxTickets/Services/TicketDescriptionHtml.cs": "fad4bfb4123d0815f5af68e2506118fc2938406dede473cc525f2cd51120f61b",
+    "Plugins/BTCPayServer.Plugins.SatfluxTickets/Views/UITicketSalesPublic/_TicketTypeDescription.cshtml": "3c5ed472c051a734219eb265dc6045f98a813f0e02cf3c27fd500e33119373ce",
+    "docs/BTCPAY_2_4_7_COMPATIBILITY.md": "ecd55f0cfb84160edef872fc92a906910773082c6577d4d18869ddc17b3adc70",
+    "docs/qualification/cr45-followup/content-runtime.md": "ff26c6aad2e6bf2122b88fa8e6ff425871a9097e99c7b580c304f6290b8e315b"
+  },
+  "scoped_tracked_diff_sha256": "a1fef19a3802c3beb541f22d2274d03d974fcf61954affe93f217c9ef6622931"
+}

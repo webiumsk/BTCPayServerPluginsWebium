@@ -1,3 +1,7 @@
+# 1.3.2.6 - visible description validation
+
+- Display description validation errors in the shared native create/edit form when sanitized content exceeds its storage limit.
+
 # 1.3.2.5 - sanitized description bounds
 
 - Validate the final sanitized description length before every write, including host-added image markup. Native forms display a description validation error rather than a database error or a value that cannot be edited later.
