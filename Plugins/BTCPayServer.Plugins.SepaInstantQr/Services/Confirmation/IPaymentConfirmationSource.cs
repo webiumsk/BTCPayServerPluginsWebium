@@ -15,13 +15,21 @@ namespace BTCPayServer.Plugins.SepaInstantQr.Services.Confirmation;
 /// <param name="RawJson">Raw notification/transaction payload for audit.</param>
 /// <param name="DedupKey">Idempotency key of the delivery; null when the transport has exactly-once semantics.</param>
 /// <param name="IntegrityFailure">Non-null when the payload failed integrity verification (e.g. NOP dataIntegrityHash) - routes to manual review, never settles.</param>
+/// <param name="CreditorIban">Receiving account observed by the authenticated source, never inferred from store settings.</param>
+/// <param name="BankOriginVerified">The adapter authenticated the bank channel; false for legacy/unverified reports.</param>
+/// <param name="NopIntegrity">Original NOP hash material, verified against the immutable invoice account by matching.</param>
 public record ConfirmedPayment(
     string Reference,
     decimal Amount,
     string Currency,
     string? RawJson,
     string? DedupKey,
-    string? IntegrityFailure = null);
+    string? IntegrityFailure = null,
+    string? CreditorIban = null,
+    bool BankOriginVerified = false,
+    NopPaymentIntegrity? NopIntegrity = null);
+
+public sealed record NopPaymentIntegrity(string AmountRaw, string DataIntegrityHash);
 
 public record ConfirmationTestResult(bool Ok, string? Message);
 

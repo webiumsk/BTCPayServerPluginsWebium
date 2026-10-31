@@ -1,3 +1,4 @@
+@inject BTCPayServer.Abstractions.Services.Safe Safe
 @using BTCPayServer.Plugins.BTCPayRaffle.Data.Entities
 @using BTCPayServer.Plugins.BTCPayRaffle.Services
 @model BTCPayServer.Plugins.BTCPayRaffle.ViewModels.RaffleManageViewModel
@@ -58,7 +59,7 @@
             <div class="card mb-4">
                 <div class="card-body">
                     <h5 class="card-title">Description</h5>
-                    <div class="mb-0 overflow-hidden">@Html.Raw(r.Description)</div>
+                    <div class="mb-0 overflow-hidden">@Safe.RawRichText(r.Description)</div>
                 </div>
             </div>
         }

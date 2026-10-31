@@ -91,10 +91,10 @@ public class SepaCheckoutController : Controller
             if (settings is null || !settings.CheckoutConfirmEnabled)
                 return NotFound(new { ok = false, error = "Checkout confirmation is not enabled" });
 
-            var outcome = await _matchingService.ProcessAsync(
-                "manual:checkout",
-                new ConfirmedPayment(reference, request.AmountDue, request.Currency, RawJson: null, DedupKey: null),
-                settings.AmountTolerance,
+            var outcome = await _matchingService.ConfirmManuallyAsync(
+                request.StoreId,
+                "checkout",
+                reference,
                 cancellationToken);
 
             return outcome is MatchOutcome.Settled or MatchOutcome.Duplicate

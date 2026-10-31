@@ -67,6 +67,7 @@
 .sales-name-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
 .sales-about { margin-top: 14px; }
 .sales-rich-description { margin-top: 22px; font-size: .9375rem; line-height: 1.7; }
+.sales-plain-description { white-space: pre-wrap; }
 .sales-rich-description :is(img, video, iframe) { max-width: 100%; }
 .sales-rich-description table { display: block; overflow-x: auto; }
 .sales-rich-description :is(h1,h2,h3,h4) { margin: 1.5em 0 .6em; line-height: 1.25; }

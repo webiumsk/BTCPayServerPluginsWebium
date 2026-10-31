@@ -71,5 +71,72 @@ UPDATE ""{schema}"".""Raffles""
 ALTER TABLE ""{schema}"".""RaffleTickets""
     ADD COLUMN IF NOT EXISTS ""IsManual"" boolean NOT NULL DEFAULT false;
 ", ct);
+
+        // Older fallback schemas can predate the current accepted payload widths.
+        // Never narrow an operator's wider/unbounded column or replace a custom domain.
+        // Check again after locking so a concurrent widening cannot be undone.
+        // Explicitly retain catalog collation; ALTER TYPE alone can reset it.
+        await ctx.Database.ExecuteSqlRawAsync("""
+DO $raffle_width_alignment$
+DECLARE
+    target_collation_schema name;
+    target_collation_name name;
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'BTCPayServer.Plugins.BTCPayRaffle'
+          AND table_name = 'Raffles' AND column_name = 'Description'
+          AND data_type = 'character varying' AND domain_name IS NULL
+          AND character_maximum_length < 8000
+    ) THEN
+        LOCK TABLE "BTCPayServer.Plugins.BTCPayRaffle"."Raffles" IN ACCESS EXCLUSIVE MODE;
+        IF EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = 'BTCPayServer.Plugins.BTCPayRaffle'
+              AND table_name = 'Raffles' AND column_name = 'Description'
+              AND data_type = 'character varying' AND domain_name IS NULL
+              AND character_maximum_length < 8000
+        ) THEN
+            SELECT n.nspname, c.collname INTO STRICT target_collation_schema, target_collation_name
+            FROM pg_catalog.pg_attribute a
+            JOIN pg_catalog.pg_collation c ON c.oid = a.attcollation
+            JOIN pg_catalog.pg_namespace n ON n.oid = c.collnamespace
+            WHERE a.attrelid = '"BTCPayServer.Plugins.BTCPayRaffle"."Raffles"'::regclass
+              AND a.attname = 'Description' AND a.attnum > 0 AND NOT a.attisdropped;
+            EXECUTE format(
+                'ALTER TABLE "BTCPayServer.Plugins.BTCPayRaffle"."Raffles" ALTER COLUMN "Description" TYPE text COLLATE %I.%I',
+                target_collation_schema, target_collation_name);
+        END IF;
+    END IF;
+
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'BTCPayServer.Plugins.BTCPayRaffle'
+          AND table_name = 'RaffleTickets' AND column_name = 'InvoiceId'
+          AND data_type = 'character varying' AND domain_name IS NULL
+          AND character_maximum_length < 100
+    ) THEN
+        LOCK TABLE "BTCPayServer.Plugins.BTCPayRaffle"."RaffleTickets" IN ACCESS EXCLUSIVE MODE;
+        IF EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = 'BTCPayServer.Plugins.BTCPayRaffle'
+              AND table_name = 'RaffleTickets' AND column_name = 'InvoiceId'
+              AND data_type = 'character varying' AND domain_name IS NULL
+              AND character_maximum_length < 100
+        ) THEN
+            SELECT n.nspname, c.collname INTO STRICT target_collation_schema, target_collation_name
+            FROM pg_catalog.pg_attribute a
+            JOIN pg_catalog.pg_collation c ON c.oid = a.attcollation
+            JOIN pg_catalog.pg_namespace n ON n.oid = c.collnamespace
+            WHERE a.attrelid = '"BTCPayServer.Plugins.BTCPayRaffle"."RaffleTickets"'::regclass
+              AND a.attname = 'InvoiceId' AND a.attnum > 0 AND NOT a.attisdropped;
+            EXECUTE format(
+                'ALTER TABLE "BTCPayServer.Plugins.BTCPayRaffle"."RaffleTickets" ALTER COLUMN "InvoiceId" TYPE character varying(100) COLLATE %I.%I',
+                target_collation_schema, target_collation_name);
+        END IF;
+    END IF;
+END;
+$raffle_width_alignment$;
+""", ct);
     }
 }

@@ -134,6 +134,12 @@ public class GreenfieldSatfluxTicketsController(
         if (ticketEvent == null)
             return EventNotFound();
 
+        var redirectUrl = !string.IsNullOrEmpty(request.RedirectUrl)
+            ? request.RedirectUrl
+            : ticketEvent.RedirectUrl ?? string.Empty;
+        if (!TicketRedirectUrlAttribute.IsAllowed(redirectUrl))
+            return this.CreateAPIError(422, "validation-error", TicketRedirectUrlAttribute.ValidationMessage);
+
         var now = DateTime.UtcNow;
         if (ticketEvent.EventState == Data.EntityState.Disabled)
             return this.CreateAPIError(422, "event-not-active", "The event is not active");
@@ -204,9 +210,6 @@ public class GreenfieldSatfluxTicketsController(
         ctx.Orders.Update(order);
         await ctx.SaveChangesAsync();
 
-        var redirectUrl = !string.IsNullOrEmpty(request.RedirectUrl)
-            ? request.RedirectUrl
-            : ticketEvent.RedirectUrl ?? string.Empty;
         var invoice = await CreateInvoiceForOrder(store, order, ticketEvent.Currency, redirectUrl);
 
         order.InvoiceId = invoice.Id;

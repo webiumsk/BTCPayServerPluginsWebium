@@ -800,6 +800,25 @@ public class UITicketSalesController(UriResolver uriResolver,
 
     private bool ApplyNativeTimes(UpdateSimpleTicketSalesEventViewModel vm, Event current)
     {
+        if (!TicketRedirectUrlAttribute.IsAllowed(vm.RedirectUrl))
+        {
+            // Preserve an unchanged legacy value on unrelated edits. New purchases
+            // still reject this destination until the merchant corrects it.
+            if (current == null || !string.Equals(current.RedirectUrl, vm.RedirectUrl, StringComparison.Ordinal))
+            {
+                ModelState.AddModelError(nameof(vm.RedirectUrl), TicketRedirectUrlAttribute.ValidationMessage);
+                return false;
+            }
+            foreach (var key in new[] { nameof(vm.RedirectUrl), $"vm.{nameof(vm.RedirectUrl)}" })
+            {
+                if (!ModelState.TryGetValue(key, out var state)) continue;
+                for (var i = state.Errors.Count - 1; i >= 0; i--)
+                    if (state.Errors[i].Exception == null && state.Errors[i].ErrorMessage == TicketRedirectUrlAttribute.ValidationMessage)
+                        state.Errors.RemoveAt(i);
+                if (state.Errors.Count != 0) return false;
+                state.ValidationState = Microsoft.AspNetCore.Mvc.ModelBinding.ModelValidationState.Valid;
+            }
+        }
         if (!Enum.IsDefined(vm.EventType))
         {
             ModelState.AddModelError(nameof(vm.EventType), "Invalid event type");

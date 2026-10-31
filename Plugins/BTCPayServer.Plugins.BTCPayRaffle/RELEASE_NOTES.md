@@ -1,3 +1,19 @@
+# 1.3.2.6 - visible description validation
+
+- Display description validation errors in the shared native create/edit form when sanitized content exceeds its storage limit.
+
+# 1.3.2.5 - sanitized description bounds
+
+- Validate the final sanitized description length before every write, including host-added image markup. Native forms display a description validation error rather than a database error or a value that cannot be edited later.
+- Preserve safe rendering of longer legacy descriptions without modifying stored originals, and retain the existing non-narrowing schema alignment.
+
+# 1.3.2.4 - BTCPay 2.4.7 compatibility
+
+- Require BTCPay 2.4.7 for new artifacts.
+- Preserve supported merchant rich media using the bounded host policy on writes, legacy public/admin output and native editor initialization. Forms, unsafe URLs/CSS and script attributes remain disallowed; old stored originals are not bulk rewritten.
+- Preserve payment, draw, fulfillment and migration identities.
+- Align known legacy plain-varchar description/invoice widths without narrowing wider or unbounded columns, replacing custom domains, repricing rows or stamping migration history. Preserve column collation, defaults and nullability. The existing EF fallback warning remains visible; this does not repair its historical migration model.
+
 # BTCPay Raffle plugin — release notes
 
 ## 1.3.2.0 (public buy page layout)

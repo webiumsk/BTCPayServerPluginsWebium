@@ -133,7 +133,7 @@ public class NopMqttListener : BackgroundService
             return;
         }
 
-        var confirmed = _processor.ToConfirmedPayment(notification, settings.Iban);
+        var confirmed = _processor.ToConfirmedPayment(notification);
         if (confirmed is null)
         {
             _logger.LogInformation(
@@ -142,44 +142,71 @@ public class NopMqttListener : BackgroundService
             return;
         }
 
-        await _matchingService.ProcessAsync(sourceId, confirmed, settings.AmountTolerance, ct);
+        await _matchingService.ProcessAsync(settings.StoreId, sourceId, confirmed, settings.AmountTolerance, ct);
     }
 
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, DateTimeOffset> _lastCatchUp = new();
-    private static readonly TimeSpan CatchUpOverlap = TimeSpan.FromMinutes(5);
+
+    protected virtual NopRestClient CreateCatchUpClient(SepaBackendCredentials credentials)
+        => NopRestClient.Create(credentials, _logger);
 
     /// <summary>
     /// Missed-notification catch-up: NOP retains notifications for 2 hours.
     /// The per-store timestamp advances only after a fully successful pass,
-    /// so a failed fetch re-covers the same window next time (dedup keys make
-    /// re-processing harmless).
+    /// and each attempt fetches the entire retained set. ID creation time is
+    /// never used to exclude a recently delivered bank notification.
     /// </summary>
-    internal async Task CatchUpAsync(SepaStoreSettings settings, SepaBackendCredentials credentials, CancellationToken ct)
+    internal async Task<bool> CatchUpAsync(SepaStoreSettings settings, SepaBackendCredentials credentials, CancellationToken ct)
     {
         var startedAt = DateTimeOffset.UtcNow;
-        var dateFrom = _lastCatchUp.TryGetValue(settings.StoreId, out var last)
-            ? last - CatchUpOverlap
-            : startedAt.AddHours(-2);
-
         try
         {
-            using var client = NopRestClient.Create(credentials, _logger);
+            using var client = CreateCatchUpClient(credentials);
             var json = await client.GetAllTransactionsAsync(
                 $"POKLADNICA-{settings.NopPokladnica}",
-                dateFrom,
                 ct);
 
-            if (json.ValueKind == System.Text.Json.JsonValueKind.Array)
+            if (json.ValueKind != System.Text.Json.JsonValueKind.Array)
+                throw new InvalidOperationException("NOP returned an invalid notification collection.");
+
+            var processingFailed = false;
+            foreach (var element in json.EnumerateArray())
             {
-                foreach (var element in json.EnumerateArray())
+                ct.ThrowIfCancellationRequested();
+                try
+                {
                     await HandleNotificationAsync(settings, element.GetRawText(), "nop-mqtt:catchup", ct);
+                }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception)
+                {
+                    processingFailed = true;
+                    // A failed item cannot starve later retained notifications.
+                    // Do not include the payload or exception text in diagnostics.
+                    _logger.LogWarning(
+                        "NOP catch-up notification processing failed for store {StoreId}; continuing with the batch",
+                        settings.StoreId);
+                }
             }
 
+            ct.ThrowIfCancellationRequested();
+            if (processingFailed)
+                return false;
+
             _lastCatchUp[settings.StoreId] = startedAt;
+            return true;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "NOP catch-up failed for store {StoreId}", settings.StoreId);
+            return false;
         }
     }
 
@@ -192,6 +219,7 @@ public class NopMqttListener : BackgroundService
         private readonly CancellationTokenSource _cts = new();
         private CancellationTokenSource? _linkedCts;
         private Task? _runTask;
+        private int _catchUpRequired;
 
         public string ConfigFingerprint { get; }
 
@@ -251,7 +279,10 @@ public class NopMqttListener : BackgroundService
                         }
                         catch (Exception ex)
                         {
-                            // Never let a message error take the connection down.
+                            // MQTT may acknowledge this delivery after the
+                            // callback returns. Recover it through retained
+                            // REST notifications instead of losing it silently.
+                            Interlocked.Exchange(ref _catchUpRequired, 1);
                             _logger.LogError(ex, "NOP MQTT message handling failed for store {StoreId}", _settings.StoreId);
                         }
                     };
@@ -269,11 +300,22 @@ public class NopMqttListener : BackgroundService
                         _settings.StoreId, _settings.NopVatsk, _settings.NopPokladnica, _credentials.NopEnvironment);
                     attempt = 0;
 
-                    await _owner.CatchUpAsync(_settings, _credentials, ct);
+                    if (!await _owner.CatchUpAsync(_settings, _credentials, ct))
+                        Interlocked.Exchange(ref _catchUpRequired, 1);
+                    var nextRecoveryAt = DateTimeOffset.UtcNow.AddSeconds(35);
 
                     // Stay connected until dropped or cancelled.
                     while (!ct.IsCancellationRequested && client.IsConnected)
+                    {
                         await Task.Delay(TimeSpan.FromSeconds(5), ct);
+                        if (Volatile.Read(ref _catchUpRequired) != 0 && DateTimeOffset.UtcNow >= nextRecoveryAt)
+                        {
+                            Interlocked.Exchange(ref _catchUpRequired, 0);
+                            if (!await _owner.CatchUpAsync(_settings, _credentials, ct))
+                                Interlocked.Exchange(ref _catchUpRequired, 1);
+                            nextRecoveryAt = DateTimeOffset.UtcNow.AddSeconds(35);
+                        }
+                    }
 
                     if (!ct.IsCancellationRequested)
                         _logger.LogWarning("NOP MQTT connection dropped for store {StoreId}; reconnecting", _settings.StoreId);

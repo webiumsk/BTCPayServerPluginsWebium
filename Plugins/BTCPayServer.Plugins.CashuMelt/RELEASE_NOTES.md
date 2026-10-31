@@ -1,3 +1,8 @@
+# 1.4.0.9 - BTCPay 2.4.7 compatibility
+
+- Require the exact-tested 2.4.7 host for new rebuilt artifacts and align QRCoder to the host version.
+- Preserve payment, original mint/quote/payout recovery snapshots, unknown-settlement guards and schema. No payment algorithm or migration change.
+
 ## 1.4.0.8 - Lightning-exclusive checkout and unchanged-target re-enable
 
 - Hide new Cashu checkout whenever any BTC-LN or BTC-LNURL wallet is configured,

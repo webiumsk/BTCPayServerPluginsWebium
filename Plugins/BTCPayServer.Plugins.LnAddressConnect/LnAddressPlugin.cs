@@ -12,7 +12,7 @@ public class LnAddressPlugin : BaseBTCPayServerPlugin
 {
     public override IBTCPayServerPlugin.PluginDependency[] Dependencies { get; } =
     {
-        new() { Identifier = nameof(BTCPayServer), Condition = ">=2.4.5" }
+        new() { Identifier = nameof(BTCPayServer), Condition = ">=2.4.7" }
     };
 
     public override void Execute(IServiceCollection services)

@@ -1,0 +1,60 @@
+{
+  "base": "e37347888fecdca390733e5f889a4853bd19c632",
+  "host": "2868deedd9d911b715fec7306ea9cada36d86bff",
+  "sdk": "10.0.403",
+  "runtime": "10.0.14",
+  "postgresql": 17,
+  "suites": [
+    {
+      "project": "BTCPayServer.Plugins.BTCPayRaffle.Tests",
+      "passed": 32,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "project": "BTCPayServer.Plugins.Blitz.Tests",
+      "passed": 85,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "project": "BTCPayServer.Plugins.CashuMelt.Tests",
+      "passed": 165,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "project": "BTCPayServer.Plugins.EmailConfirm.Tests",
+      "passed": 4,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "project": "BTCPayServer.Plugins.Flash.Tests",
+      "passed": 96,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "project": "BTCPayServer.Plugins.LnAddressConnect.Tests",
+      "passed": 142,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "project": "BTCPayServer.Plugins.SatfluxTickets.Tests",
+      "passed": 226,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "project": "BTCPayServer.Plugins.SepaInstantQr.Tests",
+      "passed": 174,
+      "failed": 0,
+      "skipped": 0
+    }
+  ],
+  "totalPassed": 924,
+  "guardIndependentAssertions": 14,
+  "consumerLogicUnchanged": true
+}
